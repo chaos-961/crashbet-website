@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Lowpoly Garage — Procedural Vehicle Generator</title>
-<meta name="description" content="Seeded low-poly 3D vehicle generator — 59 archetypes, endless variations.">
+<meta name="description" content="Seeded low-poly 3D vehicle generator — 88 archetypes, endless variations.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path fill='%23ff7a3d' d='M4 20l3-7 4-3h10l4 3 3 7v5h-4a3 3 0 0 1-6 0h-4a3 3 0 0 1-6 0H4z'/></svg>">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
@@ -67,9 +67,15 @@
       <button id="spin" class="ibtn" aria-label="Toggle turntable rotation" aria-pressed="true" title="Turntable (R)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 3v4h-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
+      <button id="snap" class="ibtn" aria-label="Save snapshot image" title="Snapshot (photo)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l2-2.5h6l2 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+      </button>
+      <button id="fleet" class="ibtn" aria-label="Toggle fleet view" aria-pressed="false" title="Fleet view (F)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="3" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+      </button>
     </div>
   </div>
-  <p class="hint">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>R</b> spin</p>
+  <p class="hint">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>R</b> spin · <b>F</b> fleet</p>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>

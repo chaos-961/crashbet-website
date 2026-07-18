@@ -4,8 +4,21 @@ import { slab, wedge, faceQuad, subQuad, quadPrism, panesOnQuad, box, cyl, PAINT
 import * as P from './parts.js';
 
 /* ---------------- standard material bundle ---------------- */
+// 1-in-100 easter egg: buildVehicle passes GOLD as the paint, stdMats turns it chrome
+export const GOLD = '#e8b33a';
 export function stdMats(r, M, o = {}) {
   const baseHex = o.bodyHex || r.weighted(PAINT);
+  if (baseHex === GOLD) {
+    return {
+      bodyHex: GOLD,
+      body: M(GOLD, { rough: 0.22, metal: 0.9, env: 1.3 }),
+      body2: M(shade(GOLD, -0.08), { rough: 0.26, metal: 0.9, env: 1.15 }),
+      glass: M('#1b2836', { rough: 0.32, metal: 0.05, env: 0.85 }),
+      trim: M('#c9ced4', { rough: 0.35, metal: 0.55, env: 0.9 }),
+      dark: M('#2c2f34', { rough: 0.75 }),
+      steel: M('#9aa0a7', { rough: 0.4, metal: 0.6, env: 1 }),
+    };
+  }
   const bodyHex = o.noJitter ? baseHex : jitterColor(r, baseHex);
   const glassLight = o.glassLight !== undefined ? o.glassLight : r.chance(0.14);
   return {
@@ -113,7 +126,7 @@ export function car(r, M, ctx, k = {}) {
   const track = W - wW * (k.poke ? 0.55 : 0.85) + (k.trackAdd || 0);
   const wOpt = { hub: k.hub, hubR: k.hubR, white: k.white && r.chance(0.7), seg: k.wheelSeg, rod: k.rod };
   P.axle(g, M, { x: axF, track, r: wR, w: wW, ...wOpt });
-  P.axle(g, M, { x: axR, track, r: wRr, w: k.wheelWr || wW, ...wOpt });
+  P.axle(g, M, { x: axR, track, r: wRr, w: k.wheelWr || wW, dual: k.dualRear, ...wOpt });
 
   // face details + chrome
   P.headlightsOn(g, M, bpt, k.lights);
@@ -126,6 +139,13 @@ export function car(r, M, ctx, k = {}) {
   if (r.chance(k.mirrorP !== undefined ? k.mirrorP : 0.75) && cabPt) {
     P.mirrors(g, M, { x: cabPt.x1b - 0.18, y: cabPt.y0 + 0.16, w: W * (k.cabWf || 0.9) });
   }
+  if (k.plates !== false) P.licensePlates(g, M, bpt);
+  if (r.chance(k.antennaP !== undefined ? k.antennaP : 0.25)) {
+    P.antenna(g, M, { x: -L / 2 + 0.45, y: bodyTop, z: -W * 0.34 });
+  }
+  if (k.mudflaps && r.chance(0.6)) {
+    P.mudflaps(g, M, { x: axR - wRr - 0.05, track: track * 0.98, y0: wRr * 1.05, w: k.wheelW || 0.3 });
+  }
 
   // extras
   const topY = bodyTop + (k.noCabin ? 0 : cabH);
@@ -136,8 +156,14 @@ export function car(r, M, ctx, k = {}) {
   if (k.stripes && r.chance(0.6)) {
     P.racingStripes(g, M, { x0: -L / 2 + 0.3, x1: L / 2 - 0.28, y: bodyTop, hex: r.pick(['#eceff1', '#26292e', '#e3c53a']) });
   }
+  let hasRack = false;
   if (k.roofRack && r.chance(0.45) && cabPt) {
+    hasRack = true;
     P.roofRack(g, M, { x0: cabPt.x0t + 0.15, x1: cabPt.x1t - 0.15, y: cabPt.y1, w: W * 0.7 });
+    if (r.chance(0.45)) P.roofCargo(g, M, r, { x: (cabPt.x0t + cabPt.x1t) / 2, y: cabPt.y1 + 0.1, w: W * 0.7 });
+  }
+  if (!hasRack && !k.lightbar && !k.taxiSign && cabPt && r.chance(k.sunroofP !== undefined ? k.sunroofP : 0.18)) {
+    P.sunroof(g, M, { x: (cabPt.x0t + cabPt.x1t) / 2 + 0.08, y: cabPt.y1, len: Math.min(0.6, cabL * 0.3), w: W * (k.cabTopWf || 0.68) * 0.6 });
   }
   if (k.lightbar && cabPt) P.lightbar(g, M, { x: (cabPt.x0t + cabPt.x1t) / 2, y: cabPt.y1, w: W * 0.62 });
   if (k.taxiSign && cabPt) P.taxiSign(g, M, { x: (cabPt.x0t + cabPt.x1t) / 2, y: cabPt.y1 });
@@ -307,6 +333,7 @@ export function van(r, M, ctx, k = {}) {
   P.grilleOn(g, M, lightPt, { f0: 0.34, f1: 0.66, v0: grilleV[0], v1: grilleV[1] });
   P.bumper(g, M, { x: L / 2 + 0.03, y: clear + 0.1, w: W * 0.94 });
   P.bumper(g, M, { x: -L / 2 - 0.03, y: clear + 0.1, w: W * 0.94 });
+  P.licensePlates(g, M, lightPt, { v0: 0.1, v1: 0.22, w: 0.08 });
   P.mirrors(g, M, { x: L / 2 - 0.5, y: clear + H * 0.62, w: W });
   P.axle(g, M, { x: L / 2 - 0.85, track: W - 0.28, r: wR, w: 0.28, white: k.white, hub: k.hub });
   P.axle(g, M, { x: -L / 2 + 0.95, track: W - 0.28, r: wR, w: 0.28, white: k.white, hub: k.hub });
@@ -363,6 +390,7 @@ export function bus(r, M, ctx, k = {}) {
   P.bumper(g, M, { x: L / 2 + 0.03, y: clear + 0.12, w: W * 0.95, h: 0.16, hex: k.bumperHex || '#33373d' });
   P.bumper(g, M, { x: -L / 2 - 0.03, y: clear + 0.12, w: W * 0.95, h: 0.16, hex: k.bumperHex || '#33373d' });
   P.mirrors(g, M, { x: bodyX1 - 0.15, y: clear + H * 0.72, w: W });
+  if (nose === 0) P.licensePlates(g, M, bpt, { v0: 0.05, v1: 0.13, w: 0.07 });
   P.axle(g, M, { x: L / 2 - (nose > 0 ? 0.7 : 1.3), track: W - 0.3, r: wR, w: 0.3, hubR: 0.5 });
   P.axle(g, M, { x: -L / 2 + 1.35, track: W - 0.3, r: wR, w: 0.3, hubR: 0.5, dual: k.dualRear });
 

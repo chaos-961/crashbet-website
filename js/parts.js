@@ -73,6 +73,84 @@ export function mirrors(g, M, o) {
     g.add(m);
   }
 }
+export function licensePlates(g, M, pt, o = {}) {
+  const { v0 = 0.16, v1 = 0.3, w = 0.09, hex = '#e8e9eb' } = o;
+  const mat = M(hex, { rough: 0.45, env: 0.6 });
+  facePane(g, pt, 'front', [0.5 - w, 0.5 + w, v0, v1], mat, 0.02, 0.02);
+  facePane(g, pt, 'rear', [0.5 - w, 0.5 + w, v0, v1], mat, 0.02, 0.02);
+}
+export function doorRoundels(g, M, o) { // race number discs
+  const { x, y, w, r = 0.3 } = o;
+  const disc = M('#f2f3f5', { rough: 0.5 });
+  const num = M('#26292e', { rough: 0.6 });
+  for (const s of [-1, 1]) {
+    // disc sinks into the (sloped) body side so it stays flush top-to-bottom
+    const d = cyl(disc, { r, len: 0.06, axis: 'z', seg: 16 });
+    d.position.set(x, y, s * (w / 2 - 0.01));
+    g.add(d);
+    // two dark bars suggest a painted number
+    for (const dx of [-0.07, 0.07]) {
+      const bar = box(num, 0.07, r * 0.9, 0.016);
+      bar.position.set(x + dx, y, s * (w / 2 + 0.026));
+      g.add(bar);
+    }
+  }
+}
+export function checkerBand(g, M, o) { // taxi side checkers, awning-style slats
+  const { x0, x1, y, w, sq = 0.13 } = o;
+  const a = M('#26292e', { rough: 0.6 });
+  const b = M('#f2f3f5', { rough: 0.5 });
+  const n = Math.max(6, Math.round((x1 - x0) / sq));
+  const step = (x1 - x0) / n;
+  for (const s of [-1, 1]) {
+    for (let row = 0; row < 2; row++) {
+      for (let i = 0; i < n; i++) {
+        const cell = box((i + row) % 2 ? b : a, step, sq, 0.026);
+        cell.position.set(x0 + (i + 0.5) * step, y + (row - 0.5) * sq, s * (w / 2 + 0.004));
+        g.add(cell);
+      }
+    }
+  }
+}
+export function sunroof(g, M, o) {
+  const { x, y, len = 0.55, w = 0.6 } = o;
+  const p = box(M('#1b2836', { rough: 0.3, metal: 0.05, env: 0.9 }), len, 0.018, w);
+  p.position.set(x, y + 0.012, 0);
+  g.add(p);
+}
+export function antenna(g, M, o) {
+  const { x, y, h = 0.42, z = 0 } = o;
+  const a = cyl(M('#26292e', { rough: 0.5 }), { r: 0.016, len: h, seg: 6 });
+  a.position.set(x, y + h / 2, z);
+  a.rotation.x = 0.06;
+  a.rotation.z = -0.18;
+  g.add(a);
+}
+export function mudflaps(g, M, o) {
+  const { x, track, y0, h = 0.26, w = 0.24 } = o;
+  const mat = M('#26292e', { rough: 0.9 });
+  for (const s of [-1, 1]) {
+    const f = box(mat, 0.03, h, w);
+    f.position.set(x, y0 - h / 2, s * track / 2);
+    g.add(f);
+  }
+}
+export function roofCargo(g, M, r, o) { // stuff strapped to a roof rack
+  const { x, y, w } = o;
+  if (r.chance(0.5)) { // surfboard
+    const hex = r.pick(['#e3c53a', '#3a8f8a', '#e07b39', '#dd8fb4', '#eceff1']);
+    const b = slab(M(hex, { rough: 0.5, env: 0.7 }), {
+      x0: x - 1.05, x1: x + 1.05, y0: y, y1: y + 0.05, w: 0.46, wT: 0.4, nose: 0.5, tail: 0.5,
+    });
+    b.position.z = r.range(-0.15, 0.15);
+    g.add(b);
+  } else { // luggage box
+    const b = slab(M(r.pick(['#26292e', '#3d4147', '#5a5e66']), { rough: 0.55, env: 0.6 }), {
+      x0: x - 0.65, x1: x + 0.65, y0: y, y1: y + 0.3, w: Math.min(0.9, w), wT: Math.min(0.9, w) * 0.82, nose: 0.4, tail: 0.3,
+    });
+    g.add(b);
+  }
+}
 export function sideStripe(g, M, o) {
   const { x0, x1, y, h = 0.1, w, hex } = o;
   const mat = M(hex, { rough: 0.5 });

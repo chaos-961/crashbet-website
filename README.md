@@ -31,8 +31,13 @@ Works on desktop and mobile (touch orbit/pinch zoom).
 | Vehicle type | Type dropdown (88 archetypes in 9 categories, or "Surprise me") |
 | Paint override | Color chips (Auto = per-seed palette) |
 | Turntable on/off | Spin button or `R` |
+| Fleet view | Fleet button or `F` — parks 40 seeded vehicles in rows |
+| Snapshot | Camera button — saves a PNG (system share sheet on mobile) |
 | History back/forward | `◀` `▶` buttons or arrow keys |
 | Share | Click the name chip — copies a URL with `?seed=&type=&paint=` |
+
+There's also a **1-in-100 golden vehicle** easter egg — gold chrome paint and ✨ in the
+name (only when no paint override is active).
 
 ## How it works
 
@@ -55,4 +60,5 @@ Same seed + same type + same paint ⇒ identical vehicle, always.
 ## Dev extras
 
 - `?smoke=1` — builds every archetype × 4 seeds at boot and logs failures to console.
+- `?sheet=1` — renders a contact sheet of all 88 archetypes into one tiled canvas.
 - `window.__app` — renderer/scene/camera/generate exposed for debugging.

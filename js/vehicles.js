@@ -1,7 +1,7 @@
 // vehicles.js — every archetype + the registry. Forward = +X, ground = y0.
 import * as THREE from 'three';
 import { makeRng, matFactory, slab, wedge, faceQuad, subQuad, quadPrism, panesOnQuad, box, cyl, sphere, shade, PAINT } from './lib.js';
-import { stdMats, cabin, car, truckFront, chassis, van, bus } from './families.js';
+import { stdMats, cabin, car, truckFront, chassis, van, bus, GOLD } from './families.js';
 import * as P from './parts.js';
 import { genName } from './names.js';
 
@@ -29,12 +29,12 @@ function pickupBed(c, M, r, o = {}) {
 }
 const PICKUP_K = { L: 5.2, W: 1.98, bodyH: 0.62, clear: 0.4, wheelR: 0.42, wheelW: 0.3, cabL: 1.55, cabX: 0.62, cabH: 0.6, rakeF: 0.42, rakeR: 0.2, sideCols: 1, axInR: 1.05, tail: 0.1, tailB: 0.03 };
 function buildPickup(r, M, ctx) {
-  const c = car(r, M, ctx, { ...PICKUP_K, sideCols: r.pick([1, 2]) });
+  const c = car(r, M, ctx, { ...PICKUP_K, sideCols: r.pick([1, 2]), dualRear: r.chance(0.22), mudflaps: true });
   pickupBed(c, M, r);
   return c.g;
 }
 function buildLifted(r, M, ctx) {
-  const c = car(r, M, ctx, { ...PICKUP_K, clear: 0.66, wheelR: 0.52, wheelW: 0.36, hubR: 0.45, rod: true, poke: true });
+  const c = car(r, M, ctx, { ...PICKUP_K, clear: 0.66, wheelR: 0.52, wheelW: 0.36, hubR: 0.45, rod: true, poke: true, mudflaps: true });
   pickupBed(c, M, r);
   P.bullbar(c.g, M, { x: c.L / 2 + 0.12, y: c.clear + 0.28, w: c.W * 0.8 });
   if (r.chance(0.6)) P.exhaustStack(c.g, M, { x: c.cabPt.x0b - 0.12, z: c.W / 2 - 0.1, y0: c.bodyTop, h: 0.85 });
@@ -116,6 +116,7 @@ function buildLeMans(r, M, ctx) {
   P.axle(g, M, { x: 1.5, track: 1.78, r: 0.33, w: 0.32, hubR: 0.58 });
   P.axle(g, M, { x: -1.5, track: 1.78, r: 0.33, w: 0.32, hubR: 0.58 });
   if (r.chance(0.7)) P.racingStripes(g, M, { x0: -2.2, x1: 2.1, y: 0.68, hex: r.pick(['#eceff1', '#26292e', '#e3c53a']) });
+  P.doorRoundels(g, M, { x: 0.85, y: 0.47, w: 1.94, r: 0.18 });
   return g;
 }
 function buildHotrod(r, M, ctx) {
@@ -1022,13 +1023,13 @@ export const REG = [
 
   { id: 'f1', label: 'Formula Racer', cat: RACE, build: buildF1 },
   { id: 'lemans', label: 'Endurance Racer', cat: RACE, build: buildLeMans },
-  { id: 'rally', label: 'Rally Car', cat: RACE, build: (r, M, x) => car(r, M, x, { L: 3.9, W: 1.9, cabL: 2.0, cabX: -0.55, cabH: 0.56, rakeF: 0.5, rakeR: 0.18, tail: 0.12, sideCols: 2, spotPod: true, spoiler: true, stripes: true, clear: 0.36, wheelR: 0.4 }).g },
+  { id: 'rally', label: 'Rally Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 3.9, W: 1.9, cabL: 2.0, cabX: -0.55, cabH: 0.56, rakeF: 0.5, rakeR: 0.18, tail: 0.12, sideCols: 2, spotPod: true, spoiler: true, stripes: true, clear: 0.36, wheelR: 0.4 }); P.doorRoundels(c.g, M, { x: 0.35, y: c.clear + c.bodyH * 0.48, w: c.W, r: 0.24 }); return c.g; } },
   { id: 'hotrod', label: 'Hot Rod', cat: RACE, build: buildHotrod },
   { id: 'kart', label: 'Go-Kart', cat: RACE, build: buildKart },
   { id: 'moto', label: 'Motorcycle', cat: RACE, build: buildMoto },
   { id: 'chopper', label: 'Chopper', cat: RACE, build: buildChopper },
   { id: 'dragster', label: 'Dragster', cat: RACE, build: buildDragster },
-  { id: 'stockcar', label: 'Stock Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 4.9, W: 2.02, bodyH: 0.56, clear: 0.36, cabL: 1.85, cabX: -0.4, cabH: 0.54, rakeF: 0.5, rakeR: 0.35, sideCols: 1, spoiler: true, wheelR: 0.4, wheelW: 0.34, grille: false }); P.racingStripes(c.g, M, { x0: -2.2, x1: 2.2, y: c.bodyTop, w2: 0.2, gap: 0.12, hex: r.pick(['#e6e7e9', '#22252a', '#dfbd25']) }); return c.g; } },
+  { id: 'stockcar', label: 'Stock Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 4.9, W: 2.02, bodyH: 0.56, clear: 0.36, cabL: 1.85, cabX: -0.4, cabH: 0.54, rakeF: 0.5, rakeR: 0.35, sideCols: 1, spoiler: true, wheelR: 0.4, wheelW: 0.34, grille: false }); P.racingStripes(c.g, M, { x0: -2.2, x1: 2.2, y: c.bodyTop, w2: 0.2, gap: 0.12, hex: r.pick(['#e6e7e9', '#22252a', '#dfbd25']) }); P.doorRoundels(c.g, M, { x: 0.15, y: c.clear + c.bodyH * 0.48, w: c.W, r: 0.24 }); return c.g; } },
 
   { id: 'suv', label: 'SUV', cat: OFF, build: (r, M, x) => car(r, M, x, { L: 4.75, W: 1.98, bodyH: 0.72, clear: 0.44, wheelR: 0.43, cabL: 2.6, cabX: -0.5, cabH: 0.62, rakeF: 0.4, rakeR: 0.22, sideCols: 3, roofRack: true }).g },
   { id: 'overlander', label: 'Overlander SUV', cat: OFF, build: (r, M, x) => car(r, M, x, { L: 4.8, W: 2.02, bodyH: 0.74, clear: 0.52, wheelR: 0.47, wheelW: 0.34, cabL: 2.6, cabX: -0.5, cabH: 0.62, rakeF: 0.38, rakeR: 0.22, sideCols: 3, roofRack: true, spare: true, pushBar: true, spotPod: true }).g },
@@ -1085,7 +1086,7 @@ export const REG = [
 
   { id: 'police', label: 'Police Car', cat: SVC, build: (r, M, x) => { const c = car(r, M, x, { paintHex: '#2a2d33', lightbar: true, pushBar: true, mirrorP: 0.9 }); P.sideStripe(c.g, M, { x0: -0.95, x1: 0.95, y: c.clear + c.bodyH * 0.55, w: c.W, hex: '#e8e9eb', h: 0.22 }); return c.g; } },
   { id: 'policesuv', label: 'Police SUV', cat: SVC, build: (r, M, x) => { const c = car(r, M, x, { L: 4.75, W: 1.98, bodyH: 0.72, clear: 0.44, wheelR: 0.43, cabL: 2.6, cabX: -0.5, cabH: 0.62, rakeF: 0.4, rakeR: 0.22, sideCols: 3, paintHex: '#2a2d33', lightbar: true, pushBar: true }); P.sideStripe(c.g, M, { x0: -1.1, x1: 1.1, y: c.clear + c.bodyH * 0.5, w: c.W, hex: '#e8e9eb', h: 0.24 }); return c.g; } },
-  { id: 'taxi', label: 'Taxi', cat: SVC, build: (r, M, x) => { const c = car(r, M, x, { paintHex: '#efc324', taxiSign: true }); P.sideStripe(c.g, M, { x0: -1.4, x1: 1.4, y: c.clear + c.bodyH * 0.4, w: c.W, hex: '#26292e', h: 0.09 }); return c.g; } },
+  { id: 'taxi', label: 'Taxi', cat: SVC, build: (r, M, x) => { const c = car(r, M, x, { paintHex: '#efc324', taxiSign: true }); P.checkerBand(c.g, M, { x0: -1.4, x1: 1.4, y: c.clear + c.bodyH * 0.42, w: c.W, sq: 0.11 }); return c.g; } },
   { id: 'ambulance', label: 'Ambulance', cat: SVC, build: buildAmbulance },
   { id: 'mail', label: 'Mail Van', cat: SVC, build: (r, M, x) => van(r, M, x, { paintHex: '#e8e9eb', stripeHex: '#2f5f9e', rearWindow: false, L: 4.6, H: 1.9 }).g },
   { id: 'icecream', label: 'Ice Cream Truck', cat: SVC, build: buildIcecream },
@@ -1120,7 +1121,9 @@ export function buildVehicle(seed, typeId = 'any', paint = null) {
   if (!entry) entry = rT.pick(REG);
   const r = makeRng('b:' + seed + ':' + entry.id);
   const M = matFactory();
-  const ctx = { paint: paint || null };
+  // 1-in-100 golden vehicle — own rng stream, only when no explicit paint override
+  const golden = !paint && makeRng('gold:' + seed).chance(0.01);
+  const ctx = { paint: paint || (golden ? GOLD : null) };
   const g = entry.build(r, M, ctx);
   const bb = new THREE.Box3().setFromObject(g);
   const c = bb.getCenter(new THREE.Vector3());
@@ -1128,6 +1131,7 @@ export function buildVehicle(seed, typeId = 'any', paint = null) {
   g.position.z -= c.z;
   const wrap = new THREE.Group();
   wrap.add(g);
-  const name = genName(makeRng('n:' + seed + ':' + entry.id), entry.id);
-  return { group: wrap, name, typeLabel: entry.label, typeId: entry.id, seed: String(seed) };
+  let name = genName(makeRng('n:' + seed + ':' + entry.id), entry.id);
+  if (golden) name = '✨ ' + name + ' ✨';
+  return { group: wrap, name, typeLabel: entry.label, typeId: entry.id, seed: String(seed), golden };
 }

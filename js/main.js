@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from '../libs/OrbitControls.js';
 import { RoomEnvironment } from '../libs/RoomEnvironment.js';
 import { buildVehicle, REG } from './vehicles.js';
-import { disposeGroup, clamp } from './lib.js';
+import { disposeGroup, clamp, makeRng } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -119,6 +119,7 @@ function fitCamera(bb, instant) {
 
 /* ---------------- generate ---------------- */
 function generate(seed, typeId, opts = {}) {
+  exitFleet();
   if (current) {
     scene.remove(current.group);
     disposeGroup(current.group);
@@ -138,6 +139,7 @@ function generate(seed, typeId, opts = {}) {
 
   $('vname').textContent = v.name;
   $('vsub').textContent = `${v.typeLabel} · seed ${seed}`;
+  if (v.golden) toast('✨ 1-in-100 golden find!');
   $('seed').value = seed;
   const chip = $('namechip');
   chip.classList.remove('pop');
@@ -268,6 +270,102 @@ $('namechip').addEventListener('click', async () => {
   } catch { toast(location.href); }
 });
 
+/* ---------------- snapshot ---------------- */
+$('snap').addEventListener('click', async () => {
+  renderer.render(scene, camera); // fresh frame — the buffer isn't preserved after present
+  const src = renderer.domElement;
+  const out = document.createElement('canvas');
+  out.width = src.width;
+  out.height = src.height;
+  const c2 = out.getContext('2d');
+  c2.drawImage(src, 0, 0);
+  const name = fleet ? `Fleet — seed ${$('seed').value}` : ($('vname').textContent || 'vehicle');
+  const sub = fleet ? '' : $('vsub').textContent;
+  const s = Math.max(out.width, out.height);
+  c2.shadowColor = 'rgba(0,0,0,0.55)';
+  c2.shadowBlur = s * 0.008;
+  c2.fillStyle = '#f2f3f5';
+  c2.font = `700 ${Math.round(s * 0.028)}px system-ui, sans-serif`;
+  c2.fillText(name, s * 0.02, out.height - s * 0.035);
+  if (sub) {
+    c2.font = `500 ${Math.round(s * 0.017)}px system-ui, sans-serif`;
+    c2.fillStyle = 'rgba(242,243,245,0.8)';
+    c2.fillText(sub, s * 0.02, out.height - s * 0.012);
+  }
+  const blob = await new Promise((res) => out.toBlob(res, 'image/png'));
+  if (!blob) { toast('Snapshot failed'); return; }
+  const fname = (name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'vehicle') + '.png';
+  const file = new File([blob], fname, { type: 'image/png' });
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return; }
+    catch (err) { if (err.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast('Snapshot saved');
+});
+
+/* ---------------- fleet view ---------------- */
+let fleet = null;
+function exitFleet() {
+  if (!fleet) return;
+  scene.remove(fleet);
+  disposeGroup(fleet);
+  fleet = null;
+  $('fleet').classList.remove('on');
+  $('fleet').setAttribute('aria-pressed', 'false');
+  if (current) scene.add(current.group);
+}
+function showFleet() {
+  if (fleet) { // toggle back to the single vehicle
+    exitFleet();
+    if (current) fitCamera(new THREE.Box3().setFromObject(current.group), false);
+    return;
+  }
+  const seed = $('seed').value.trim() || randomSeed();
+  $('seed').value = seed;
+  const rf = makeRng('fleet:' + seed);
+  const pool = [...REG];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rf() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const picks = pool.slice(0, 40);
+  const items = picks.map((e, i) => {
+    const v = buildVehicle(seed + '#' + i, e.id, paintSel);
+    const bb = new THREE.Box3().setFromObject(v.group);
+    return { v, len: bb.max.x - bb.min.x, wid: bb.max.z - bb.min.z };
+  });
+  items.sort((a, b) => a.len - b.len); // small up front, big rigs in the back
+  fleet = new THREE.Group();
+  const perRow = 8;
+  let x = 0;
+  for (let rI = 0; rI * perRow < items.length; rI++) {
+    const row = items.slice(rI * perRow, (rI + 1) * perRow);
+    const maxLen = Math.max(...row.map((it) => it.len));
+    const step = Math.max(...row.map((it) => it.wid)) + 1.15;
+    row.forEach((it, i) => {
+      it.v.group.position.set(x - maxLen / 2, 0, (i - (row.length - 1) / 2) * step);
+      fleet.add(it.v.group);
+    });
+    x -= maxLen + 1.8;
+  }
+  const fc = new THREE.Box3().setFromObject(fleet).getCenter(new THREE.Vector3());
+  fleet.position.x -= fc.x;
+  fleet.position.z -= fc.z;
+  if (current) scene.remove(current.group);
+  scene.add(fleet);
+  fitCamera(new THREE.Box3().setFromObject(fleet), false);
+  spawnT = 1;
+  $('fleet').classList.add('on');
+  $('fleet').setAttribute('aria-pressed', 'true');
+  toast(`${picks.length} vehicles on the lot — seed ${seed}`);
+}
+$('fleet').addEventListener('click', showFleet);
+
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   // A clicked button keeps focus; Space would re-activate it on keyup AND
@@ -275,6 +373,7 @@ addEventListener('keydown', (e) => {
   if (e.key === ' ' && e.target.tagName === 'BUTTON') e.target.blur();
   if (e.key === ' ' || e.key.toLowerCase() === 'g') { e.preventDefault(); generate(randomSeed(), typeSel.value); }
   else if (e.key.toLowerCase() === 'r') $('spin').click();
+  else if (e.key.toLowerCase() === 'f') showFleet();
   else if (e.key === 'ArrowLeft') goHist(-1);
   else if (e.key === 'ArrowRight') goHist(1);
 });
