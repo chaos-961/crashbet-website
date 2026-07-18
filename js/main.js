@@ -4,6 +4,7 @@ import { OrbitControls } from '../libs/OrbitControls.js';
 import { RoomEnvironment } from '../libs/RoomEnvironment.js';
 import { buildVehicle, REG } from './vehicles.js';
 import { disposeGroup, clamp, makeRng } from './lib.js';
+import { initCrash } from './crash.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -139,6 +140,7 @@ function fitCamera(bb, instant) {
 
 /* ---------------- generate ---------------- */
 function generate(seed, typeId, opts = {}) {
+  if (crash && crash.active) return; // crash mode owns the scene
   exitFleet();
   if (current) {
     scene.remove(current.group);
@@ -174,11 +176,7 @@ function generate(seed, typeId, opts = {}) {
     histIdx = hist.length - 1;
     updateHistBtns();
   }
-  const q = new URLSearchParams();
-  q.set('seed', seed);
-  if ($('type').value !== 'any') q.set('type', $('type').value);
-  if (paintSel) q.set('paint', paintSel.replace('#', ''));
-  history.replaceState(null, '', '?' + q.toString());
+  writeGarageURL();
 
   // count triangles from geometry — renderer.info is 0/stale before a real frame
   // (e.g. hidden tab suspends rAF) and includes the ground disc
@@ -195,6 +193,14 @@ function generate(seed, typeId, opts = {}) {
 }
 
 const randomSeed = () => String(Math.floor(Math.random() * 90000) + 10000);
+
+function writeGarageURL() {
+  const q = new URLSearchParams();
+  q.set('seed', $('seed').value || (current && current.seed) || '11');
+  if ($('type').value !== 'any' && REG.some((e) => e.id === $('type').value)) q.set('type', $('type').value);
+  if (paintSel) q.set('paint', paintSel.replace('#', ''));
+  history.replaceState(null, '', '?' + q.toString());
+}
 
 /* ---------------- UI ---------------- */
 const typeSel = $('type');
@@ -246,13 +252,22 @@ function setPaint(hex, btn) {
   paintSel = hex;
   paintRow.querySelectorAll('.chipbtn').forEach((c) => c.classList.remove('sel'));
   btn.classList.add('sel');
+  if (crash.active) { crash.pickersChanged(); return; }
   if (current) generate($('seed').value || randomSeed(), typeSel.value, { noHist: true });
 }
 
 $('gen').addEventListener('click', () => generate(randomSeed(), typeSel.value));
-$('dice').addEventListener('click', () => generate(randomSeed(), typeSel.value));
+$('dice').addEventListener('click', () => {
+  if (crash.active) { $('seed').value = randomSeed(); crash.pickersChanged(); return; }
+  generate(randomSeed(), typeSel.value);
+});
 $('seed').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); generate($('seed').value.trim() || randomSeed(), typeSel.value); $('seed').blur(); }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (crash.active) { crash.pickersChanged(); $('seed').blur(); return; }
+    generate($('seed').value.trim() || randomSeed(), typeSel.value);
+    $('seed').blur();
+  }
 });
 typeSel.addEventListener('change', () => {
   const val = typeSel.value;
@@ -262,10 +277,12 @@ typeSel.addEventListener('change', () => {
       paintSel = f.paint;
       syncPaintChips();
       typeSel.value = REG.some((e) => e.id === f.type) ? f.type : 'any';
+      if (crash.active) { $('seed').value = f.seed; crash.pickersChanged(); return; }
       generate(f.seed, f.type);
     }
     return;
   }
+  if (crash.active) { crash.pickersChanged(); return; }
   generate($('seed').value.trim() || randomSeed(), val);
 });
 
@@ -482,6 +499,34 @@ function showFleet() {
 }
 $('fleet').addEventListener('click', showFleet);
 
+/* ---------------- crash mode (Crash Bet) ---------------- */
+const crash = initCrash({
+  scene, camera, controls, renderer, stage,
+  toast, invalidate,
+  fitBox: (bb, instant) => fitCamera(bb, instant),
+  hideGarage: () => { exitFleet(); if (current) scene.remove(current.group); invalidate(); },
+  showGarage: () => {
+    if (current) {
+      scene.add(current.group);
+      $('vname').textContent = current.name;
+      $('vsub').textContent = `${current.typeLabel} · seed ${current.seed}`;
+      fitCamera(new THREE.Box3().setFromObject(current.group), false);
+    }
+    invalidate();
+  },
+  randomSeed,
+  getPickers: () => ({ type: typeSel.value, seed: $('seed').value.trim(), paint: paintSel }),
+  setPickers: ({ type, seed, paint }) => {
+    if (REG.some((e) => e.id === type)) typeSel.value = type;
+    if (seed !== undefined) $('seed').value = seed;
+    paintSel = paint || null;
+    syncPaintChips();
+  },
+  writeGarageURL,
+});
+$('tabGarage').addEventListener('click', () => crash.exit());
+$('tabCrash').addEventListener('click', () => { crash.enter(false).catch((e) => { console.error(e); toast('Physics failed to load'); }); });
+
 /* ---------------- hide / show controls ---------------- */
 function toggleUI(force) {
   const hidden = document.body.classList.toggle('ui-collapsed', force);
@@ -497,6 +542,10 @@ addEventListener('keydown', (e) => {
   // A clicked button keeps focus; Space would re-activate it on keyup AND
   // trigger Generate here. Blur it so only the shortcut fires.
   if (e.key === ' ' && e.target.tagName === 'BUTTON') e.target.blur();
+  if (crash.active) { // crash mode: its own shortcuts; only H falls through
+    if (!crash.keydown(e) && e.key.toLowerCase() === 'h') toggleUI();
+    return;
+  }
   if (e.key === ' ' || e.key.toLowerCase() === 'g') { e.preventDefault(); generate(randomSeed(), typeSel.value); }
   else if (e.key.toLowerCase() === 'r') $('spin').click();
   else if (e.key.toLowerCase() === 'h') toggleUI();
@@ -540,7 +589,7 @@ function animate(now) {
     slideT += dt;
     if (slideT > 6) { slideT = 0; generate(randomSeed(), typeSel.value); }
   }
-  let animating = false;
+  let animating = crash.update(dt); // crash sim steps at fixed 60 Hz internally
   if (camT < 1 && camTo) {
     camT = Math.min(1, camT + dt / 0.55);
     const e = easeInOut(camT);
@@ -548,7 +597,7 @@ function animate(now) {
     controls.target.lerpVectors(camFrom.tgt, camTo.tgt, e);
     animating = true;
   }
-  if (current && !fleet && spawnT < 1) {
+  if (current && !fleet && !crash.active && spawnT < 1) {
     spawnT = Math.min(1, spawnT + dt / 0.5);
     const e = easeOutBack(spawnT);
     current.group.scale.setScalar(Math.max(0.001, e));
@@ -639,5 +688,19 @@ function contactSheet() {
 if (q0.has('sheet')) contactSheet();
 else generate(q0.get('seed') || randomSeed(), typeSel.value, { instant: true });
 
+// determinism self-test: ?simtest=1 runs the same crash twice and compares hashes
+if (q0.has('simtest')) {
+  import('./physics.js')
+    .then((m) => m.simSelfTest((id) => (REG.find((e) => e.id === id) || {}).cat || 'Cars'))
+    .catch((e) => console.error('SIM DETERMINISTIC: FAIL (error)', e));
+}
+
+// deep-link into crash mode: ?mode=crash&car=seed~type~paint~x~z~deg~v~th~st…
+if (q0.get('mode') === 'crash') {
+  const hasCars = q0.getAll('car').length > 0;
+  if (hasCars) crash.loadFromURL(q0);
+  crash.enter(hasCars).catch((e) => { console.error(e); toast('Physics failed to load'); });
+}
+
 // debug hook for automated visual verification
-window.__app = { renderer, scene, camera, controls, generate, REG };
+window.__app = { renderer, scene, camera, controls, generate, REG, crash };

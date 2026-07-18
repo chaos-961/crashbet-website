@@ -1,10 +1,11 @@
-// Lowpoly Garage service worker — network-first, cache fallback (offline PWA)
-const CACHE = 'lowpoly-garage-v1';
+// Crash Bet service worker — network-first, cache fallback (offline PWA)
+const CACHE = 'crash-bet-v1';
 const ASSETS = [
   '.', 'index.html', 'css/style.css', 'icon.svg', 'manifest.webmanifest',
   'js/main.js', 'js/lib.js', 'js/parts.js', 'js/families.js', 'js/vehicles.js', 'js/names.js',
+  'js/physics.js', 'js/crash.js',
   'libs/three.module.js', 'libs/OrbitControls.js', 'libs/RoomEnvironment.js',
-  'libs/GLTFExporter.js', 'libs/TextureUtils.js',
+  'libs/GLTFExporter.js', 'libs/TextureUtils.js', 'libs/rapier3d-compat.module.js',
 ];
 
 self.addEventListener('install', (e) => {

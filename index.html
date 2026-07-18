@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lowpoly Garage — Procedural Vehicle Generator</title>
-<meta name="description" content="Seeded low-poly 3D vehicle generator — 92 archetypes, endless variations.">
+<title>Crash Bet — Deterministic Crash-Physics Sandbox</title>
+<meta name="description" content="Seeded low-poly vehicles that drive, crash and crumple — same seed, same crash, every time.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path fill='%23ff7a3d' d='M4 20l3-7 4-3h10l4 3 3 7v5h-4a3 3 0 0 1-6 0h-4a3 3 0 0 1-6 0H4z'/></svg>">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#25272c">
@@ -26,7 +26,7 @@
       </linearGradient></defs>
     </svg>
     <div>
-      <h1>LOWPOLY <span>GARAGE</span></h1>
+      <h1>CRASH <span>BET</span></h1>
       <p id="countline">— vehicle types</p>
     </div>
   </div>
@@ -40,6 +40,11 @@
   </button>
 
   <div class="panel">
+    <div class="row tabs" role="tablist" aria-label="Mode">
+      <button id="tabGarage" class="tab on" role="tab" aria-selected="true">Garage</button>
+      <button id="tabCrash" class="tab" role="tab" aria-selected="false">💥 Crash</button>
+    </div>
+
     <div class="row">
       <label class="field grow">
         <span>Vehicle type</span>
@@ -61,7 +66,41 @@
 
     <div class="row paintrow" id="paints" role="group" aria-label="Paint color"></div>
 
-    <div class="row actions">
+    <div class="row carchips crashrow" id="carchips" role="group" aria-label="Cars in scene"></div>
+
+    <div class="row sliders crashrow">
+      <label class="field slider">
+        <span>Heading <b id="v_heading">0°</b></span>
+        <input type="range" id="c_heading" min="-180" max="180" step="5" value="0">
+      </label>
+      <label class="field slider">
+        <span>Speed <b id="v_speed">50</b></span>
+        <input type="range" id="c_speed" min="0" max="144" step="2" value="50">
+      </label>
+    </div>
+    <div class="row sliders crashrow">
+      <label class="field slider">
+        <span>Steer <b id="v_steer">0°</b></span>
+        <input type="range" id="c_steer" min="-30" max="30" step="1" value="0">
+      </label>
+      <label class="field slider">
+        <span>Throttle <b id="v_throttle">100%</b></span>
+        <input type="range" id="c_throttle" min="0" max="100" step="5" value="100">
+      </label>
+    </div>
+
+    <div class="row actions crashrow">
+      <button id="c_reset" class="ibtn" aria-label="Reset simulation" title="Reset (R)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.34 5.66" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M4 21v-4h4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="c_play" class="primary">▶ Play</button>
+      <button id="c_step" class="ibtn" aria-label="Step one tick" title="Step one tick (.)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5.5v13M10.5 5.5 17 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="c_slow" class="ibtn slowbtn" aria-label="Slow motion" aria-pressed="false" title="Slow motion">1×</button>
+    </div>
+
+    <div class="row actions garagerow">
       <button id="prev" class="ibtn" aria-label="Previous vehicle" title="Previous (←)" disabled>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -85,7 +124,8 @@
       </div>
     </div>
   </div>
-  <p class="hint">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>T</b> next type · <b>R</b> spin · <b>F</b> fleet · <b>S</b> slideshow · <b>H</b> hide UI</p>
+  <p class="hint garagerow">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>T</b> next type · <b>R</b> spin · <b>F</b> fleet · <b>S</b> slideshow · <b>H</b> hide UI</p>
+  <p class="hint crashrow">tap car to select · drag to move · <b>Space</b> play · <b>R</b> reset · <b>.</b> step · <b>H</b> hide UI</p>
 </div>
 
 <button id="uitoggle" class="uitoggle" aria-label="Hide controls" aria-pressed="false" title="Hide controls (H)">

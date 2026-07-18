@@ -5,6 +5,7 @@ import { box, cyl, slab, sphere, quadPrism, subQuad, faceQuad } from './lib.js';
 /* ---------------- wheels ---------------- */
 export function wheel(M, r, w, o = {}) {
   const g = new THREE.Group();
+  g.userData.wheel = { r, w }; // physics: wheel discovery tag (see physics.js)
   const seg = o.seg || 12;
   g.add(cyl(M('#232629', { rough: 0.95, env: 0.25 }), { r, len: w, axis: 'z', seg }));
   if (o.white) g.add(cyl(M('#e7e4da', { rough: 0.85 }), { r: r * 0.76, len: w * 1.06, axis: 'z', seg }));

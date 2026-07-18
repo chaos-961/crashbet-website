@@ -1,7 +1,7 @@
 {
-  "name": "Lowpoly Garage",
-  "short_name": "Garage",
-  "description": "Seeded procedural low-poly 3D vehicle generator — 92 archetypes, endless seeds.",
+  "name": "Crash Bet",
+  "short_name": "Crash Bet",
+  "description": "Deterministic crash-physics sandbox — seeded low-poly vehicles that drive, crash and crumple. Same seed, same crash, every time.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#25272c",
