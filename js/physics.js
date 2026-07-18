@@ -18,7 +18,7 @@ export async function loadRapier() {
   if (RAPIER) return RAPIER;
   const mod = await import('../libs/rapier3d-compat.module.js');
   RAPIER = mod.default;
-  await RAPIER.init();
+  await RAPIER.init(); // the "deprecated parameters" console warning is upstream noise — harmless
   return RAPIER;
 }
 

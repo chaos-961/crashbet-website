@@ -4,18 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Lowpoly Garage" — a seeded procedural low-poly 3D vehicle generator (92 archetypes) built with vanilla JS + Three.js r169. No build step, no package.json, no framework. Three.js is vendored in `libs/` (import map in `index.html` maps `three` → `./libs/three.module.js`), so the app is fully offline.
+"Crash Bet" — a deterministic crash-physics sandbox on top of a seeded procedural low-poly 3D vehicle generator (92 archetypes). Vanilla JS + Three.js r169 + Rapier 3D 0.19 (`libs/rapier3d-compat.module.js`, WASM inlined). No build step, no package.json, no framework. Three.js is vendored in `libs/` (import map in `index.html` maps `three` → `./libs/three.module.js`), so the app is fully offline. Two modes: **Garage** (browse/generate vehicles) and **Crash** (place cars, launch them, watch them crumple — same scenario URL ⇒ identical crash, frame for frame).
 
 ## Running & testing
 
 - Serve statically over HTTP (ES modules won't load from `file://`): `run.bat`, or `npx http-server -p 5183 -c-1 .` — then open http://localhost:5183. A `.claude/launch.json` config named `garage` exists for the browser preview.
 - **Smoke test**: open `?smoke=1` — builds every registry type × 4 seeds at boot and logs `SMOKE DONE: N/N ok` (plus per-type stack traces) to the console. Run this after any change to `js/vehicles.js`, `js/families.js`, `js/parts.js`, or `js/lib.js`.
+- **Determinism self-test**: open `?simtest=1` — runs the same 3-car crash twice (300 fixed steps), FNV-hashes every body transform per step plus the final crumpled geometry, logs `SIM DETERMINISTIC: ok/FAIL`. Run after any change to `js/physics.js` or `js/deform.js`. The hash is stable across node and browser (same wasm f32 math).
+- **Headless physics testing in node** (much faster than the browser loop): `node_modules/three/` is a gitignored shim so the whole vehicle+physics chain imports in node. Import modules via `pathToFileURL`, build a `CrashSim`, call `stepOnce()` in a loop, assert on `body.translation()` / `hashState()`. See the CrashSim API in `js/physics.js`.
 - Syntax check without a browser: copy a module to `.mjs` and run `node --check`.
 - **Headless visual verification**: `window.__app` exposes `{ renderer, scene, camera, controls, generate, REG }`. The pattern that works even when the preview tab reports `document.hidden` (rAF suspended, screenshots time out — common in the embedded Browser pane on this machine): call `__app.generate(seed, type, { instant: true, noHist: true })`, then synchronously `__app.renderer.render(...)` and `canvas.toDataURL()`, and POST the data URL to a local sink server that writes a PNG you can then view. Deep-link a specific build with `?seed=X&type=id&paint=hex`.
 
 ## Architecture
 
-Module chain (each imports the previous): `js/lib.js` → `js/parts.js` → `js/families.js` → `js/vehicles.js` → `js/main.js` (+ `js/names.js`).
+Module chain (each imports the previous): `js/lib.js` → `js/parts.js` → `js/families.js` → `js/vehicles.js` → `js/main.js` (+ `js/names.js`). Crash side: `js/deform.js` → `js/physics.js` → `js/crash.js` → `js/main.js`. Rapier is lazy-loaded (2.2 MB) — garage boot never pays for it.
+
+**Physics (`physics.js`) — determinism is the product.** Fixed 60 Hz timestep + accumulator; rendering interpolates between states and never feeds back. Zero `Math.random()` in sim code; bodies/colliders/wheels created in stable array order. Chassis colliders are convex hulls straight from each slab's `userData.pt` (+ big boxes/cylinders), rescaled to a per-category target mass (`CAT_PHYS`, scaled by footprint) with a no-contact ballast collider that lowers the COM. Wheels come from `userData.wheel` tags (`parts.js` `wheel()`): duals dedupe to the outer wheel, inline bikes get invisible outriggers, tracked vehicles (dozer/excavator/roller/tram) get 4 virtual wheels at bbox corners. Raycast vehicle controller per car; front-cluster wheels steer, all wheels drive. "Perfect reset" = rebuild world + vehicles from the scenario (cheap and exactly reproducible).
+
+**Deformation (`deform.js`).** Geometry is non-indexed, so vertices weld by position (half-mm quantization) and displacement applies per weld group — faces never tear. Depth scales with contact Δv (impulse/mass, threshold 0.9 m/s), radial falloff + position-hash grain, accumulated crush clamped per group. Visual only — colliders stay rigid. Mesh↔chassis transforms are cached at build time (meshes never move relative to the wrap), so impacts convert world→mesh-local without touching render state.
+
+**Crash mode (`crash.js`).** Scenario = car list of `{seed, type, paint, x, z, heading, speed, throttle, steer}`, serialized in the URL as repeated `car=` params (`seed~type~paint~x~z~deg~v~th~st`, `~`-separated — seeds get `~` force-escaped). Garage pickers double as the selected car's config editor. Inputs are recorded per-tick streams (`makeStream`) so constant launch params can later become real driving input. Editing while paused live-moves the wrap and debounce-rebuilds the sim; Play flushes the dirty flag first.
 
 **Conventions that everything relies on:**
 - Vehicle space: forward = **+X**, ground = **y 0**, width along z. Builders return a `THREE.Group`; `buildVehicle()` recenters it on x/z, so builders never need to center themselves.
@@ -41,3 +49,6 @@ Module chain (each imports the previous): `js/lib.js` → `js/parts.js` → `js/
 - Tall truck beds (box/garbage/army/mixer) must pass `stacks: false` to `rigidTruck` or the exhaust stacks clip through the bed.
 - Old vehicles must be disposed via `disposeGroup()` (in `lib.js`) before being replaced — `generate()` already does this.
 - `run.bat`'s port cleanup uses `findstr /c:` deliberately: a bare space in a `findstr` pattern means OR and will match (and kill) far too much.
+- Physics wheel discovery keys off `userData.wheel` set inside `parts.js` `wheel()` — a bespoke builder that rolls its own wheel cylinders won't get suspension (it'll fall back to virtual wheels). Prefer `P.wheel`/`P.axle`.
+- The crash sim's visual wheel groups get re-parented (`wrap.attach`) at rig build so the controller can drive them; garage builds are untouched.
+- Rapier objects need explicit cleanup: `CrashSim.dispose()` frees the world, event queue and controllers — never drop a sim without calling it (wasm memory leaks silently).

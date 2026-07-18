@@ -108,7 +108,8 @@ export function initCrash(ctx) {
     q.set('mode', 'crash');
     for (const c of scenario.cars) {
       q.append('car', [
-        encodeURIComponent(c.seed), c.type, (c.paint || '').replace('#', ''),
+        // '~' is the field separator and encodeURIComponent leaves it alone — force-escape it
+        encodeURIComponent(c.seed).replace(/~/g, '%7E'), c.type, (c.paint || '').replace('#', ''),
         r2(c.x), r2(c.z), Math.round(c.heading / DEG), r2(c.speed), r2(c.throttle), Math.round(c.steer / DEG),
       ].join('~'));
     }
@@ -479,11 +480,23 @@ export function initCrash(ctx) {
   }
 
   /* ---------------- per-frame ---------------- */
+  const followTgt = new THREE.Vector3();
   function update(dt) {
     if (!active || !sim) return false;
     if (sim.playing) {
       sim.update(dt);
       sim.syncVisuals();
+      // gentle follow: orbit target drifts toward the action's centroid so
+      // crashes stay in frame without fighting the user's orbit
+      if (sim.cars.length) {
+        followTgt.set(0, 0.8, 0);
+        for (const c of sim.cars) { followTgt.x += c.wrap.position.x / sim.cars.length; followTgt.z += c.wrap.position.z / sim.cars.length; }
+        const k = Math.min(1, dt * 1.6);
+        const dx = (followTgt.x - ctx.controls.target.x) * k;
+        const dz = (followTgt.z - ctx.controls.target.z) * k;
+        ctx.controls.target.x += dx; ctx.controls.target.z += dz;
+        ctx.camera.position.x += dx; ctx.camera.position.z += dz; // pan with it, keep framing
+      }
       ctx.invalidate();
       return true;
     }
