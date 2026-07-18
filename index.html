@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Lowpoly Garage — Procedural Vehicle Generator</title>
-<meta name="description" content="Seeded low-poly 3D vehicle generator — 88 archetypes, endless variations.">
+<meta name="description" content="Seeded low-poly 3D vehicle generator — 92 archetypes, endless variations.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path fill='%23ff7a3d' d='M4 20l3-7 4-3h10l4 3 3 7v5h-4a3 3 0 0 1-6 0h-4a3 3 0 0 1-6 0H4z'/></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#25272c">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
 { "imports": { "three": "./libs/three.module.js" } }
@@ -33,7 +35,7 @@
 
 <div class="hud bottom">
   <button class="namechip" id="namechip" title="Copy share link">
-    <span class="vname" id="vname">…</span>
+    <span class="vname" id="vname" aria-live="polite">…</span>
     <span class="vsub" id="vsub"></span>
   </button>
 
@@ -49,6 +51,9 @@
           <input id="seed" inputmode="text" autocomplete="off" spellcheck="false" aria-label="Seed" placeholder="any text">
           <button id="dice" class="ibtn ghost" aria-label="Random seed" title="Random seed">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.6" cy="8.6" r="1.6" fill="currentColor"/><circle cx="15.4" cy="8.6" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8.6" cy="15.4" r="1.6" fill="currentColor"/><circle cx="15.4" cy="15.4" r="1.6" fill="currentColor"/></svg>
+          </button>
+          <button id="fav" class="ibtn ghost" aria-label="Save to favorites" aria-pressed="false" title="Save to favorites">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path id="favstar" d="M12 3.8l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
           </button>
         </div>
       </label>
@@ -70,12 +75,15 @@
       <button id="snap" class="ibtn" aria-label="Save snapshot image" title="Snapshot (photo)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l2-2.5h6l2 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
       </button>
+      <button id="glb" class="ibtn" aria-label="Export 3D model (.glb)" title="Export .glb">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11M7.5 10 12 14.5 16.5 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16.5v3A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
       <button id="fleet" class="ibtn" aria-label="Toggle fleet view" aria-pressed="false" title="Fleet view (F)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="3" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
       </button>
     </div>
   </div>
-  <p class="hint">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>R</b> spin · <b>F</b> fleet</p>
+  <p class="hint">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>T</b> next type · <b>R</b> spin · <b>F</b> fleet · <b>S</b> slideshow</p>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>

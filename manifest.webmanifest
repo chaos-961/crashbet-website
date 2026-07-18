@@ -1,0 +1,12 @@
+{
+  "name": "Lowpoly Garage",
+  "short_name": "Garage",
+  "description": "Seeded procedural low-poly 3D vehicle generator — 92 archetypes, endless seeds.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#25272c",
+  "theme_color": "#25272c",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

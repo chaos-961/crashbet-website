@@ -52,6 +52,10 @@ const FLAVOR = {
   kei: (r) => r.pick(['Little Helper', 'Bean Hauler', 'Tiny Titan', 'Pocket Truck']),
   stockcar: (r) => `Car #${r.int(2, 99)}`,
   hearse: (r) => r.pick(['Last Ride', 'The Quiet One', 'Midnight Coach', 'Solemn Express']),
+  roadtrain: (r) => r.pick(['Outback Express', 'Triple Trouble', 'Long Haul Legend', 'Desert Freighter']),
+  suvboat: (r) => r.pick(['Lake Day', 'Gone Fishin\'', 'Weekend Wake', 'Reel Deal']),
+  pickupcamper: (r) => r.pick(['Home on Wheels', 'The Great Escape', 'Roam Sweet Roam', 'Trailblazer']),
+  tractorhay: (r) => r.pick(['Harvest Run', 'Hay Day', 'Bale Mail', 'Golden Load']),
 };
 
 export function genName(r, typeId) {

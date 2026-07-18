@@ -10,8 +10,10 @@ const stage = $('stage');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---------------- renderer / scene ---------------- */
+// small screens get a lighter renderer: DPR cap 1.5 + 1024 shadow map
+const smallScreen = Math.min(screen.width, screen.height) < 700;
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, smallScreen ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -38,14 +40,32 @@ controls.minPolarAngle = 0.15;
 controls.maxPolarAngle = 1.5;
 controls.target.set(0, 0.8, 0);
 
+// render-on-demand: skip renderer.render when nothing moves (spin off, no
+// tweens, controls settled) instead of burning 60fps idle
+let needsRender = 3;
+function invalidate() { needsRender = 2; }
+controls.addEventListener('change', invalidate);
+
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// context-loss recovery: three re-uploads geometry/materials itself, but the
+// PMREM env texture lives in a render target and must be rebuilt
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  toast('Graphics context lost — recovering…');
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  invalidate();
+  toast('Recovered');
+});
 
 scene.add(new THREE.HemisphereLight('#dfe6ee', '#4a4d53', 0.55));
 const key = new THREE.DirectionalLight('#fff1de', 1.7);
 key.position.set(6, 9, 4);
 key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
+key.shadow.mapSize.set(smallScreen ? 1024 : 2048, smallScreen ? 1024 : 2048);
 key.shadow.bias = -0.0002;
 key.shadow.normalBias = 0.045;
 key.shadow.camera.near = 0.5;
@@ -129,6 +149,7 @@ function generate(seed, typeId, opts = {}) {
     v = buildVehicle(seed, typeId, paintSel);
   } catch (err) {
     console.error('BUILD FAIL', typeId, seed, err);
+    toast(`${typeId} build failed — showing a sedan instead`);
     v = buildVehicle(seed, 'sedan', paintSel);
   }
   current = v;
@@ -168,6 +189,8 @@ function generate(seed, typeId, opts = {}) {
     }
   });
   $('stats').textContent = Math.round(tris).toLocaleString() + ' tris';
+  updateFavBtn();
+  invalidate();
 }
 
 const randomSeed = () => String(Math.floor(Math.random() * 90000) + 10000);
@@ -226,7 +249,72 @@ $('dice').addEventListener('click', () => generate(randomSeed(), typeSel.value))
 $('seed').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); generate($('seed').value.trim() || randomSeed(), typeSel.value); $('seed').blur(); }
 });
-typeSel.addEventListener('change', () => generate($('seed').value.trim() || randomSeed(), typeSel.value));
+typeSel.addEventListener('change', () => {
+  const val = typeSel.value;
+  if (val.startsWith('fav:')) { // favorites live in the same dropdown
+    const f = favs[+val.slice(4)];
+    if (f) {
+      paintSel = f.paint;
+      syncPaintChips();
+      typeSel.value = REG.some((e) => e.id === f.type) ? f.type : 'any';
+      generate(f.seed, f.type);
+    }
+    return;
+  }
+  generate($('seed').value.trim() || randomSeed(), val);
+});
+
+function syncPaintChips() {
+  paintRow.querySelectorAll('.chipbtn').forEach((c, j) => {
+    c.classList.toggle('sel', paintSel === null ? j === 0 : SWATCHES[j - 1] === paintSel);
+  });
+}
+
+/* ---------------- favorites (localStorage) ---------------- */
+const FAVKEY = 'lg_favs';
+let favs = [];
+try { favs = JSON.parse(localStorage.getItem(FAVKEY) || '[]'); } catch { favs = []; }
+function favIndex() {
+  if (!current) return -1;
+  return favs.findIndex((f) => f.seed === current.seed && f.type === current.typeId && (f.paint || null) === paintSel);
+}
+function renderFavGroup() {
+  const old = document.getElementById('favgroup');
+  if (old) old.remove();
+  if (!favs.length) return;
+  const og = document.createElement('optgroup');
+  og.id = 'favgroup';
+  og.label = '★ Favorites';
+  favs.forEach((f, i) => {
+    const o = document.createElement('option');
+    o.value = 'fav:' + i;
+    o.textContent = f.name;
+    og.appendChild(o);
+  });
+  typeSel.insertBefore(og, typeSel.children[1]);
+}
+function updateFavBtn() {
+  const on = favIndex() >= 0;
+  $('fav').classList.toggle('on', on);
+  $('fav').setAttribute('aria-pressed', String(on));
+  $('favstar').setAttribute('fill', on ? 'currentColor' : 'none');
+}
+$('fav').addEventListener('click', () => {
+  if (!current) return;
+  const i = favIndex();
+  if (i >= 0) {
+    favs.splice(i, 1);
+    toast('Removed from favorites');
+  } else {
+    favs.push({ seed: current.seed, type: current.typeId, paint: paintSel, name: `${current.name} · ${current.seed}` });
+    if (favs.length > 24) favs.shift();
+    toast('★ Saved to favorites');
+  }
+  localStorage.setItem(FAVKEY, JSON.stringify(favs));
+  renderFavGroup();
+  updateFavBtn();
+});
+renderFavGroup();
 
 function updateHistBtns() {
   $('prev').disabled = histIdx <= 0;
@@ -239,9 +327,7 @@ function goHist(d) {
   const h = hist[i];
   typeSel.value = h.typeId;
   paintSel = h.paint;
-  paintRow.querySelectorAll('.chipbtn').forEach((c, j) => {
-    c.classList.toggle('sel', h.paint === null ? j === 0 : SWATCHES[j - 1] === h.paint);
-  });
+  syncPaintChips();
   generate(h.seed, h.typeId, { noHist: true });
   updateHistBtns();
 }
@@ -308,6 +394,29 @@ $('snap').addEventListener('click', async () => {
   toast('Snapshot saved');
 });
 
+/* ---------------- .glb export ---------------- */
+$('glb').addEventListener('click', async () => {
+  const target = fleet || (current && current.group);
+  if (!target) return;
+  toast('Exporting .glb…');
+  try {
+    const { GLTFExporter } = await import('../libs/GLTFExporter.js');
+    new GLTFExporter().parse(target, (buf) => {
+      const blob = new Blob([buf], { type: 'model/gltf-binary' });
+      const base = fleet ? `fleet-${$('seed').value}` : ($('vname').textContent || 'vehicle');
+      const a = document.createElement('a');
+      a.download = (base.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'vehicle') + '.glb';
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast('.glb saved');
+    }, (err) => { console.error('GLB EXPORT FAIL', err); toast('Export failed'); }, { binary: true });
+  } catch (err) {
+    console.error('GLB EXPORT FAIL', err);
+    toast('Export failed');
+  }
+});
+
 /* ---------------- fleet view ---------------- */
 let fleet = null;
 function exitFleet() {
@@ -318,6 +427,7 @@ function exitFleet() {
   $('fleet').classList.remove('on');
   $('fleet').setAttribute('aria-pressed', 'false');
   if (current) scene.add(current.group);
+  invalidate();
 }
 function showFleet() {
   if (fleet) { // toggle back to the single vehicle
@@ -362,6 +472,7 @@ function showFleet() {
   spawnT = 1;
   $('fleet').classList.add('on');
   $('fleet').setAttribute('aria-pressed', 'true');
+  invalidate();
   toast(`${picks.length} vehicles on the lot — seed ${seed}`);
 }
 $('fleet').addEventListener('click', showFleet);
@@ -374,9 +485,22 @@ addEventListener('keydown', (e) => {
   if (e.key === ' ' || e.key.toLowerCase() === 'g') { e.preventDefault(); generate(randomSeed(), typeSel.value); }
   else if (e.key.toLowerCase() === 'r') $('spin').click();
   else if (e.key.toLowerCase() === 'f') showFleet();
-  else if (e.key === 'ArrowLeft') goHist(-1);
+  else if (e.key.toLowerCase() === 't') { // cycle types with the current seed
+    const dir = e.shiftKey ? REG.length - 1 : 1;
+    const cur = current ? REG.findIndex((x) => x.id === current.typeId) : -1;
+    const next = REG[(cur + dir + REG.length) % REG.length].id;
+    typeSel.value = next;
+    generate($('seed').value.trim() || randomSeed(), next);
+  } else if (e.key.toLowerCase() === 's') { // slideshow / attract mode
+    slideshow = !slideshow;
+    slideT = 0;
+    toast(slideshow ? 'Slideshow on — S to stop' : 'Slideshow off');
+  } else if (e.key === 'ArrowLeft') goHist(-1);
   else if (e.key === 'ArrowRight') goHist(1);
 });
+
+/* ---------------- slideshow / attract mode ---------------- */
+let slideshow = false, slideT = 0;
 
 /* ---------------- resize / loop ---------------- */
 function resize() {
@@ -386,6 +510,7 @@ function resize() {
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  invalidate();
 }
 new ResizeObserver(resize).observe(stage);
 resize();
@@ -395,20 +520,30 @@ function animate(now) {
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  if (slideshow) {
+    slideT += dt;
+    if (slideT > 6) { slideT = 0; generate(randomSeed(), typeSel.value); }
+  }
+  let animating = false;
   if (camT < 1 && camTo) {
     camT = Math.min(1, camT + dt / 0.55);
     const e = easeInOut(camT);
     camera.position.lerpVectors(camFrom.pos, camTo.pos, e);
     controls.target.lerpVectors(camFrom.tgt, camTo.tgt, e);
+    animating = true;
   }
-  if (current && spawnT < 1) {
+  if (current && !fleet && spawnT < 1) {
     spawnT = Math.min(1, spawnT + dt / 0.5);
     const e = easeOutBack(spawnT);
     current.group.scale.setScalar(Math.max(0.001, e));
     current.group.rotation.y = (1 - easeInOut(spawnT)) * -0.5;
+    animating = true;
   }
-  controls.update();
-  renderer.render(scene, camera);
+  const moved = controls.update(); // true while auto-rotating or damping out
+  if (animating || moved || needsRender > 0) {
+    renderer.render(scene, camera);
+    if (needsRender > 0) needsRender--;
+  }
 }
 requestAnimationFrame(animate);
 
@@ -435,6 +570,11 @@ if (q0.has('paint')) {
 }
 const t0 = q0.get('type');
 if (t0 && REG.some((e) => e.id === t0)) typeSel.value = t0;
+
+// PWA: offline cache + installability (network-first SW, see sw.js)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 // dev-only contact sheet: ?sheet=1 renders every registry type into one tiled canvas.
 // Runs synchronously at boot so it works even when rAF is suspended (hidden tab).

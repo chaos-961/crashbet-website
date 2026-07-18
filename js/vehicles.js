@@ -721,6 +721,128 @@ function buildCaravanCombo(r, M, ctx) {
   g.add(trailer);
   return g;
 }
+function buildPickupCamper(r, M, ctx) {
+  const g = new THREE.Group();
+  const c = car(r, M, ctx, { ...PICKUP_K, sideCols: 1, mudflaps: true });
+  pickupBed(c, M, r, { cargo: false });
+  c.g.position.x = 2.9;
+  g.add(c.g);
+  P.towHitch(c.g, M, -2.7, 0.45);
+  const trailer = caravanTrailer(r, M);
+  trailer.position.x = -2.35;
+  g.add(trailer);
+  return g;
+}
+function boatTrailer(r, M) {
+  const g = new THREE.Group();
+  const frame = M('#4c5157', { rough: 0.6, metal: 0.3 });
+  for (const s of [-1, 1]) {
+    const rail = box(frame, 3.5, 0.09, 0.11);
+    rail.position.set(-0.1, 0.5, s * 0.55);
+    g.add(rail);
+  }
+  g.add(wedge(M('#33373d', { rough: 0.7 }), { x0: 1.6, x1: 2.5, y0: 0.46, y1: 0.58, w0: 1.15, w1: 0.12 }));
+  const jockey = P.wheel(M, 0.1, 0.08, { seg: 8 });
+  jockey.position.set(2.2, 0.1, 0);
+  g.add(jockey);
+  P.axle(g, M, { x: -0.55, track: 1.72, r: 0.3, w: 0.2 });
+  // hull — long bow taper, flared topsides
+  const hullHex = r.pick(['#e8e9eb', '#3a76c4', '#c63d3d', '#3a8f8a', '#efe3c8', '#2b3a55']);
+  const hull = slab(M(hullHex, { rough: 0.4, env: 0.8 }), {
+    x0: -1.65, x1: 2.0, y0: 0.6, y1: 1.18, w: 1.28, wT: 1.5, nose: 1.05, noseB: 0.5, tail: 0.06,
+  });
+  g.add(hull);
+  const deck = M(shade(hullHex, -0.12), { rough: 0.6 });
+  const cockpit = box(deck, 1.6, 0.06, 1.1);
+  cockpit.position.set(-0.6, 1.18, 0);
+  g.add(cockpit);
+  const ws = slab(M('#1b2836', { rough: 0.3, metal: 0.05, env: 0.9 }), { x0: 0.32, x1: 0.48, y0: 1.2, y1: 1.5, w: 1.1, wT: 0.95, nose: 0.3 });
+  g.add(ws);
+  for (const s of [-1, 1]) { // bench seats
+    const seat = box(M('#f2ead9', { rough: 0.7 }), 0.5, 0.16, 0.42);
+    seat.position.set(-0.85, 1.26, s * 0.3);
+    g.add(seat);
+  }
+  const motor = box(M('#26292e', { rough: 0.6 }), 0.3, 0.42, 0.34);
+  motor.position.set(-1.85, 1.06, 0);
+  g.add(motor);
+  const skeg = box(M('#26292e', { rough: 0.6 }), 0.1, 0.4, 0.05);
+  skeg.position.set(-1.88, 0.66, 0);
+  g.add(skeg);
+  P.taillightsOn(g, M, hull.userData.pt, { v0: 0.1, v1: 0.3, w: 0.08 });
+  return g;
+}
+function buildSuvBoat(r, M, ctx) {
+  const g = new THREE.Group();
+  const c = car(r, M, ctx, { L: 4.75, W: 1.98, bodyH: 0.72, clear: 0.44, wheelR: 0.43, cabL: 2.6, cabX: -0.5, cabH: 0.62, rakeF: 0.4, rakeR: 0.22, sideCols: 3, roofRack: true });
+  c.g.position.x = 2.85;
+  g.add(c.g);
+  P.towHitch(c.g, M, -2.45, 0.48);
+  const b = boatTrailer(r, M);
+  b.position.x = -2.15;
+  g.add(b);
+  return g;
+}
+function hayTrailer(r, M) {
+  const g = new THREE.Group();
+  const wood = M('#8a6a3f', { rough: 0.9 });
+  const bed = box(wood, 3.3, 0.14, 1.9);
+  bed.position.set(-0.1, 0.62, 0);
+  g.add(bed);
+  for (const s of [-1, 1]) { // slatted side rails
+    for (const xx of [-1.5, -0.6, 0.3, 1.2]) P.post(g, M, { x: xx, z: s * 0.92, y0: 0.69, y1: 1.15, hex: '#6d5432', t: 0.07 });
+    const rail = box(wood, 3.2, 0.07, 0.06);
+    rail.position.set(-0.15, 1.12, s * 0.92);
+    g.add(rail);
+  }
+  g.add(wedge(M('#33373d', { rough: 0.7 }), { x0: 1.5, x1: 2.35, y0: 0.5, y1: 0.62, w0: 1.0, w1: 0.12 }));
+  P.axle(g, M, { x: -0.15, track: 1.8, r: 0.37, w: 0.24, hub: '#6d5432' });
+  const bale = M('#d9c26a', { rough: 0.88 });
+  const n = r.int(2, 3);
+  for (let i = 0; i < n; i++) {
+    for (const s of [-1, 1]) {
+      const b = cyl(bale, { r: 0.42, len: 0.8, axis: 'z', seg: 12 });
+      b.position.set(-1.35 + i * 1.15, 1.11, s * 0.45);
+      g.add(b);
+    }
+  }
+  for (let i = 0; i < n - 1; i++) { // top row
+    const b = cyl(bale, { r: 0.42, len: 0.8, axis: 'z', seg: 12 });
+    b.position.set(-0.78 + i * 1.15, 1.86, 0);
+    g.add(b);
+  }
+  return g;
+}
+function buildTractorHay(r, M, ctx) {
+  const g = new THREE.Group();
+  const t = buildTractor(r, M, ctx);
+  t.position.x = 2.35;
+  g.add(t);
+  const tr = hayTrailer(r, M);
+  tr.position.x = -1.75;
+  g.add(tr);
+  return g;
+}
+function buildRoadTrain(r, M, ctx) {
+  const t = truckFront(r, M, ctx, { nose: r.range(1.0, 1.35), W: 2.4, cabH: 1.9, cabL: 1.85, stacks: true, x1: 2.9 });
+  chassis(t, M, t.cabRearX - 2.9, { axles: 2 });
+  const fw = cyl(M('#33373d', { rough: 0.6 }), { r: 0.45, len: 0.1, seg: 12 });
+  fw.position.set(t.cabRearX - 2.0, 1.02, 0);
+  t.g.add(fw);
+  P.bullbar(t.g, M, { x: t.x1 + 0.16, y: t.clear + 0.35, w: t.W * 0.86 }); // outback roo bar
+  const hex = r.pick(['#e8e9eb', '#c63d3d', '#3a76c4', '#3e8948', '#e07b39']);
+  const x1a = t.cabRearX - 0.45;
+  const L1 = boxTrailer(r, M, t.g, x1a, { hex });
+  trailerAxles(M, t.g, x1a - L1);
+  const x1b = x1a - L1 - 0.7;
+  const L2 = boxTrailer(r, M, t.g, x1b, { hex });
+  trailerAxles(M, t.g, x1b - L2);
+  P.axle(t.g, M, { x: x1b + 0.15, track: 2.1, r: 0.5, w: 0.32, dual: true, hubR: 0.5 }); // converter dolly
+  const bar = box(M('#33373d', { rough: 0.6 }), 0.95, 0.1, 0.12);
+  bar.position.set(x1a - L1 - 0.32, 0.55, 0);
+  t.g.add(bar);
+  return t.g;
+}
 
 /* ================= construction & specials (batch 2) ================= */
 function crawlerTrack(g, M, o) {
@@ -1074,6 +1196,7 @@ export const REG = [
   { id: 'semiflat', label: 'Semi — Flatbed', cat: TRUCK, build: (r, M, x) => semi(r, M, x, (rr, m, g, x1) => flatTrailer(rr, m, g, x1)) },
   { id: 'semicontainer', label: 'Semi — Container', cat: TRUCK, build: (r, M, x) => semi(r, M, x, containerTrailer) },
   { id: 'carcarrier', label: 'Semi — Car Carrier', cat: TRUCK, build: (r, M, x) => semi(r, M, x, carCarrierTrailer) },
+  { id: 'roadtrain', label: 'Road Train', cat: TRUCK, build: buildRoadTrain },
   { id: 'crane', label: 'Crane Truck', cat: TRUCK, build: buildCraneTruck },
 
   { id: 'bulldozer', label: 'Bulldozer', cat: CONS, build: buildBulldozer },
@@ -1100,6 +1223,9 @@ export const REG = [
   { id: 'tuktuk', label: 'Tuk-Tuk', cat: SPEC, build: buildTuktuk },
   { id: 'snowmobile', label: 'Snowmobile', cat: SPEC, build: buildSnowmobile },
   { id: 'caravan', label: 'Car + Caravan', cat: SPEC, build: buildCaravanCombo },
+  { id: 'pickupcamper', label: 'Pickup + Caravan', cat: SPEC, build: buildPickupCamper },
+  { id: 'suvboat', label: 'SUV + Boat Trailer', cat: SPEC, build: buildSuvBoat },
+  { id: 'tractorhay', label: 'Tractor + Hay Trailer', cat: SPEC, build: buildTractorHay },
 ];
 
 // rigid truck variant that also decorates the cab (fire lightbar / plow blade)

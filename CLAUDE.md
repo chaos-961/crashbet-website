@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Lowpoly Garage" — a seeded procedural low-poly 3D vehicle generator (88 archetypes) built with vanilla JS + Three.js r169. No build step, no package.json, no framework. Three.js is vendored in `libs/` (import map in `index.html` maps `three` → `./libs/three.module.js`), so the app is fully offline.
+"Lowpoly Garage" — a seeded procedural low-poly 3D vehicle generator (92 archetypes) built with vanilla JS + Three.js r169. No build step, no package.json, no framework. Three.js is vendored in `libs/` (import map in `index.html` maps `three` → `./libs/three.module.js`), so the app is fully offline.
 
 ## Running & testing
 
@@ -27,7 +27,7 @@ Module chain (each imports the previous): `js/lib.js` → `js/parts.js` → `js/
 - `hexa(bottom4, top4)` is the underlying 8-corner solid; winding/order is exact — copy an existing call rather than deriving anew.
 - All geometry is non-indexed + `computeVertexNormals()` for flat shading; materials come from the per-build `matFactory()` (`M(hex, opts)`) which dedupes by parameter key.
 
-**Family builders (`families.js`)** — `car()`, `truckFront()`+`chassis()`, `van()`, `bus()` — are config-driven; most of the 88 registry entries are just parameter sets. Only genuinely novel shapes (F1, dragster, excavator, tram, bikes…) get bespoke builders in `vehicles.js`.
+**Family builders (`families.js`)** — `car()`, `truckFront()`+`chassis()`, `van()`, `bus()` — are config-driven; most of the 92 registry entries are just parameter sets. Only genuinely novel shapes (F1, dragster, excavator, tram, bikes…) get bespoke builders in `vehicles.js`.
 
 **Registry (`vehicles.js` `REG`)**: `{ id, label, cat, build(r, M, ctx) }`. `ctx.paint` is the user's paint override and must win over any `paintHex` default (`bodyHex: ctx.paint || ...`). To add a vehicle: add a REG entry (UI dropdown, counts, and smoke test pick it up automatically), optionally add a flavor-name entry in `names.js` keyed by id.
 
