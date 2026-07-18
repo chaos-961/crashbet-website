@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { buildVehicle } from './vehicles.js';
 import { makeRng, clamp, disposeGroup } from './lib.js';
+import { makeDeformState, applyImpact, flushDeform } from './deform.js';
 
 export const STEP = 1 / 60;
 
@@ -269,6 +270,7 @@ function buildRig(R, world, spec, entryCat) {
 
   return {
     spec, built, wrap, body, colliders, veh, wheelMeta, vis, mass, cat, engineF, virtual,
+    deform: makeDeformState(wrap, size),
     prev: { p: new THREE.Vector3(0, 0.035, 0), q: qYaw.clone() },
     cur: { p: new THREE.Vector3(spec.x || 0, 0.035, spec.z || 0), q: qYaw.clone() },
     susPrev: new Float32Array(wheels.length), susCur: new Float32Array(wheels.length),
@@ -350,38 +352,41 @@ export class CrashSim {
       }
       car.steerCur = car.veh.wheelSteering(0) ?? 0;
     }
-    if (this.onImpact) this.drainImpacts();
-    else this.events.drainCollisionEvents(() => {});
+    this.events.drainCollisionEvents(() => {});
+    this.processImpacts();
   }
 
-  drainImpacts() {
-    // deformation hook — reads contact manifolds for pairs involving cars
-    const seen = new Set();
-    this.events.drainCollisionEvents((h1, h2, started) => {
-      if (!started) return;
-      const key = h1 < h2 ? h1 * 1e7 + h2 : h2 * 1e7 + h1;
-      seen.add(key);
-    });
-    // impulse data lives on the manifolds; check all touching pairs of our cars
+  // crumple pass: read contact manifolds for every car, displace vertices
+  // scaled by Δv (impulse / mass). Purely contact-driven ⇒ deterministic.
+  processImpacts() {
+    const DV_MIN = 0.9; // below this it's resting/scraping contact, not a hit
     for (const car of this.cars) {
+      const bodyPos = car.body.translation(), bodyQuat = car.body.rotation();
+      let hit = false;
       for (const col of car.colliders) {
-        this.world.narrowPhase.contactPairsWith(col.handle, (other) => {
-          const a = col.handle, b = other;
-          this.world.narrowPhase.contactPair(a, b, (manifold, flipped) => {
-            const n = manifold.numContacts();
-            if (!n) return;
-            let maxImp = 0, pt = null;
-            for (let i = 0; i < Math.min(n, manifold.numSolverContacts()); i++) {
+        this.world.narrowPhase.contactPairsWith(col.handle, (otherCol) => {
+          const other = otherCol.handle !== undefined ? otherCol.handle : otherCol;
+          this.world.narrowPhase.contactPair(col.handle, other, (manifold, flipped) => {
+            const nC = manifold.numContacts(), nS = manifold.numSolverContacts();
+            if (!nC || !nS) return;
+            let maxImp = 0;
+            for (let i = 0; i < nC; i++) {
               const imp = manifold.contactImpulse(i);
-              if (imp > maxImp) { maxImp = imp; pt = this.world.narrowPhase ? manifold.solverContactPoint(i) : null; }
+              if (imp > maxImp) maxImp = imp;
             }
-            if (maxImp > 0 && pt) {
-              const nrm = manifold.normal();
-              this.onImpact(car, { impulse: maxImp, point: pt, normal: nrm, flipped, other: b });
-            }
+            const dv = maxImp / car.mass;
+            if (dv < DV_MIN) return;
+            const pt = manifold.solverContactPoint(0);
+            const n = manifold.normal(); // points collider1 → collider2
+            const s = flipped ? 1 : -1;  // push INTO our car
+            const ev = { point: pt, dir: { x: n.x * s, y: n.y * s, z: n.z * s }, dv };
+            applyImpact(car.deform, ev, bodyPos, bodyQuat);
+            hit = true;
+            if (this.onImpact) this.onImpact(car, ev);
           });
         });
       }
+      if (hit) flushDeform(car.deform);
     }
   }
 
@@ -460,8 +465,17 @@ export async function simSelfTest(catOf, log = console.log) {
   };
   const run = () => {
     const sim = new CrashSim(R, scenario, catOf);
-    const hashes = new Uint32Array(300);
+    const hashes = new Uint32Array(301);
     for (let i = 0; i < 300; i++) { sim.stepOnce(); hashes[i] = sim.hashState(); }
+    // fold deformed geometry in too — crumple must replay bit-exact
+    let g = 0x811c9dc5 >>> 0;
+    for (const car of sim.cars) {
+      for (const md of car.deform.meshes) {
+        const u = new Uint32Array(md.pos.array.buffer, md.pos.array.byteOffset, md.pos.array.length);
+        for (let i = 0; i < u.length; i += 7) { g ^= u[i]; g = Math.imul(g, 16777619) >>> 0; }
+      }
+    }
+    hashes[300] = g >>> 0;
     sim.dispose();
     return hashes;
   };
@@ -469,7 +483,7 @@ export async function simSelfTest(catOf, log = console.log) {
   let firstDiff = -1;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { firstDiff = i; break; }
   const ok = firstDiff === -1;
-  log(ok ? `SIM DETERMINISTIC: ok (300 steps, final hash ${a[299].toString(16)})`
-         : `SIM DETERMINISTIC: FAIL — first divergence at step ${firstDiff}`);
+  log(ok ? `SIM DETERMINISTIC: ok (300 steps + crumple, final hash ${a[299].toString(16)}, geo ${a[300].toString(16)})`
+         : `SIM DETERMINISTIC: FAIL — first divergence at ${firstDiff === 300 ? 'geometry' : 'step ' + firstDiff}`);
   return ok;
 }
