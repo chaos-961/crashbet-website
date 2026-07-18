@@ -482,6 +482,16 @@ function showFleet() {
 }
 $('fleet').addEventListener('click', showFleet);
 
+/* ---------------- hide / show controls ---------------- */
+function toggleUI(force) {
+  const hidden = document.body.classList.toggle('ui-collapsed', force);
+  const btn = $('uitoggle');
+  btn.setAttribute('aria-pressed', String(hidden));
+  btn.setAttribute('aria-label', hidden ? 'Show controls' : 'Hide controls');
+  btn.title = hidden ? 'Show controls (H)' : 'Hide controls (H)';
+}
+$('uitoggle').addEventListener('click', () => toggleUI());
+
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   // A clicked button keeps focus; Space would re-activate it on keyup AND
@@ -489,6 +499,7 @@ addEventListener('keydown', (e) => {
   if (e.key === ' ' && e.target.tagName === 'BUTTON') e.target.blur();
   if (e.key === ' ' || e.key.toLowerCase() === 'g') { e.preventDefault(); generate(randomSeed(), typeSel.value); }
   else if (e.key.toLowerCase() === 'r') $('spin').click();
+  else if (e.key.toLowerCase() === 'h') toggleUI();
   else if (e.key.toLowerCase() === 'f') showFleet();
   else if (e.key.toLowerCase() === 't') { // cycle types with the current seed
     const dir = e.shiftKey ? REG.length - 1 : 1;

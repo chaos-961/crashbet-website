@@ -49,25 +49,53 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: none;
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- bottom stack ---------- */
+/* ---------- right-docked control stack ---------- */
+:root { --dockw: 340px; }
 .hud.bottom {
-  bottom: 0; flex-direction: column; align-items: center; gap: 10px;
-  padding: 0 14px calc(12px + env(safe-area-inset-bottom));
+  left: auto; right: 0; top: 0; bottom: 0;
+  flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: 10px;
+  width: calc(var(--dockw) + 28px + env(safe-area-inset-right));
+  padding: calc(12px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) 14px;
+  transition: transform 0.34s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.34s ease;
 }
+body.ui-collapsed .hud.bottom { transform: translateX(calc(100% + 8px)); opacity: 0; }
+body.ui-collapsed .hud.bottom > * { pointer-events: none; }
+body.ui-collapsed .hud.top { opacity: 0; }
+body.ui-collapsed .hud.top > * { pointer-events: none; }
+.hud.top { transition: opacity 0.34s ease; }
+
+/* ---------- hide / show toggle ---------- */
+.uitoggle {
+  position: fixed; z-index: 20; top: 50%;
+  right: calc(var(--dockw) + 34px + env(safe-area-inset-right));
+  transform: translateY(-50%);
+  width: 38px; height: 58px; border-radius: 13px;
+  display: grid; place-items: center;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+  color: var(--text-dim);
+  transition: right 0.34s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease, color 0.15s ease;
+}
+.uitoggle svg { width: 20px; height: 20px; transition: transform 0.34s ease; }
+.uitoggle:hover { color: var(--text); background: rgba(255, 255, 255, 0.12); }
+body.ui-collapsed .uitoggle { right: calc(12px + env(safe-area-inset-right)); }
+body.ui-collapsed .uitoggle svg { transform: scaleX(-1); }
+
 .namechip {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   background: var(--panel); border: 1px solid var(--panel-border); border-radius: 999px;
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  padding: 8px 22px; max-width: min(92vw, 560px); text-align: center;
+  padding: 8px 22px; width: 100%; max-width: var(--dockw); text-align: center;
 }
 .namechip:hover { border-color: rgba(255, 176, 58, 0.5); }
-.namechip .vname { font-weight: 750; font-size: 15.5px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 84vw; }
+.namechip .vname { font-weight: 750; font-size: 15.5px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .namechip .vsub { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .namechip.pop { animation: pop 0.38s cubic-bezier(0.2, 1.6, 0.4, 1); }
 @keyframes pop { 0% { transform: scale(0.88); opacity: 0.4; } 100% { transform: scale(1); opacity: 1; } }
 
 .panel {
-  width: min(100%, 640px);
+  width: 100%; max-width: var(--dockw);
   background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
@@ -166,6 +194,7 @@ select option, select optgroup { background: #1d1f24; color: var(--text); }
 
 /* ---------- mobile ---------- */
 @media (max-width: 620px) {
+  :root { --dockw: min(86vw, 330px); }
   .hud.top { padding: calc(10px + env(safe-area-inset-top)) 12px 0; }
   .brand h1 { font-size: 14.5px; }
   .brand p { font-size: 10.5px; }
