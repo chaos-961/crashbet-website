@@ -194,7 +194,7 @@ export function car(r, M, ctx, k = {}) {
       g.add(rb);
     }
   }
-  return { g, mats, L, W, bodyH, clear, bodyTop, cabPt, bpt, topY };
+  return { g, mats, L, W, bodyH, clear, bodyTop, cabPt, bpt, topY, wR, wRr, axF, axR, track };
 }
 
 /* ============================================================

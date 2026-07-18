@@ -29,8 +29,24 @@ function pickupBed(c, M, r, o = {}) {
 }
 const PICKUP_K = { L: 5.2, W: 1.98, bodyH: 0.62, clear: 0.4, wheelR: 0.42, wheelW: 0.3, cabL: 1.55, cabX: 0.62, cabH: 0.6, rakeF: 0.42, rakeR: 0.2, sideCols: 1, axInR: 1.05, tail: 0.1, tailB: 0.03 };
 function buildPickup(r, M, ctx) {
-  const c = car(r, M, ctx, { ...PICKUP_K, sideCols: r.pick([1, 2]), dualRear: r.chance(0.22), mudflaps: true });
+  // dually: P.axle's dual option tucks the twin inboard (hidden under the bed),
+  // so add visible outer twins + fender flares instead
+  const dually = r.chance(0.22);
+  const c = car(r, M, ctx, { ...PICKUP_K, sideCols: r.pick([1, 2]), mudflaps: !dually });
   pickupBed(c, M, r);
+  if (dually) {
+    for (const s of [-1, 1]) {
+      const wh = P.wheel(M, c.wRr, 0.24, {});
+      wh.position.set(c.axR, c.wRr, s * (c.track / 2 + 0.26));
+      c.g.add(wh);
+      const flare = slab(c.mats.body2, {
+        x0: c.axR - c.wRr * 1.35, x1: c.axR + c.wRr * 1.35,
+        y0: c.wRr * 1.8, y1: c.wRr * 1.8 + 0.12, w: 0.44, nose: c.wRr * 0.5, tail: c.wRr * 0.5,
+      });
+      flare.position.z = s * (c.W / 2 + 0.06);
+      c.g.add(flare);
+    }
+  }
   return c.g;
 }
 function buildLifted(r, M, ctx) {
@@ -1145,13 +1161,13 @@ export const REG = [
 
   { id: 'f1', label: 'Formula Racer', cat: RACE, build: buildF1 },
   { id: 'lemans', label: 'Endurance Racer', cat: RACE, build: buildLeMans },
-  { id: 'rally', label: 'Rally Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 3.9, W: 1.9, cabL: 2.0, cabX: -0.55, cabH: 0.56, rakeF: 0.5, rakeR: 0.18, tail: 0.12, sideCols: 2, spotPod: true, spoiler: true, stripes: true, clear: 0.36, wheelR: 0.4 }); P.doorRoundels(c.g, M, { x: 0.35, y: c.clear + c.bodyH * 0.48, w: c.W, r: 0.24 }); return c.g; } },
+  { id: 'rally', label: 'Rally Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 3.9, W: 1.9, cabL: 2.0, cabX: -0.55, cabH: 0.56, rakeF: 0.5, rakeR: 0.18, tail: 0.12, sideCols: 2, spotPod: true, spoiler: true, stripes: true, clear: 0.36, wheelR: 0.4, sunroofP: 0 }); P.doorRoundels(c.g, M, { x: 0.35, y: c.clear + c.bodyH * 0.48, w: c.W, r: 0.24 }); return c.g; } },
   { id: 'hotrod', label: 'Hot Rod', cat: RACE, build: buildHotrod },
   { id: 'kart', label: 'Go-Kart', cat: RACE, build: buildKart },
   { id: 'moto', label: 'Motorcycle', cat: RACE, build: buildMoto },
   { id: 'chopper', label: 'Chopper', cat: RACE, build: buildChopper },
   { id: 'dragster', label: 'Dragster', cat: RACE, build: buildDragster },
-  { id: 'stockcar', label: 'Stock Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 4.9, W: 2.02, bodyH: 0.56, clear: 0.36, cabL: 1.85, cabX: -0.4, cabH: 0.54, rakeF: 0.5, rakeR: 0.35, sideCols: 1, spoiler: true, wheelR: 0.4, wheelW: 0.34, grille: false }); P.racingStripes(c.g, M, { x0: -2.2, x1: 2.2, y: c.bodyTop, w2: 0.2, gap: 0.12, hex: r.pick(['#e6e7e9', '#22252a', '#dfbd25']) }); P.doorRoundels(c.g, M, { x: 0.15, y: c.clear + c.bodyH * 0.48, w: c.W, r: 0.24 }); return c.g; } },
+  { id: 'stockcar', label: 'Stock Car', cat: RACE, build: (r, M, x) => { const c = car(r, M, x, { L: 4.9, W: 2.02, bodyH: 0.56, clear: 0.36, cabL: 1.85, cabX: -0.4, cabH: 0.54, rakeF: 0.5, rakeR: 0.35, sideCols: 1, spoiler: true, wheelR: 0.4, wheelW: 0.34, grille: false, sunroofP: 0 }); P.racingStripes(c.g, M, { x0: -2.2, x1: 2.2, y: c.bodyTop, w2: 0.2, gap: 0.12, hex: r.pick(['#e6e7e9', '#22252a', '#dfbd25']) }); P.doorRoundels(c.g, M, { x: 0.15, y: c.clear + c.bodyH * 0.48, w: c.W, r: 0.24 }); return c.g; } },
 
   { id: 'suv', label: 'SUV', cat: OFF, build: (r, M, x) => car(r, M, x, { L: 4.75, W: 1.98, bodyH: 0.72, clear: 0.44, wheelR: 0.43, cabL: 2.6, cabX: -0.5, cabH: 0.62, rakeF: 0.4, rakeR: 0.22, sideCols: 3, roofRack: true }).g },
   { id: 'overlander', label: 'Overlander SUV', cat: OFF, build: (r, M, x) => car(r, M, x, { L: 4.8, W: 2.02, bodyH: 0.74, clear: 0.52, wheelR: 0.47, wheelW: 0.34, cabL: 2.6, cabX: -0.5, cabH: 0.62, rakeF: 0.38, rakeR: 0.22, sideCols: 3, roofRack: true, spare: true, pushBar: true, spotPod: true }).g },

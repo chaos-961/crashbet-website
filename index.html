@@ -69,18 +69,20 @@
       <button id="next" class="ibtn" aria-label="Next vehicle" title="Next (→)" disabled>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button id="spin" class="ibtn" aria-label="Toggle turntable rotation" aria-pressed="true" title="Turntable (R)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 3v4h-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <button id="snap" class="ibtn" aria-label="Save snapshot image" title="Snapshot (photo)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l2-2.5h6l2 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
-      </button>
-      <button id="glb" class="ibtn" aria-label="Export 3D model (.glb)" title="Export .glb">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11M7.5 10 12 14.5 16.5 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16.5v3A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-      </button>
-      <button id="fleet" class="ibtn" aria-label="Toggle fleet view" aria-pressed="false" title="Fleet view (F)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="3" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
-      </button>
+      <div class="tools" role="group" aria-label="Tools">
+        <button id="spin" class="ibtn" aria-label="Toggle turntable rotation" aria-pressed="true" title="Turntable (R)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 3v4h-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="snap" class="ibtn" aria-label="Save snapshot image" title="Snapshot (photo)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l2-2.5h6l2 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+        </button>
+        <button id="glb" class="ibtn" aria-label="Export 3D model (.glb)" title="Export .glb">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11M7.5 10 12 14.5 16.5 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16.5v3A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+        <button id="fleet" class="ibtn" aria-label="Toggle fleet view" aria-pressed="false" title="Fleet view (F)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="3.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="3" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="13.5" y="14" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+        </button>
+      </div>
     </div>
   </div>
   <p class="hint">drag to orbit · scroll / pinch to zoom · <b>G</b> new vehicle · <b>T</b> next type · <b>R</b> spin · <b>F</b> fleet · <b>S</b> slideshow</p>

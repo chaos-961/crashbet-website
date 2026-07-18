@@ -163,6 +163,7 @@ function generate(seed, typeId, opts = {}) {
   if (v.golden) toast('✨ 1-in-100 golden find!');
   $('seed').value = seed;
   const chip = $('namechip');
+  chip.classList.toggle('golden', !!v.golden);
   chip.classList.remove('pop');
   void chip.offsetWidth; // restart animation
   chip.classList.add('pop');
@@ -202,10 +203,14 @@ const typeSel = $('type');
   optAny.value = 'any';
   optAny.textContent = `Surprise me — any of ${REG.length} types`;
   typeSel.appendChild(optAny);
+  const CAT_ICON = {
+    Cars: '🚗', 'Racing & Fun': '🏁', 'Off-Road': '🏔️', 'Vans & Buses': '🚌', Trucks: '🚚',
+    'Service & Emergency': '🚨', Construction: '🏗️', Rail: '🚋', Special: '✨',
+  };
   const cats = [...new Set(REG.map((e) => e.cat))];
   for (const cat of cats) {
     const og = document.createElement('optgroup');
-    og.label = cat;
+    og.label = (CAT_ICON[cat] ? CAT_ICON[cat] + ' ' : '') + cat;
     for (const e of REG.filter((x) => x.cat === cat)) {
       const o = document.createElement('option');
       o.value = e.id;

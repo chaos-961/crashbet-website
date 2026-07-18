@@ -116,6 +116,8 @@ select option, select optgroup { background: #1d1f24; color: var(--text); }
 
 /* ---------- action buttons ---------- */
 .actions { align-items: center; }
+/* desktop: tools sit inline with the main controls; mobile: their own row */
+.tools { display: contents; }
 .ibtn {
   width: 46px; height: 50px; flex: 0 0 auto; border-radius: 13px;
   display: grid; place-items: center;
@@ -155,6 +157,13 @@ select option, select optgroup { background: #1d1f24; color: var(--text); }
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* ---------- golden find ---------- */
+.namechip.golden { border-color: rgba(232, 179, 58, 0.6); box-shadow: 0 0 26px rgba(232, 179, 58, 0.28), inset 0 0 14px rgba(232, 179, 58, 0.1); }
+.namechip.golden .vname {
+  background: linear-gradient(100deg, #f6d87c, #e8b33a 45%, #fff0bf 55%, #e8b33a);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
 /* ---------- mobile ---------- */
 @media (max-width: 620px) {
   .hud.top { padding: calc(10px + env(safe-area-inset-top)) 12px 0; }
@@ -166,7 +175,11 @@ select option, select optgroup { background: #1d1f24; color: var(--text); }
   .field.grow { flex: 1 1 100%; }
   .seedfield { flex: 1 1 auto; width: auto; }
   .namechip .vname { font-size: 14px; }
-  .panel { padding: 10px; }
+  .panel { padding: 10px; gap: 8px; }
+  /* 7 buttons don't fit one row on phones — tools get their own centered row */
+  .actions { flex-wrap: wrap; }
+  .tools { display: flex; flex: 1 1 100%; justify-content: center; gap: 10px; }
+  .tools .ibtn { height: 44px; width: 56px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
