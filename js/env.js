@@ -42,6 +42,130 @@ const PRESETS = {
   },
 };
 
+/* ---------------- procedural skybox ----------------
+   A camera-following gradient dome + sun/moon disc, deterministic star field
+   and low-poly cloud blobs. Purely visual; all materials are fog-free and
+   tone-map-exempt so the authored sky colors survive ACES. Fog color comes
+   from the sky's horizon so the ground disc fades into the sky, not into a
+   flat backdrop. */
+const SKY_R = 430;
+const SKIES = {
+  proving: {
+    top: '#2b5c94', mid: '#5e8fc0', hor: '#b6cbd9', fog: '#a9bcc9',
+    sun: { hex: '#fff3d2', glow: '#ffe9b8', az: 0.59, el: 0.72, size: 22 },
+    clouds: { n: 10, hex: '#eef1f4' },
+  },
+  salt: {
+    top: '#6f9ab8', mid: '#c9c2a4', hor: '#ecdfc0', fog: '#ded2b4',
+    sun: { hex: '#fff6e0', glow: '#ffedc4', az: -0.5, el: 0.5, size: 30 },
+    clouds: { n: 5, hex: '#f4efe2' },
+  },
+  night: {
+    top: '#070a11', mid: '#101624', hor: '#1d2536', fog: '#171e2c',
+    sun: { hex: '#e6edf8', glow: '#9fb4d8', az: 2.2, el: 0.62, size: 13 },
+    stars: 260,
+    clouds: { n: 3, hex: '#1a2130' },
+  },
+  grid: { top: '#16181e', mid: '#1f2229', hor: '#2b2f37', fog: '#23252b' },
+};
+
+function makeSky(id) {
+  const cfg = SKIES[id] || SKIES.proving;
+  const g = new THREE.Group();
+  const dirOf = (az, el) => new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+
+  // gradient dome (v 0.5 = equator = horizon; horizon color holds below it)
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 512;
+  const x = c.getContext('2d');
+  const grad = x.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, cfg.top);
+  grad.addColorStop(0.34, cfg.mid);
+  grad.addColorStop(0.5, cfg.hor);
+  grad.addColorStop(1, cfg.hor);
+  x.fillStyle = grad;
+  x.fillRect(0, 0, 4, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(SKY_R, 24, 14),
+    new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, toneMapped: false, depthWrite: false }),
+  );
+  dome.frustumCulled = false;
+  dome.renderOrder = -10;
+  g.add(dome);
+
+  if (cfg.sun) { // sun by day, moon by night — same recipe, different palette
+    const d = dirOf(cfg.sun.az, cfg.sun.el);
+    const gc = document.createElement('canvas');
+    gc.width = gc.height = 128;
+    const gx = gc.getContext('2d');
+    const rad = gx.createRadialGradient(64, 64, 6, 64, 64, 64);
+    rad.addColorStop(0, cfg.sun.glow + 'bb');
+    rad.addColorStop(1, cfg.sun.glow + '00');
+    gx.fillStyle = rad;
+    gx.fillRect(0, 0, 128, 128);
+    const gtex = new THREE.CanvasTexture(gc);
+    gtex.colorSpace = THREE.SRGBColorSpace;
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(cfg.sun.size * 7, cfg.sun.size * 7),
+      new THREE.MeshBasicMaterial({ map: gtex, transparent: true, depthWrite: false, fog: false, toneMapped: false }),
+    );
+    glow.position.copy(d).multiplyScalar(SKY_R * 0.94);
+    glow.lookAt(0, 0, 0);
+    glow.renderOrder = -9;
+    g.add(glow);
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(cfg.sun.size, 24),
+      new THREE.MeshBasicMaterial({ color: cfg.sun.hex, fog: false, toneMapped: false, depthWrite: false }),
+    );
+    disc.position.copy(d).multiplyScalar(SKY_R * 0.92);
+    disc.lookAt(0, 0, 0);
+    disc.renderOrder = -8;
+    g.add(disc);
+  }
+
+  if (cfg.stars) {
+    const r = makeRng('sky:stars:' + id);
+    const pos = new Float32Array(cfg.stars * 3);
+    for (let i = 0; i < cfg.stars; i++) {
+      const d = dirOf(r.range(0, Math.PI * 2), Math.asin(r.range(0.05, 0.995))).multiplyScalar(SKY_R * 0.96);
+      pos[i * 3] = d.x; pos[i * 3 + 1] = d.y; pos[i * 3 + 2] = d.z;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: '#cdd8ec', size: 2.2, sizeAttenuation: false,
+      transparent: true, opacity: 0.9, fog: false, toneMapped: false, depthWrite: false,
+    }));
+    pts.frustumCulled = false;
+    pts.renderOrder = -9;
+    g.add(pts);
+  }
+
+  if (cfg.clouds) {
+    const r = makeRng('sky:clouds:' + id);
+    const mat = new THREE.MeshBasicMaterial({ color: cfg.clouds.hex, fog: false, toneMapped: false });
+    for (let i = 0; i < cfg.clouds.n; i++) {
+      const az = r.range(0, Math.PI * 2), el = r.range(0.1, 0.38);
+      const cl = new THREE.Group();
+      const blobs = r.int(3, 5);
+      for (let b = 0; b < blobs; b++) {
+        const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r.range(7, 12), 0), mat);
+        m.scale.y = r.range(0.35, 0.5);
+        m.position.set(b * r.range(6, 9) - blobs * 3.5, r.range(-1.8, 1.8), r.range(-4, 4));
+        m.rotation.y = r.range(0, Math.PI);
+        cl.add(m);
+      }
+      cl.position.copy(dirOf(az, el).multiplyScalar(SKY_R * r.range(0.8, 0.92)));
+      cl.rotation.y = -az;
+      cl.scale.setScalar(r.range(1.6, 3.0));
+      g.add(cl);
+    }
+  }
+  return g;
+}
+
 function groundTexture([inner, mid, outer]) {
   const c = document.createElement('canvas');
   c.width = c.height = 512;
@@ -155,6 +279,7 @@ const DECO = { proving: decoProving, salt: decoSalt, night: decoNight, grid: dec
 export function initEnv(ctx) {
   let current = null;
   let deco = null;
+  let sky = null;
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(90, 48),
     new THREE.MeshStandardMaterial({ roughness: 0.96 }),
@@ -179,8 +304,19 @@ export function initEnv(ctx) {
     if (id === current) return;
     current = id;
     const p = { ...BASE, ...PRESETS[id] };
-    ctx.scene.background = new THREE.Color(p.bg);
-    ctx.scene.fog = new THREE.Fog(new THREE.Color(p.bg), p.fogN * state.fk, p.fogF * state.fk);
+    const sk = SKIES[id] || SKIES.proving;
+    // skybox replaces the flat background; fog tints to the sky's horizon
+    if (sky) {
+      ctx.scene.remove(sky);
+      sky.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+      });
+    }
+    sky = makeSky(id);
+    ctx.scene.add(sky);
+    ctx.scene.background = new THREE.Color(sk.hor);
+    ctx.scene.fog = new THREE.Fog(new THREE.Color(sk.fog), p.fogN * state.fk, p.fogF * state.fk);
     state.fogN = p.fogN; state.fogF = p.fogF;
     ctx.hemi.intensity = p.hemi;
     ctx.hemi.color.set(p.hemiSky);
@@ -202,5 +338,10 @@ export function initEnv(ctx) {
     ctx.invalidate();
   }
 
-  return { apply, setFogScale, state, get current() { return current; } };
+  // the dome follows the camera so its horizon never gets "reached"
+  function syncSky(pos) {
+    if (sky) sky.position.copy(pos);
+  }
+
+  return { apply, setFogScale, syncSky, state, get current() { return current; } };
 }

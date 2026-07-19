@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Crash Bet — Deterministic Crash-Physics Sandbox</title>
-<meta name="description" content="One sandbox, full freedom: spawn seeded low-poly cars and props, tune the physics, and share crashes that replay identically from a URL.">
+<title>Crash Bet</title>
+<meta name="description" content="Crash Bet — a deterministic low-poly crash sandbox. 92 seeded vehicles, 51 scenery models, spline roads and generated worlds.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path fill='%23ff7a3d' d='M4 20l3-7 4-3h10l4 3 3 7v5h-4a3 3 0 0 1-6 0h-4a3 3 0 0 1-6 0H4z'/></svg>">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#25272c">
@@ -14,257 +14,77 @@
 </script>
 </head>
 <body>
-<div id="stage" aria-label="3D sandbox viewport"></div>
+<div id="stage" aria-label="3D viewport"></div>
 
-<div id="emptyhint" aria-hidden="true">
-  <div class="eh-title">Spawn your first car</div>
-  <div class="eh-sub">pick a type &amp; seed, hit <b>Spawn</b>, then tap the ground</div>
-  <svg viewBox="0 0 48 32" aria-hidden="true"><path d="M4 8c10 14 26 18 40 14m0 0-8-2m8 2-4 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-</div>
-
-<header class="hud top">
-  <div class="brand">
-    <svg class="logo" viewBox="0 0 48 32" aria-hidden="true">
+<!-- ============ main menu ============ -->
+<div id="menu">
+  <div class="menucard">
+    <svg class="menulogo" viewBox="0 0 48 32" aria-hidden="true">
       <path fill="url(#lg)" d="M4 22l4-9 7-4h14l7 4 8 9v5h-5a4 4 0 0 1-8 0H19a4 4 0 0 1-8 0H4z"/>
       <path fill="#181a1e" opacity=".55" d="M16 11h6v6h-9zM24 11h6l3 6h-9z"/>
       <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#ff6a3d"/><stop offset="1" stop-color="#ffb03a"/>
       </linearGradient></defs>
     </svg>
-    <div>
-      <h1>CRASH <span>BET</span></h1>
-      <p id="countline">— vehicle types</p>
-    </div>
+    <h1 class="menutitle">CRASH <span>BET</span></h1>
+    <p class="menutag" id="menutag">deterministic low-poly sandbox</p>
+    <button id="startBtn" class="mbtn primary big">▶&nbsp; Start Game</button>
+    <p class="menufoot">drag to orbit · pinch / scroll to zoom</p>
   </div>
-  <div class="topright">
-    <button id="snap" class="ibtn mini" aria-label="Save snapshot image" title="Snapshot">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l2-2.5h6l2 2.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.2" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
-    </button>
-    <button id="glb" class="ibtn mini" aria-label="Export 3D model (.glb)" title="Export .glb">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11M7.5 10 12 14.5 16.5 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16.5v3A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-    </button>
-    <button id="helpBtn" class="ibtn mini" aria-label="Keyboard shortcuts" title="Shortcuts (?)">?</button>
-    <div class="chip" id="stats" title="Scene contents">…</div>
-  </div>
-</header>
-
-<div class="hud bottom">
-  <button class="namechip" id="namechip" title="Copy share link">
-    <span class="vname" id="vname" aria-live="polite">…</span>
-    <span class="vsub" id="vsub"></span>
-  </button>
-
-  <div class="panel">
-    <div class="row actions">
-      <button id="c_reset" class="ibtn" aria-label="Reset simulation" title="Reset (R)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.34 5.66" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M4 21v-4h4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <button id="c_play" class="primary">▶ Play</button>
-      <button id="c_step" class="ibtn" aria-label="Step one tick" title="Step one tick (.)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5.5v13M10.5 5.5 17 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <button id="c_slow" class="ibtn slowbtn" aria-label="Slow motion" aria-pressed="false" title="Slow motion">1×</button>
-    </div>
-
-    <div class="row carchips" id="objchips" role="group" aria-label="Objects in scene"></div>
-
-    <div class="sections">
-      <details id="sec_spawn" open>
-        <summary>Spawn</summary>
-        <div class="secbody">
-          <div class="row">
-            <label class="field grow">
-              <span>Vehicle type</span>
-              <select id="s_type" aria-label="Vehicle type"></select>
-            </label>
-          </div>
-          <div class="row">
-            <label class="field grow">
-              <span>Seed</span>
-              <div class="seedbox">
-                <input id="s_seed" inputmode="text" autocomplete="off" spellcheck="false" aria-label="Seed" placeholder="any text">
-                <button id="s_dice" class="ibtn ghost" aria-label="Random seed" title="Random seed">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.6" cy="8.6" r="1.6" fill="currentColor"/><circle cx="15.4" cy="8.6" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8.6" cy="15.4" r="1.6" fill="currentColor"/><circle cx="15.4" cy="15.4" r="1.6" fill="currentColor"/></svg>
-                </button>
-              </div>
-            </label>
-          </div>
-          <div class="row paintrow" id="s_paints" role="group" aria-label="Paint color"></div>
-          <div class="row">
-            <button id="spawnCar" class="primary">Spawn car</button>
-          </div>
-          <div class="row propgrid" role="group" aria-label="Props">
-            <button id="prop_ramp" class="propbtn">⤴ Ramp</button>
-            <button id="prop_barrier" class="propbtn">🧱 Barrier</button>
-            <button id="prop_boxes" class="propbtn">📦 Boxes</button>
-            <button id="prop_pole" class="propbtn">💡 Pole</button>
-          </div>
-        </div>
-      </details>
-
-      <details id="sec_sel">
-        <summary id="selTitle">Selected</summary>
-        <div class="secbody">
-          <p class="hint nosel">Tap an object in the scene to edit it.</p>
-          <div class="selcar">
-            <div class="row">
-              <label class="field grow">
-                <span>Type</span>
-                <select id="e_type" aria-label="Selected car type"></select>
-              </label>
-            </div>
-            <div class="row">
-              <label class="field grow">
-                <span>Seed</span>
-                <div class="seedbox">
-                  <input id="e_seed" inputmode="text" autocomplete="off" spellcheck="false" aria-label="Selected car seed">
-                  <button id="e_dice" class="ibtn ghost" aria-label="Reroll seed" title="Reroll seed (G)">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.6" cy="8.6" r="1.6" fill="currentColor"/><circle cx="15.4" cy="8.6" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8.6" cy="15.4" r="1.6" fill="currentColor"/><circle cx="15.4" cy="15.4" r="1.6" fill="currentColor"/></svg>
-                  </button>
-                </div>
-              </label>
-            </div>
-            <div class="row paintrow" id="e_paints" role="group" aria-label="Selected car paint"></div>
-            <div class="row sliders">
-              <label class="field slider">
-                <span>Heading <b id="v_e_heading">0°</b></span>
-                <input type="range" id="e_heading" min="-180" max="180" step="5" value="0">
-              </label>
-              <label class="field slider">
-                <span>Speed <b id="v_e_speed">50 km/h</b></span>
-                <input type="range" id="e_speed" min="0" max="144" step="2" value="50">
-              </label>
-            </div>
-            <div class="row sliders">
-              <label class="field slider">
-                <span>Steer <b id="v_e_steer">0°</b></span>
-                <input type="range" id="e_steer" min="-30" max="30" step="1" value="0">
-              </label>
-              <label class="field slider">
-                <span>Throttle <b id="v_e_throttle">100%</b></span>
-                <input type="range" id="e_throttle" min="0" max="100" step="5" value="100">
-              </label>
-            </div>
-            <p class="subhead">Physics</p>
-            <div class="row sliders">
-              <label class="field slider">
-                <span>Mass <b id="v_e_mass">×1.00</b></span>
-                <input type="range" id="e_mass" min="0.5" max="3" step="0.05" value="1">
-              </label>
-              <label class="field slider">
-                <span>Grip <b id="v_e_grip">×1.00</b></span>
-                <input type="range" id="e_grip" min="0.3" max="2.5" step="0.05" value="1">
-              </label>
-            </div>
-            <div class="row sliders">
-              <label class="field slider">
-                <span>Bounce <b id="v_e_rest">0.12</b></span>
-                <input type="range" id="e_rest" min="0" max="1" step="0.02" value="0.12">
-              </label>
-              <label class="field slider">
-                <span>Crumple <b id="v_e_crumple">×1.00</b></span>
-                <input type="range" id="e_crumple" min="0.2" max="2.5" step="0.05" value="1">
-              </label>
-            </div>
-            <p class="subhead">Launch</p>
-            <div class="row sliders">
-              <label class="field slider">
-                <span>Start delay <b id="v_e_delay">0.0 s</b></span>
-                <input type="range" id="e_delay" min="0" max="5" step="0.1" value="0">
-              </label>
-              <label class="field slider">
-                <span>Brake at <b id="v_e_brake">off</b></span>
-                <input type="range" id="e_brake" min="0" max="8" step="0.1" value="0">
-              </label>
-            </div>
-            <label class="checkrow">
-              <input type="checkbox" id="e_rolling">
-              <span>Rolling start — release from rest, no launch speed</span>
-            </label>
-          </div>
-          <div class="selprop">
-            <div class="row sliders">
-              <label class="field slider">
-                <span>Heading <b id="v_p_heading">0°</b></span>
-                <input type="range" id="p_heading" min="-180" max="180" step="5" value="0">
-              </label>
-            </div>
-          </div>
-          <div class="row actions selactions">
-            <button id="e_dup" class="ibtn wide" title="Duplicate (D / Shift+drag)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8.5" y="8.5" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 4.5h-9a2 2 0 0 0-2 2v9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-              <span>Duplicate</span>
-            </button>
-            <button id="e_focus" class="ibtn wide" title="Focus camera (F)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.4" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-              <span>Focus</span>
-            </button>
-            <button id="e_del" class="ibtn wide danger" title="Delete (Del)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M8 7l1 13h6l1-13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span>Delete</span>
-            </button>
-          </div>
-        </div>
-      </details>
-
-      <details id="sec_scene">
-        <summary>Scene</summary>
-        <div class="secbody">
-          <div class="row sliders">
-            <label class="field slider grow">
-              <span>Gravity <b id="v_g_gravity">9.8 m/s²</b></span>
-              <input type="range" id="g_gravity" min="1" max="25" step="0.1" value="9.81">
-            </label>
-          </div>
-          <div class="row presetrow">
-            <button id="g_moon" class="ccar">🌙 Moon</button>
-            <button id="g_earth" class="ccar">🌍 Earth</button>
-            <button id="g_heavy" class="ccar">🪨 Heavy</button>
-          </div>
-          <div class="row sliders">
-            <label class="field slider grow">
-              <span>Arena size <b id="v_g_arena">80 m</b></span>
-              <input type="range" id="g_arena" min="40" max="160" step="10" value="80">
-            </label>
-          </div>
-          <label class="checkrow">
-            <input type="checkbox" id="g_walls" checked>
-            <span>Invisible arena walls</span>
-          </label>
-          <p class="subhead">Environment</p>
-          <div class="row presetrow" id="envchips" role="group" aria-label="Environment preset"></div>
-        </div>
-      </details>
-    </div>
-  </div>
-  <p class="hint dockhint">tap object to select · drag to move · <b>Space</b> play · <b>?</b> shortcuts · <b>H</b> hide UI</p>
 </div>
 
-<button id="uitoggle" class="uitoggle" aria-label="Hide controls" aria-pressed="false" title="Hide controls (H)">
-  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-</button>
+<!-- ============ in-game HUD ============ -->
+<div id="hud" hidden>
+  <button id="hamb" class="hambtn" aria-label="Open menu" title="Menu">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+  </button>
+  <button id="camBtn" class="hambtn cambtn" aria-label="Toggle freecam" title="Freecam (C)">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h9A1.5 1.5 0 0 1 14 10v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 15.5V10a1.5 1.5 0 0 1 1.5-1.5zM14 11.5l6-3v9l-6-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+  </button>
+</div>
 
-<div id="helpov" role="dialog" aria-label="Keyboard shortcuts" hidden>
-  <div class="helpcard">
-    <h2>Shortcuts</h2>
-    <dl>
-      <dt>Space</dt><dd>Play / pause</dd>
-      <dt>R</dt><dd>Reset simulation</dd>
-      <dt>.</dt><dd>Step one tick</dd>
-      <dt>Click / tap</dt><dd>Select object</dd>
-      <dt>Drag object</dt><dd>Move it</dd>
-      <dt>Shift + drag</dt><dd>Duplicate &amp; drag the copy</dd>
-      <dt>D</dt><dd>Duplicate selected</dd>
-      <dt>Delete</dt><dd>Delete selected</dd>
-      <dt>Esc</dt><dd>Deselect / cancel placing</dd>
-      <dt>F</dt><dd>Focus selected object</dd>
-      <dt>G</dt><dd>Reroll selected car's seed</dd>
-      <dt>T / Shift+T</dt><dd>Next / previous vehicle type</dd>
-      <dt>H</dt><dd>Hide / show UI</dd>
-      <dt>?</dt><dd>This overlay</dd>
-    </dl>
-    <button id="helpClose" class="primary">Got it</button>
+<!-- ============ freecam touch controls ============ -->
+<div id="flyui" aria-hidden="true">
+  <div id="joy"><div id="joynub"></div></div>
+  <div class="flybtns">
+    <button id="flyUp" aria-label="Ascend">▲</button>
+    <button id="flyDown" aria-label="Descend">▼</button>
   </div>
+</div>
+
+<!-- ============ pause menu ============ -->
+<div id="pause" hidden>
+  <div class="pausecard" role="dialog" aria-label="Pause menu">
+    <div id="pauseMain">
+      <h2>Paused</h2>
+      <button id="p_resume" class="mbtn primary">Resume</button>
+      <button id="p_settings" class="mbtn">Settings</button>
+      <button id="p_fs" class="mbtn">Fullscreen</button>
+      <button id="p_leave" class="mbtn danger">Leave</button>
+    </div>
+    <div id="pauseSettings" hidden>
+      <h2>Settings</h2>
+      <p class="msub">Environment</p>
+      <div class="mchips" id="set_envs" role="group" aria-label="Environment"></div>
+      <p class="msub">Quality</p>
+      <div class="mchips" id="set_quality" role="group" aria-label="Quality">
+        <button data-q="low" class="mchip">Low</button>
+        <button data-q="high" class="mchip">High</button>
+      </div>
+      <p class="msub">Camera</p>
+      <div class="mchips" id="set_cam" role="group" aria-label="Camera mode">
+        <button data-cam="orbit" class="mchip sel">Orbit</button>
+        <button data-cam="fly" class="mchip">Freecam</button>
+      </div>
+      <button id="p_back" class="mbtn">← Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ rotate hint (portrait phones, in game) ============ -->
+<div id="rotate" aria-hidden="true">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7A1.5 1.5 0 0 1 15.5 5v14A1.5 1.5 0 0 1 14 20.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M18 8a6.5 6.5 0 0 1 3 5.5m0 0-1.8-1.4M21 13.5l1.6-1.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div>Rotate your device</div>
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>

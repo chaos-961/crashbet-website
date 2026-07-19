@@ -10,9 +10,11 @@
 import * as THREE from 'three';
 import { loadRapier, CrashSim } from './physics.js';
 import { REG } from './vehicles.js';
-import { PROPS, isProp } from './props.js';
+import { PROPS, SCENERY, isProp, isScenery, propMeta } from './props.js';
 import { ENVS, isEnv } from './env.js';
-import { makeRng, clamp } from './lib.js';
+import { buildRoad, ROAD_DEFAULTS, ROAD_MAX_PTS } from './roads.js';
+import { generateWorld, WORLD_PRESETS } from './worldgen.js';
+import { makeRng, clamp, disposeGroup } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 const DEG = Math.PI / 180;
@@ -27,17 +29,19 @@ export function initEditor(ctx) {
   // ctx: { scene, camera, controls, renderer, stage, toast, invalidate,
   //        fitBox, randomSeed, env, smallScreen }
   const MAX_CARS = ctx.smallScreen ? 6 : 10;
-  const MAX_PROPS = ctx.smallScreen ? 8 : 14;
+  const MAX_PROPS = ctx.smallScreen ? 20 : 48; // scenery counts as props (raised for generated worlds)
+  const MAX_ROADS = ctx.smallScreen ? 3 : 6;
 
   let R = null, sim = null;
   let dirty = false;          // scenario edited since last full deterministic build
   let rebuildT = null;        // debounce timer for per-object rebuilds
   let placing = null;         // { kind:'car' } | { kind:'prop', prop:'ramp' }
-  let sel = null;             // { kind:'car'|'prop', i }
+  let drawingRoad = null;     // { pts: [{x,z}...] } while the road tool is laying points
+  let sel = null;             // { kind:'car'|'prop'|'road', i }
   let suppressUI = false;     // guard against slider feedback loops
 
   const scenario = {
-    cars: [], props: [],
+    cars: [], props: [], roads: [],
     world: { gravity: 9.81, slow: 1, arena: 80, walls: 1, env: 'proving' },
   };
 
@@ -102,11 +106,14 @@ export function initEditor(ctx) {
   function objOf(s) {
     if (!s || !sim) return null;
     if (s.kind === 'car') return sim.cars[s.i] || null;
+    if (s.kind === 'road') return sim.roads[s.i] || null;
     return sim.props[s.i] || null;
   }
   function specOf(s) {
     if (!s) return null;
-    return s.kind === 'car' ? scenario.cars[s.i] : scenario.props[s.i];
+    if (s.kind === 'car') return scenario.cars[s.i];
+    if (s.kind === 'road') return scenario.roads[s.i];
+    return scenario.props[s.i];
   }
   const _bb = new THREE.Box3();
   function boundsOf(s) {
@@ -114,6 +121,7 @@ export function initEditor(ctx) {
     if (!o) return null;
     _bb.makeEmpty();
     if (s.kind === 'car') _bb.setFromObject(o.wrap);
+    else if (s.kind === 'road') _bb.expandByObject(o.group);
     else {
       _bb.expandByObject(o.group);
       for (const d of o.dyn) _bb.expandByObject(d.node);
@@ -140,8 +148,12 @@ export function initEditor(ctx) {
   ctx.controls.addEventListener('change', () => { if (gz.visible) gizmoRescale(); });
 
   function syncGizmo() {
+    syncRoadHandles();
     const spec = specOf(sel);
-    if (!spec || (sim && sim.playing)) { gz.visible = false; selBox.visible = false; ctx.invalidate(); return; }
+    if (!spec || (sim && sim.playing) || sel.kind === 'road') {
+      // roads use point handles instead of the move/rotate gizmo
+      gz.visible = false; selBox.visible = false; ctx.invalidate(); return;
+    }
     const bb = boundsOf(sel);
     if (!bb) { gz.visible = false; selBox.visible = false; return; }
     selBox.box.copy(bb);
@@ -152,6 +164,60 @@ export function initEditor(ctx) {
     gizmoRescale();
     gz.visible = true;
     ctx.invalidate();
+  }
+
+  /* ================= road tool: point handles + draw preview ================= */
+  const rh = new THREE.Group(); // one disc per control point of the active road
+  rh.visible = false;
+  ctx.scene.add(rh);
+  const handleGeo = new THREE.CylinderGeometry(coarse ? 0.75 : 0.55, coarse ? 0.75 : 0.55, 0.24, 14);
+  const handleMat = new THREE.MeshBasicMaterial({ color: 0xffb03a, depthTest: false, transparent: true, opacity: 0.92 });
+
+  function activeRoadPts() {
+    if (drawingRoad) return drawingRoad.pts;
+    if (sel && sel.kind === 'road' && (!sim || !sim.playing)) {
+      const r = scenario.roads[sel.i];
+      return r ? r.pts : null;
+    }
+    return null;
+  }
+  function syncRoadHandles() {
+    const pts = activeRoadPts();
+    if (!pts || !pts.length) {
+      if (rh.visible) { rh.clear(); rh.visible = false; ctx.invalidate(); }
+      return;
+    }
+    while (rh.children.length > pts.length) rh.remove(rh.children[rh.children.length - 1]);
+    while (rh.children.length < pts.length) {
+      const m = new THREE.Mesh(handleGeo, handleMat);
+      m.renderOrder = 6;
+      m.userData.pi = rh.children.length;
+      rh.add(m);
+    }
+    pts.forEach((p, j) => rh.children[j].position.set(p.x, 0.13, p.z));
+    rh.visible = true;
+    ctx.invalidate();
+  }
+
+  let previewRoad = null; // uncommitted mesh while drawing (visual only, no sim body)
+  function refreshRoadPreview() {
+    if (previewRoad) { ctx.scene.remove(previewRoad); disposeGroup(previewRoad); previewRoad = null; }
+    if (drawingRoad && drawingRoad.pts.length >= 2) {
+      previewRoad = buildRoad({ ...ROAD_DEFAULTS, pts: drawingRoad.pts }).group;
+      ctx.scene.add(previewRoad);
+    }
+    syncRoadHandles();
+    ctx.invalidate();
+  }
+
+  let roadT = null;
+  function scheduleRoadRebuild() { // live point drag: rebuild that road only, throttled
+    clearTimeout(roadT);
+    const s = sel;
+    roadT = setTimeout(() => {
+      if (!sim || !s || s.kind !== 'road') return;
+      if (scenario.roads[s.i] && sim.roads[s.i]) { sim.replaceRoad(s.i); ctx.invalidate(); }
+    }, 90);
   }
 
   /* ================= sim lifecycle ================= */
@@ -181,28 +247,30 @@ export function initEditor(ctx) {
   function flushDirty() { if (dirty) rebuildSim(false); }
 
   function refreshStats() {
-    const nC = scenario.cars.length, nP = scenario.props.length;
-    if (!nC && !nP) { $('stats').textContent = 'empty scene'; return; }
+    const nC = scenario.cars.length, nP = scenario.props.length, nR = scenario.roads.length;
+    if (!nC && !nP && !nR) { $('stats').textContent = 'empty scene'; return; }
     let tris = 0;
     if (sim) sim.root.traverse((o) => { if (o.isMesh && o.geometry && o.geometry.attributes.position) tris += o.geometry.attributes.position.count / 3; });
     const bits = [];
     if (nC) bits.push(`${nC} car${nC > 1 ? 's' : ''}`);
     if (nP) bits.push(`${nP} prop${nP > 1 ? 's' : ''}`);
+    if (nR) bits.push(`${nR} road${nR > 1 ? 's' : ''}`);
     $('stats').textContent = `${bits.join(' · ')} · ${Math.round(tris).toLocaleString()} tris`;
   }
 
   function refreshEmpty() {
-    $('emptyhint').classList.toggle('show', !scenario.cars.length && !scenario.props.length);
+    $('emptyhint').classList.toggle('show', !scenario.cars.length && !scenario.props.length && !scenario.roads.length);
   }
 
   function fitScenario(instant) {
     const bb = new THREE.Box3();
-    if (sim && (sim.cars.length || sim.props.length)) {
+    if (sim && (sim.cars.length || sim.props.length || sim.roads.length)) {
       for (const c of sim.cars) bb.expandByObject(c.wrap);
       for (const p of sim.props) {
         bb.expandByObject(p.group);
         for (const d of p.dyn) bb.expandByObject(d.node);
       }
+      for (const r of sim.roads) bb.expandByObject(r.group);
       bb.expandByScalar(Math.max(4, bb.getSize(new THREE.Vector3()).length() * 0.12));
     } else {
       bb.set(new THREE.Vector3(-12, 0, -12), new THREE.Vector3(12, 4, 12));
@@ -214,7 +282,7 @@ export function initEditor(ctx) {
   function writeURL() {
     const q = new URLSearchParams();
     const W = scenario.world;
-    if (scenario.cars.length || scenario.props.length) {
+    if (scenario.cars.length || scenario.props.length || scenario.roads.length) {
       q.set('scene', [r2(W.gravity), r2(W.slow), Math.round(W.arena), W.walls ? 1 : 0, W.env].join('~'));
       for (const c of scenario.cars) {
         q.append('car', [
@@ -226,7 +294,14 @@ export function initEditor(ctx) {
         ].join('~'));
       }
       for (const p of scenario.props) {
-        q.append('prop', [p.kind, r2(p.x), r2(p.z), Math.round(p.heading / DEG)].join('~'));
+        const f = [p.kind, r2(p.x), r2(p.z), Math.round(p.heading / DEG)];
+        // v2: optional 5th field = scenery variant seed ('~' force-escaped like car seeds)
+        if (p.seed != null) f.push(encodeURIComponent(p.seed).replace(/~/g, '%7E'));
+        q.append('prop', f.join('~'));
+      }
+      for (const r of scenario.roads) {
+        // road=w~loop~style~x,z~x,z~… (points are plain x,z pairs)
+        q.append('road', [r2(r.w), r.loop ? 1 : 0, r.style || 0, ...r.pts.map((p) => r2(p.x) + ',' + r2(p.z))].join('~'));
       }
     } else if (W.env !== 'proving') {
       q.set('scene', [r2(W.gravity), r2(W.slow), Math.round(W.arena), W.walls ? 1 : 0, W.env].join('~'));
@@ -260,6 +335,7 @@ export function initEditor(ctx) {
   function loadFromURL(q) {
     scenario.cars.length = 0;
     scenario.props.length = 0;
+    scenario.roads.length = 0;
     const sc = (q.get('scene') || '').split('~');
     const W = scenario.world;
     if (sc.length >= 4) {
@@ -276,11 +352,30 @@ export function initEditor(ctx) {
     for (const raw of q.getAll('prop').slice(0, MAX_PROPS)) {
       const p = raw.split('~');
       if (!isProp(p[0])) continue;
-      scenario.props.push({
+      const spec = {
         kind: p[0],
         x: clamp(+p[1] || 0, -100, 100), z: clamp(+p[2] || 0, -100, 100),
         heading: clamp(+p[3] || 0, -180, 180) * DEG,
-      });
+      };
+      if (isScenery(p[0])) spec.seed = p[4] ? decodeURIComponent(p[4]) : '1';
+      scenario.props.push(spec);
+    }
+    for (const raw of q.getAll('road').slice(0, MAX_ROADS)) {
+      const f = raw.split('~');
+      if (f.length < 5) continue; // w, loop, style + at least 2 points
+      const pts = [];
+      for (let i = 3; i < f.length && pts.length < ROAD_MAX_PTS; i++) {
+        const [x, z] = f[i].split(',').map(Number);
+        if (Number.isFinite(x) && Number.isFinite(z)) pts.push({ x: clamp(x, -120, 120), z: clamp(z, -120, 120) });
+      }
+      if (pts.length >= 2) {
+        scenario.roads.push({
+          w: clamp(+f[0] || 7, 4, 14),
+          loop: +f[1] ? 1 : 0,
+          style: clamp(Math.round(+f[2]) || 0, 0, 7),
+          pts,
+        });
+      }
     }
     // legacy garage links: ?seed=&type=&paint= → spawn that one car for inspection
     if (!scenario.cars.length && !scenario.props.length && (q.get('seed') || q.get('type'))) {
@@ -385,9 +480,16 @@ export function initEditor(ctx) {
     scenario.props.forEach((p, i) => {
       const b = document.createElement('button');
       b.className = 'ccar prop' + (sel && sel.kind === 'prop' && sel.i === i ? ' sel' : '');
-      const meta = PROPS.find((x) => x.id === p.kind);
+      const meta = propMeta(p.kind);
       b.textContent = `${meta ? meta.icon + ' ' + meta.label : p.kind}`;
       b.addEventListener('click', () => select({ kind: 'prop', i }));
+      row.appendChild(b);
+    });
+    scenario.roads.forEach((r, i) => {
+      const b = document.createElement('button');
+      b.className = 'ccar prop' + (sel && sel.kind === 'road' && sel.i === i ? ' sel' : '');
+      b.textContent = `🛣 Road ${i + 1}`;
+      b.addEventListener('click', () => select({ kind: 'road', i }));
       row.appendChild(b);
     });
     refreshEmpty();
@@ -409,9 +511,11 @@ export function initEditor(ctx) {
   function syncSelectionUI() {
     const spec = specOf(sel);
     const isCar = sel && sel.kind === 'car';
+    const isRoad = sel && sel.kind === 'road';
     document.body.classList.toggle('has-sel', !!spec);
     document.body.classList.toggle('sel-car', !!spec && isCar);
-    document.body.classList.toggle('sel-prop', !!spec && !isCar);
+    document.body.classList.toggle('sel-prop', !!spec && !isCar && !isRoad);
+    document.body.classList.toggle('sel-road', !!spec && isRoad);
     if (spec) $('sec_sel').open = true;
     suppressUI = true;
     if (spec && isCar) {
@@ -433,11 +537,23 @@ export function initEditor(ctx) {
       setSlider('e_delay', spec.delay);
       setSlider('e_brake', spec.brake);
       $('e_rolling').checked = !!spec.rolling;
+    } else if (spec && isRoad) {
+      $('selTitle').textContent = `Road ${sel.i + 1}`;
+      $('vname').textContent = `🛣 Road ${sel.i + 1}`;
+      $('vsub').textContent = `${spec.pts.length} points · ${spec.loop ? 'closed loop' : 'open'} · ${r2(spec.w)} m wide`;
+      setSlider('r_w', spec.w);
+      $('r_loop').checked = !!spec.loop;
+      $('r_yellow').checked = !!(spec.style & 1);
+      $('r_side').checked = !!(spec.style & 2);
+      $('r_cross').checked = !!(spec.style & 4);
     } else if (spec) {
-      const meta = PROPS.find((x) => x.id === spec.kind);
+      const meta = propMeta(spec.kind);
+      const scen = isScenery(spec.kind);
       $('selTitle').textContent = meta ? meta.label : 'Prop';
       $('vname').textContent = meta ? `${meta.icon} ${meta.label}` : spec.kind;
-      $('vsub').textContent = `prop · x ${r2(spec.x)} · z ${r2(spec.z)}`;
+      $('vsub').textContent = (scen ? `seed ${spec.seed || '1'} · ` : 'prop · ') + `x ${r2(spec.x)} · z ${r2(spec.z)}`;
+      $('p_seedrow').style.display = scen ? '' : 'none';
+      if (scen) $('p_seed').value = spec.seed || '1';
       setSlider('p_heading', Math.round(spec.heading / DEG));
     } else {
       $('selTitle').textContent = 'Selected';
@@ -455,6 +571,7 @@ export function initEditor(ctx) {
     e_rest: (v) => (+v).toFixed(2), e_crumple: (v) => '×' + (+v).toFixed(2),
     e_delay: (v) => (+v).toFixed(1) + ' s', e_brake: (v) => +v === 0 ? 'off' : (+v).toFixed(1) + ' s',
     p_heading: (v) => v + '°',
+    r_w: (v) => (+v).toFixed(1) + ' m',
     g_gravity: (v) => (+v).toFixed(1) + ' m/s²', g_arena: (v) => v + ' m',
   };
   function setSlider(id, v) {
@@ -559,21 +676,99 @@ export function initEditor(ctx) {
     applySeed(seed);
   });
 
+  // scenery variant seed: rebuild ONLY that prop (sim.replaceProp), like car seeds
+  function applyPropSeed(seed) {
+    const p = sel && sel.kind === 'prop' ? scenario.props[sel.i] : null;
+    if (!p || !seed || !isScenery(p.kind) || p.seed === seed) return;
+    p.seed = seed;
+    if (sim && sim.props[sel.i]) sim.replaceProp(sel.i);
+    dirty = true;
+    writeURL();
+    syncSelectionUI();
+    ctx.invalidate();
+  }
+  $('p_seed').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); applyPropSeed($('p_seed').value.trim()); $('p_seed').blur(); }
+  });
+  $('p_seed').addEventListener('change', () => applyPropSeed($('p_seed').value.trim()));
+  $('p_dice').addEventListener('click', () => applyPropSeed(ctx.randomSeed()));
+
+  // road settings: width slider + style checkboxes rebuild only that road
+  function roadSettingChanged() {
+    if (suppressUI) return;
+    const r = sel && sel.kind === 'road' ? scenario.roads[sel.i] : null;
+    if (!r) return;
+    r.w = +$('r_w').value;
+    r.loop = $('r_loop').checked ? 1 : 0;
+    r.style = ($('r_yellow').checked ? 1 : 0) | ($('r_side').checked ? 2 : 0) | ($('r_cross').checked ? 4 : 0);
+    sliderLabel('r_w');
+    dirty = true;
+    scheduleRoadRebuild();
+    writeURL();
+    syncSelectionUI();
+  }
+  $('r_w').addEventListener('input', roadSettingChanged);
+  for (const id of ['r_loop', 'r_yellow', 'r_side', 'r_cross']) $(id).addEventListener('change', roadSettingChanged);
+
+  /* ================= road draw tool ================= */
+  function beginRoadDraw() {
+    if (drawingRoad) { finishRoadDraw(); return; } // the button doubles as Finish
+    if (scenario.roads.length >= MAX_ROADS) { ctx.toast(`Max ${MAX_ROADS} roads`); return; }
+    ensureRapier().then(() => {
+      cancelPlace();
+      deselect();
+      drawingRoad = { pts: [] };
+      ctx.stage.style.cursor = 'crosshair';
+      syncPlaceUI();
+      ctx.toast('Tap the ground to lay road points — Enter or the button finishes');
+    }).catch((e) => { console.error(e); ctx.toast('Physics failed to load'); });
+  }
+
+  function finishRoadDraw(cancel) {
+    const d = drawingRoad;
+    if (!d) return;
+    drawingRoad = null;
+    ctx.stage.style.cursor = '';
+    if (previewRoad) { ctx.scene.remove(previewRoad); disposeGroup(previewRoad); previewRoad = null; }
+    if (!cancel && d.pts.length >= 2 && sim) {
+      scenario.roads.push({ ...ROAD_DEFAULTS, pts: d.pts });
+      sim.appendRoad();
+      dirty = true;
+      writeURL();
+      refreshStats();
+      select({ kind: 'road', i: scenario.roads.length - 1 });
+    } else {
+      if (!cancel && d.pts.length) ctx.toast('A road needs at least 2 points');
+      syncRoadHandles();
+    }
+    syncPlaceUI();
+    ctx.invalidate();
+  }
+  $('roadDraw').addEventListener('click', beginRoadDraw);
+
   /* ================= actions ================= */
   function duplicateSel() {
     const spec = specOf(sel);
     if (!spec || !sim) return null;
     if (sel.kind === 'car' && scenario.cars.length >= MAX_CARS) { ctx.toast(`Max ${MAX_CARS} cars`); return null; }
     if (sel.kind === 'prop' && scenario.props.length >= MAX_PROPS) { ctx.toast(`Max ${MAX_PROPS} props`); return null; }
+    if (sel.kind === 'road' && scenario.roads.length >= MAX_ROADS) { ctx.toast(`Max ${MAX_ROADS} roads`); return null; }
     const copy = JSON.parse(JSON.stringify(spec));
-    copy.x = clamp(copy.x + 1.2, -100, 100);
-    copy.z = clamp(copy.z + 2.6, -100, 100);
     let s;
-    if (sel.kind === 'car') {
+    if (sel.kind === 'road') {
+      for (const p of copy.pts) { p.x = clamp(p.x + 2, -120, 120); p.z = clamp(p.z + 3.5, -120, 120); }
+      scenario.roads.push(copy);
+      sim.appendRoad();
+      s = { kind: 'road', i: scenario.roads.length - 1 };
+    } else if (sel.kind === 'car') {
+      copy.x = clamp(copy.x + 1.2, -100, 100);
+      copy.z = clamp(copy.z + 2.6, -100, 100);
       scenario.cars.push(copy);
       sim.appendCar();
       s = { kind: 'car', i: scenario.cars.length - 1 };
     } else {
+      copy.x = clamp(copy.x + 1.2, -100, 100);
+      copy.z = clamp(copy.z + 2.6, -100, 100);
       scenario.props.push(copy);
       sim.appendProp();
       s = { kind: 'prop', i: scenario.props.length - 1 };
@@ -590,6 +785,9 @@ export function initEditor(ctx) {
     if (sel.kind === 'car') {
       scenario.cars.splice(sel.i, 1);
       sim.removeCarAt(sel.i);
+    } else if (sel.kind === 'road') {
+      scenario.roads.splice(sel.i, 1);
+      sim.removeRoadAt(sel.i);
     } else {
       scenario.props.splice(sel.i, 1);
       sim.removePropAt(sel.i);
@@ -620,9 +818,12 @@ export function initEditor(ctx) {
 
   function syncPlaceUI() {
     // armed-state feedback + mobile drawer auto-hide (body.placing, CSS)
-    document.body.classList.toggle('placing', !!placing);
+    document.body.classList.toggle('placing', !!placing || !!drawingRoad);
     $('spawnCar').classList.toggle('arm', !!placing && placing.kind === 'car');
     for (const p of PROPS) $('prop_' + p.id).classList.toggle('arm', !!placing && placing.prop === p.id);
+    $('spawnScenery').classList.toggle('arm', !!placing && isScenery(placing.prop));
+    $('roadDraw').classList.toggle('arm', !!drawingRoad);
+    $('roadDraw').textContent = drawingRoad ? '✓ Finish road' : '🛣 Draw road';
   }
 
   function cancelPlace() {
@@ -632,6 +833,7 @@ export function initEditor(ctx) {
   }
 
   function beginPlace(kind, prop) {
+    if (drawingRoad) finishRoadDraw(true); // arming a spawn cancels the road tool
     if (placing && placing.kind === kind && placing.prop === prop) { cancelPlace(); return; } // toggle off
     if (kind === 'car' && scenario.cars.length >= MAX_CARS) { ctx.toast(`Max ${MAX_CARS} cars`); return; }
     if (kind === 'prop' && scenario.props.length >= MAX_PROPS) { ctx.toast(`Max ${MAX_PROPS} props`); return; }
@@ -646,6 +848,20 @@ export function initEditor(ctx) {
   for (const p of PROPS) {
     $('prop_' + p.id).addEventListener('click', () => beginPlace('prop', p.id));
   }
+
+  // scenery dropdown (grouped by category) + place button share the prop flow
+  {
+    const selEl = $('s_scenery');
+    let grp = null, cat = null;
+    for (const s of SCENERY) {
+      if (s.cat !== cat) { cat = s.cat; grp = document.createElement('optgroup'); grp.label = cat; selEl.appendChild(grp); }
+      const o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = `${s.icon} ${s.label}`;
+      grp.appendChild(o);
+    }
+  }
+  $('spawnScenery').addEventListener('click', () => beginPlace('prop', $('s_scenery').value));
 
   function placeAt(pt) {
     const kind = placing.kind, prop = placing.prop;
@@ -667,7 +883,9 @@ export function initEditor(ctx) {
       select({ kind: 'car', i: scenario.cars.length - 1 });
       if (scenario.cars.length === 1 && !scenario.props.length) focusSel();
     } else {
-      scenario.props.push({ kind: prop, x, z, heading: 0 });
+      const spec = { kind: prop, x, z, heading: 0 };
+      if (isScenery(prop)) spec.seed = ctx.randomSeed(); // fresh variant each spawn
+      scenario.props.push(spec);
       sim.appendProp();
       dirty = true;
       writeURL();
@@ -725,6 +943,56 @@ export function initEditor(ctx) {
   function syncEnvChips() {
     $('envchips').querySelectorAll('.ccar').forEach((b) => b.classList.toggle('sel', b.dataset.env === scenario.world.env));
   }
+
+  /* ================= world generator ================= */
+  // replaces roads + props with a seeded generated scene; cars are kept
+  // (or one is spawned at the road start so the result plays instantly)
+  let lastPreset = WORLD_PRESETS[0].id;
+  function runWorldGen(preset, seed) {
+    lastPreset = preset;
+    return ensureRapier().then(() => {
+      if (drawingRoad) finishRoadDraw(true);
+      cancelPlace();
+      const gen = generateWorld(preset, seed, { maxProps: MAX_PROPS, maxRoads: MAX_ROADS });
+      if (!gen) return;
+      scenario.roads.length = 0;
+      scenario.props.length = 0;
+      scenario.roads.push(...gen.roads);
+      scenario.props.push(...gen.props);
+      scenario.world.arena = gen.world.arena;
+      scenario.world.env = gen.world.env;
+      ctx.env.apply(gen.world.env);
+      if (!scenario.cars.length) {
+        const p0 = gen.roads[0].pts[0], p1 = gen.roads[0].pts[1];
+        scenario.cars.push(defaultCarSpec(
+          ctx.randomSeed(), 'any', null, p0.x, p0.z,
+          Math.atan2(-(p1.z - p0.z), p1.x - p0.x),
+        ));
+      }
+      sel = null;
+      rebuildSim(false);
+      syncSceneUI();
+      writeURL();
+      fitScenario(false);
+      ctx.toast(`Generated ${WORLD_PRESETS.find((w) => w.id === preset).label.slice(2).trim()} · seed ${seed}`);
+    }).catch((e) => { console.error(e); ctx.toast('Physics failed to load'); });
+  }
+  {
+    const row = $('wgchips');
+    for (const p of WORLD_PRESETS) {
+      const b = document.createElement('button');
+      b.className = 'ccar';
+      b.textContent = p.label;
+      b.title = `Generate a ${p.id} scene (replaces roads & props)`;
+      b.addEventListener('click', () => runWorldGen(p.id, $('wg_seed').value.trim() || ctx.randomSeed()));
+      row.appendChild(b);
+    }
+  }
+  $('wg_dice').addEventListener('click', () => {
+    const seed = ctx.randomSeed();
+    $('wg_seed').value = seed;
+    runWorldGen(lastPreset, seed);
+  });
   function syncSceneUI() {
     const W = scenario.world;
     suppressUI = true;
@@ -818,6 +1086,7 @@ export function initEditor(ctx) {
       targets.push({ o: p.group, s: { kind: 'prop', i } });
       for (const d of p.dyn) targets.push({ o: d.node, s: { kind: 'prop', i } });
     });
+    sim.roads.forEach((r, i) => targets.push({ o: r.group, s: { kind: 'road', i } }));
     const hits = ray.intersectObjects(targets.map((t) => t.o), true);
     for (const h of hits) {
       let o = h.object;
@@ -854,11 +1123,34 @@ export function initEditor(ctx) {
   function onDown(e) {
     if (!e.isPrimary) return;
     if (sim && sim.playing) return; // orbit only while running
+    if (drawingRoad) { // road tool: every ground tap lays a control point
+      const pt = groundHit(e);
+      if (pt) {
+        if (drawingRoad.pts.length >= ROAD_MAX_PTS) ctx.toast(`Max ${ROAD_MAX_PTS} points`);
+        else {
+          drawingRoad.pts.push({ x: clamp(r2(pt.x), -120, 120), z: clamp(r2(pt.z), -120, 120) });
+          refreshRoadPreview();
+        }
+      }
+      e.stopPropagation();
+      return;
+    }
     if (placing) {
       const pt = groundHit(e);
       if (pt) placeAt(pt);
       e.stopPropagation();
       return;
+    }
+    // control-point handles of the selected road win over everything else
+    if (rh.visible && sel && sel.kind === 'road') {
+      setRayFrom(e);
+      const hHits = ray.intersectObjects(rh.children, false);
+      if (hHits.length) {
+        drag = { mode: 'handle', s: sel, pi: hHits[0].object.userData.pi, moved: false };
+        ctx.controls.enabled = false;
+        e.stopPropagation();
+        return;
+      }
     }
     const gzHit = pickGizmo(e);
     if (gzHit && sel) {
@@ -879,6 +1171,17 @@ export function initEditor(ctx) {
       }
     }
     const s = pickObject(e);
+    if (s && s.kind === 'road') { // free-drag moves the whole road (all points)
+      const pt = groundHit(e);
+      select(s);
+      if (e.shiftKey) {
+        const dup = duplicateSel();
+        if (dup && pt) { drag = { mode: 'road-move', s: dup, lx: pt.x, lz: pt.z, moved: true }; ctx.controls.enabled = false; e.stopPropagation(); return; }
+      }
+      if (pt) { drag = { mode: 'road-move', s, lx: pt.x, lz: pt.z, moved: false }; ctx.controls.enabled = false; }
+      e.stopPropagation();
+      return;
+    }
     if (s) {
       if (e.shiftKey) { // Shift+drag = duplicate, then drag the copy
         select(s);
@@ -911,6 +1214,36 @@ export function initEditor(ctx) {
 
   function onMove(e) {
     if (!e.isPrimary) return;
+    if (drag && drag.mode === 'handle') { // drag one road control point
+      const r = scenario.roads[drag.s.i];
+      const pt = groundHit(e);
+      if (!r || !pt) return;
+      const p = r.pts[drag.pi];
+      p.x = clamp(r2(pt.x), -120, 120);
+      p.z = clamp(r2(pt.z), -120, 120);
+      drag.moved = true;
+      dirty = true;
+      if (rh.children[drag.pi]) rh.children[drag.pi].position.set(p.x, 0.13, p.z);
+      scheduleRoadRebuild();
+      ctx.invalidate();
+      return;
+    }
+    if (drag && drag.mode === 'road-move') { // translate every point together
+      const r = scenario.roads[drag.s.i];
+      const pt = groundHit(e);
+      if (!r || !pt) return;
+      const dx = pt.x - drag.lx, dz = pt.z - drag.lz;
+      drag.lx = pt.x; drag.lz = pt.z;
+      for (const p of r.pts) {
+        p.x = clamp(r2(p.x + dx), -120, 120);
+        p.z = clamp(r2(p.z + dz), -120, 120);
+      }
+      drag.moved = true;
+      dirty = true;
+      syncRoadHandles();
+      scheduleRoadRebuild();
+      return;
+    }
     if (drag) {
       const spec = specOf(drag.s);
       const pt = groundHit(e);
@@ -964,6 +1297,9 @@ export function initEditor(ctx) {
         if (s.kind === 'prop') { // final exact pose (throttle may have skipped the last event)
           const p = scenario.props[s.i];
           if (sim && p && sim.props[s.i]) sim.setPropPose(s.i, p.x, p.z, p.heading);
+        } else if (s.kind === 'road') { // final exact rebuild
+          clearTimeout(roadT);
+          if (sim && scenario.roads[s.i] && sim.roads[s.i]) sim.replaceRoad(s.i);
         }
         writeURL();
         syncSelectionUI();
@@ -983,10 +1319,12 @@ export function initEditor(ctx) {
   /* ================= keyboard ================= */
   function keydown(e) {
     const k = e.key.toLowerCase();
+    if (e.key === 'Enter' && drawingRoad) { finishRoadDraw(); return true; }
     if (e.key === ' ') { e.preventDefault(); play(); return true; }
     if (k === 'r') { reset(); return true; }
     if (e.key === '.') { stepTick(); return true; }
     if (e.key === 'Escape') {
+      if (drawingRoad) { finishRoadDraw(true); return true; }
       if (placing) { cancelPlace(); return true; }
       if (sel) { deselect(); return true; }
       return true;
@@ -1057,9 +1395,25 @@ export function initEditor(ctx) {
     get selection() { return sel; },
     boot, keydown, update, play, reset, writeURL, select, beginPlace,
     spawnCarAt: (seed, type, paint, x, z) => ensureRapier().then(() => placeAtSpec(seed, type, paint, x, z)),
-    spawnPropAt: (kind, x, z) => ensureRapier().then(() => {
+    generateWorld: runWorldGen, // (preset, seed) — also the debug/verification path
+    addRoad: (spec) => ensureRapier().then(() => { // debug/verification helper
+      if (!spec || !Array.isArray(spec.pts) || spec.pts.length < 2) return;
+      scenario.roads.push({ ...ROAD_DEFAULTS, ...spec });
+      sim.appendRoad();
+      dirty = true;
+      writeURL();
+      refreshChips();
+      refreshStats();
+    }),
+    spawnPropAt: (kind, x, z, seed) => ensureRapier().then(() => {
       placing = { kind: 'prop', prop: kind };
       placeAt(new THREE.Vector3(x || 0, 0, z || 0));
+      const i = scenario.props.length - 1;
+      if (seed != null && sim && isScenery(kind) && scenario.props[i]) {
+        scenario.props[i].seed = String(seed);
+        sim.replaceProp(i);
+        writeURL();
+      }
     }),
     fitScenario,
   };

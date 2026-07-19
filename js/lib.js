@@ -214,5 +214,10 @@ export function disposeGroup(root) {
       else mats.add(c.material);
     }
   });
-  mats.forEach((m) => m.dispose());
+  mats.forEach((m) => {
+    // canvas-textured sign faces (scenery.js) own their textures — free them too
+    if (m.map) m.map.dispose();
+    if (m.emissiveMap && m.emissiveMap !== m.map) m.emissiveMap.dispose();
+    m.dispose();
+  });
 }

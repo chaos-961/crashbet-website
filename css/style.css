@@ -164,9 +164,10 @@ details[open] > summary { color: var(--text); }
 }
 
 /* selection-dependent visibility */
-.selcar, .selprop, .selactions { display: none; }
+.selcar, .selprop, .selroad, .selactions { display: none; }
 body.sel-car .selcar { display: flex; flex-direction: column; gap: 9px; }
 body.sel-prop .selprop { display: flex; flex-direction: column; gap: 9px; }
+body.sel-road .selroad { display: flex; flex-direction: column; gap: 9px; }
 body.has-sel .selactions { display: flex; }
 body.has-sel .nosel { display: none; }
 .hint.nosel { padding: 2px 4px 4px; }
@@ -415,4 +416,134 @@ input[type="range"]::-moz-range-thumb {
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* ================================================================
+   Game shell: main menu · HUD · pause menu · rotate hint
+   (the editor-era rules above are kept for future reuse — the game
+   shell only uses the ids/classes below)
+   ================================================================ */
+#menu {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(255, 122, 61, 0.10), transparent 55%),
+    radial-gradient(ellipse at 50% 110%, rgba(10, 11, 14, 0.75), transparent 70%),
+    rgba(16, 17, 21, 0.55);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+}
+.menucard { text-align: center; user-select: none; max-width: 420px; width: 100%; }
+.menulogo { width: 110px; filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.5)); }
+.menutitle { font-size: clamp(34px, 8vw, 52px); font-weight: 900; letter-spacing: 0.16em; margin-top: 6px; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); }
+.menutitle span { background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.menutag { color: var(--text-dim); font-size: clamp(12px, 2.6vw, 14px); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 4px; }
+.menufoot { color: rgba(166, 173, 184, 0.75); font-size: 12px; margin-top: 18px; }
+
+.mbtn {
+  display: block; width: 100%; max-width: 300px; margin: 10px auto 0;
+  padding: 13px 18px; border-radius: 14px; font-weight: 700; font-size: 15.5px;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  transition: transform 0.12s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.mbtn:hover { background: rgba(255, 255, 255, 0.12); transform: translateY(-1px); }
+.mbtn:active { transform: translateY(0) scale(0.98); }
+.mbtn.primary { background: var(--accent-grad); color: #1b1206; box-shadow: 0 8px 26px rgba(255, 106, 61, 0.35); }
+.mbtn.primary:hover { box-shadow: 0 10px 30px rgba(255, 106, 61, 0.5); }
+.mbtn.big { margin-top: 26px; padding: 16px 22px; font-size: 18px; letter-spacing: 0.04em; }
+.mbtn.danger { color: #ff9d8a; }
+.mbtn.danger:hover { background: rgba(224, 72, 58, 0.18); }
+
+/* HUD */
+.hambtn {
+  position: fixed; z-index: 30;
+  top: calc(10px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left));
+  width: 46px; height: 46px; border-radius: 13px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  color: var(--text);
+}
+.hambtn svg { width: 24px; height: 24px; }
+.hambtn:hover { background: rgba(35, 38, 45, 0.85); }
+.cambtn { left: calc(12px + 46px + 10px + env(safe-area-inset-left)); }
+.cambtn.on { border-color: rgba(255, 176, 58, 0.65); color: #ffcf8a; box-shadow: 0 0 16px rgba(255, 176, 58, 0.25); }
+
+/* freecam touch controls (visible only in-game, in fly mode, on touch) */
+#flyui { display: none; }
+#joy {
+  position: fixed; z-index: 30;
+  left: calc(24px + env(safe-area-inset-left)); bottom: calc(24px + env(safe-area-inset-bottom));
+  width: 124px; height: 124px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05); border: 1.5px solid rgba(255, 255, 255, 0.16);
+  touch-action: none;
+}
+#joynub {
+  position: absolute; left: 50%; top: 50%;
+  width: 54px; height: 54px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16); border: 1.5px solid rgba(255, 255, 255, 0.32);
+  transform: translate(-50%, -50%);
+}
+.flybtns {
+  position: fixed; z-index: 30;
+  right: calc(18px + env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 10px;
+}
+.flybtns button {
+  width: 56px; height: 56px; border-radius: 16px; font-size: 18px;
+  background: var(--panel); border: 1px solid var(--panel-border); color: var(--text);
+  touch-action: none;
+}
+@media (pointer: coarse) {
+  body.ingame.flycam #flyui { display: block; }
+}
+
+/* pause menu */
+#pause {
+  position: fixed; inset: 0; z-index: 45;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 11, 14, 0.55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+}
+#pause[hidden], #menu[hidden], #hud[hidden] { display: none; }
+.pausecard {
+  width: min(340px, 92vw); max-height: 88vh; overflow-y: auto;
+  background: rgba(18, 20, 25, 0.88); border: 1px solid var(--panel-border);
+  border-radius: 20px; padding: 22px 20px 20px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+.pausecard h2 { text-align: center; font-size: 20px; letter-spacing: 0.1em; margin-bottom: 12px; }
+.msub {
+  font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-dim); font-weight: 700; margin: 14px 4px 6px; text-align: left;
+}
+.mchips { display: flex; flex-wrap: wrap; gap: 7px; }
+.mchip {
+  padding: 9px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--panel-border);
+}
+.mchip:hover { background: rgba(255, 255, 255, 0.11); }
+.mchip.sel { background: rgba(255, 176, 58, 0.18); border-color: rgba(255, 176, 58, 0.6); color: #ffcf8a; }
+
+/* rotate hint — portrait touch devices while in game */
+#rotate {
+  position: fixed; inset: 0; z-index: 60; display: none;
+  flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(12, 13, 16, 0.92); color: var(--text);
+  font-size: 17px; font-weight: 700; letter-spacing: 0.05em; text-align: center;
+}
+#rotate svg { width: 74px; height: 74px; color: var(--accent-2); animation: rothint 2.2s ease-in-out infinite; }
+@keyframes rothint { 0%, 20% { transform: rotate(0); } 55%, 80% { transform: rotate(-90deg); } 100% { transform: rotate(-90deg); } }
+@media (orientation: portrait) and (pointer: coarse) {
+  body.ingame #rotate { display: flex; }
+}
+
+@media (max-height: 460px) { /* short landscape phones */
+  .menulogo { width: 70px; }
+  .mbtn.big { margin-top: 14px; padding: 12px 18px; }
+  .pausecard { padding: 14px 16px 14px; }
+  .pausecard h2 { margin-bottom: 8px; }
+  .mbtn { padding: 10px 16px; margin-top: 7px; }
 }

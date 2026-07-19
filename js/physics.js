@@ -10,6 +10,8 @@ import { buildVehicle } from './vehicles.js';
 import { makeRng, clamp, disposeGroup } from './lib.js';
 import { makeDeformState, applyImpact, flushDeform } from './deform.js';
 import { buildProp } from './props.js';
+import { buildRoad } from './roads.js';
+import { generateWorld } from './worldgen.js';
 
 export const STEP = 1 / 60;
 
@@ -315,8 +317,10 @@ export class CrashSim {
   }
 
   build() {
-    // creation order is the determinism backbone: ground → walls → props (array
-    // order) → cars (array order). Anything that appends bodies must keep it.
+    // creation order is the determinism backbone: ground → walls → roads →
+    // props (array order) → cars (array order). Anything that appends bodies
+    // must keep it. (Legacy scenarios have no roads, so their order — and
+    // their reference hashes — are untouched.)
     const W = this.scenario.world || {};
     this.world = new RAPIER.World({ x: 0, y: -(W.gravity == null ? 9.81 : W.gravity), z: 0 });
     this.world.timestep = STEP;
@@ -336,6 +340,8 @@ export class CrashSim {
         );
       }
     }
+    this.roads = [];
+    for (const spec of (this.scenario.roads || [])) this._addRoadRig(spec);
     this.props = [];
     for (const spec of (this.scenario.props || [])) this._addPropRig(spec);
     this.cars = [];
@@ -355,8 +361,28 @@ export class CrashSim {
     return rig;
   }
 
+  // roads: all-static — one fixed body at the origin carrying every curb box
+  // (road points are world coordinates; the group is never transformed)
+  _addRoadRig(spec) {
+    const built = buildRoad(spec);
+    this.root.add(built.group);
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    for (const s of built.shapes) {
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(s.he[0], s.he[1], s.he[2])
+          .setTranslation(s.pos[0], s.pos[1], s.pos[2])
+          .setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] })
+          .setFriction(0.75).setRestitution(0.05),
+        body,
+      );
+    }
+    const rec = { spec, group: built.group, body };
+    this.roads.push(rec);
+    return rec;
+  }
+
   _addPropRig(spec) {
-    const built = buildProp(spec.kind);
+    const built = buildProp(spec.kind, spec.seed);
     if (!built) return null;
     const yaw = spec.heading || 0;
     const qProp = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
@@ -631,6 +657,33 @@ export class CrashSim {
     return rec;
   }
 
+  _disposeRoadRig(rec) {
+    this.world.removeRigidBody(rec.body); // frees its colliders too
+    this.root.remove(rec.group);
+    disposeGroup(rec.group);
+  }
+
+  appendRoad() {
+    return this._addRoadRig(this.scenario.roads[this.roads.length]);
+  }
+
+  removeRoadAt(i) {
+    const rec = this.roads[i];
+    if (!rec) return;
+    this._disposeRoadRig(rec);
+    this.roads.splice(i, 1);
+  }
+
+  replaceRoad(i) {
+    this.removeRoadAt(i);
+    const rec = this._addRoadRig(this.scenario.roads[i]);
+    if (rec) {
+      this.roads.pop();
+      this.roads.splice(i, 0, rec);
+    }
+    return rec;
+  }
+
   // paused prop pose edit: rebuild in place (props are cheap to build)
   setPropPose(i, x, z, heading) {
     const rec = this.props[i];
@@ -656,10 +709,15 @@ export class CrashSim {
       this.root.remove(rec.group);
       disposeGroup(rec.group);
     }
+    for (const rec of this.roads) {
+      this.root.remove(rec.group);
+      disposeGroup(rec.group);
+    }
     this.events.free();
-    this.world.free(); // frees every body/collider, prop bodies included
+    this.world.free(); // frees every body/collider, prop and road bodies included
     this.cars = [];
     this.props = [];
+    this.roads = [];
   }
 
   dispose() { this.disposeSim(); }
@@ -691,6 +749,53 @@ export const TEST_SCENARIOS = {
       { seed: '5', type: 'hatch', x: 18, z: -4, heading: Math.PI, speed: 0, throttle: 1, steer: 0.1, rolling: 1, delay: 0.3, brake: 3.5 },
     ],
   },
+  // world-building P1: seeded scenery props (fixed + dynamic mix) must replay
+  // bit-exact too — an SUV plows a suburban street of knockables
+  scenery: {
+    props: [
+      { kind: 'house', x: 2, z: -12, heading: 0, seed: '7' },
+      { kind: 'tree_round', x: -6, z: -4, heading: 0.4, seed: '3' },
+      { kind: 'fence_picket', x: 4, z: -5, heading: 0.1, seed: '5' },
+      { kind: 'hydrant', x: 0, z: 0.4, heading: 0, seed: '2' },
+      { kind: 'cone', x: 4, z: 0, heading: 0, seed: '1' },
+      { kind: 'cone', x: 6, z: 0.6, heading: 0.5, seed: '9' },
+      { kind: 'sign_stop', x: 9, z: -0.5, heading: 0, seed: '4' },
+      { kind: 'traffic_light', x: 13, z: 1, heading: 3.1, seed: '6' },
+    ],
+    cars: [
+      { seed: '44', type: 'suv', x: -18, z: 0, heading: 0, speed: 22, throttle: 1, steer: 0.02 },
+    ],
+  },
+  // world-building P2: spline roads — curb colliders must replay bit-exact
+  // (the car is aimed to clip a curb of the swirly road at speed)
+  roads: {
+    world: { gravity: 9.81, arena: 90, walls: false },
+    roads: [
+      { w: 7, loop: 0, style: 6, pts: [{ x: -30, z: -10 }, { x: -10, z: 8 }, { x: 12, z: -6 }, { x: 30, z: 4 }] },
+      { w: 6, loop: 1, style: 1, pts: [{ x: -6, z: -26 }, { x: 10, z: -32 }, { x: 16, z: -18 }, { x: -2, z: -14 }] },
+    ],
+    props: [
+      { kind: 'cone', x: -8, z: 6, heading: 0, seed: '3' },
+      { kind: 'sign_stop', x: 12, z: -3.2, heading: 0.6, seed: '2' },
+    ],
+    cars: [
+      { seed: '9', type: 'sedan', x: -30, z: -14, heading: 0.35, speed: 24, throttle: 1, steer: -0.04 },
+      { seed: '13', type: 'muscle', x: 26, z: 8, heading: Math.PI, speed: 20, throttle: 1, steer: 0.06, delay: 0.4 },
+    ],
+  },
+  // world-building P3: a full generated suburb must replay bit-exact — this
+  // also pins the generator itself (layout drift changes the hash)
+  worldgen: (() => {
+    const g = generateWorld('suburb', '7', { maxProps: 48, maxRoads: 6 });
+    return {
+      world: { gravity: 9.81, arena: g.world.arena, walls: true },
+      roads: g.roads,
+      props: g.props,
+      cars: [
+        { seed: '21', type: 'pickup', x: 0, z: 0, heading: 0.5, speed: 20, throttle: 1, steer: 0.03 },
+      ],
+    };
+  })(),
 };
 
 export async function simSelfTest(catOf, log = console.log) {

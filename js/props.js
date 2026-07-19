@@ -7,6 +7,7 @@
 // prop space: forward = +X, ground = y 0, same convention as vehicles.
 import * as THREE from 'three';
 import { matFactory, slab, box, cyl, faceQuad, subQuad, quadPrism } from './lib.js';
+import { SCENERY, isScenery, buildScenery } from './scenery.js';
 
 export const PROPS = [
   { id: 'ramp', label: 'Ramp', icon: '⤴' },
@@ -15,7 +16,9 @@ export const PROPS = [
   { id: 'pole', label: 'Pole', icon: '💡' },
 ];
 
-export const isProp = (kind) => PROPS.some((p) => p.id === kind);
+export { SCENERY, isScenery };
+export const isProp = (kind) => PROPS.some((p) => p.id === kind) || isScenery(kind);
+export const propMeta = (kind) => PROPS.find((p) => p.id === kind) || SCENERY.find((s) => s.id === kind) || null;
 
 /* ramp: 6 m wedge, slope on the -X side — drive in +X and launch at ~1.5 m.
    Fixed body, single convex hull matching the visual wedge exactly. */
@@ -129,9 +132,10 @@ const BUILDERS = { ramp, barrier, boxes, pole };
 
 // Returns { group, bodies } or null for an unknown kind. bodies[i].y is the
 // body origin's rest height above ground (0 for props modelled from y 0).
-export function buildProp(kind) {
+// Scenery kinds (scenery.js) route through here too and take a seed; the four
+// legacy kinds ignore it, so legacy scenarios stay bit-identical.
+export function buildProp(kind, seed) {
   const b = BUILDERS[kind];
-  if (!b) return null;
-  const M = matFactory();
-  return b(M);
+  if (b) return b(matFactory());
+  return buildScenery(kind, seed);
 }
