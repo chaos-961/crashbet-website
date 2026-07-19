@@ -136,6 +136,15 @@ const BUILDERS = { ramp, barrier, boxes, pole };
 // legacy kinds ignore it, so legacy scenarios stay bit-identical.
 export function buildProp(kind, seed) {
   const b = BUILDERS[kind];
-  if (b) return b(matFactory());
-  return buildScenery(kind, seed);
+  const built = b ? b(matFactory()) : buildScenery(kind, seed);
+  if (built) {
+    // Dynamic-root props are modeled around their body origin (rest height
+    // bodies[i].y) so physics can spin them about their COM. Stand them up
+    // here so standalone renders (showroom, contact sheets) sit on the
+    // ground — the sim overwrites the whole pose when it takes over.
+    for (const bd of built.bodies) {
+      if (!bd.fixed && bd.node === built.group && bd.y) built.group.position.y = bd.y;
+    }
+  }
+  return built;
 }

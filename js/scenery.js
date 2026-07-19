@@ -154,53 +154,53 @@ function trunk(g, M, r, h, rad) {
 /* ================= nature ================= */
 function treeRound(r, M) {
   const g = new THREE.Group();
-  const tH = r.range(0.8, 1.3), tR = r.range(0.1, 0.15);
-  trunk(g, M, r, tH, tR);
+  const tH = r.range(1.1, 1.5), tR = r.range(0.1, 0.15);
+  trunk(g, M, r, tH + 0.3, tR); // trunk runs into the canopy, never a gap
   const hex = jitterColor(r, r.pick(GREENS));
   const R1 = r.range(0.95, 1.35);
   const c1 = canopy(M, r, hex, R1);
-  c1.position.y = tH + R1 * 0.72;
+  c1.position.y = tH + R1 * 0.85;
   g.add(c1);
   if (r.chance(0.5)) {
     const R2 = R1 * r.range(0.5, 0.68);
     const c2 = canopy(M, r, shade(hex, 0.05), R2);
-    c2.position.set(r.range(-0.35, 0.35), tH + R1 * 1.28, r.range(-0.35, 0.35));
+    c2.position.set(r.range(-0.35, 0.35), tH + R1 * 1.4, r.range(-0.35, 0.35));
     g.add(c2);
   }
-  const H = tH + R1 * 1.7;
+  const H = tH + R1 * 1.85;
   return { g, bodies: dynGround(g, H, 380 + R1 * 260, [
     cylSh(H / 2, tR * 2.1, 0, H / 2, 0),
-    boxSh(R1 * 0.6, R1 * 0.58, R1 * 0.6, 0, tH + R1 * 0.75, 0),
+    boxSh(R1 * 0.6, R1 * 0.58, R1 * 0.6, 0, tH + R1 * 0.85, 0),
   ], { fr: 0.7, rest: 0.08 }) };
 }
 function treeOak(r, M) {
   const g = new THREE.Group();
-  const tH = r.range(1.1, 1.6), tR = r.range(0.16, 0.22);
-  trunk(g, M, r, tH, tR);
+  const tH = r.range(1.4, 1.9), tR = r.range(0.16, 0.22);
+  trunk(g, M, r, tH + 0.4, tR);
   const hex = jitterColor(r, r.pick(GREENS));
   const R = r.range(1.15, 1.5);
   const main = canopy(M, r, hex, R, { squash: 0.82 });
-  main.position.y = tH + R * 0.62;
+  main.position.y = tH + R * 0.78;
   g.add(main);
   const n = r.int(2, 3);
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + r.range(0, 1);
     const R2 = R * r.range(0.5, 0.68);
     const c = canopy(M, r, shade(hex, r.range(-0.04, 0.06)), R2);
-    c.position.set(Math.cos(a) * R * 0.72, tH + R * r.range(0.45, 0.95), Math.sin(a) * R * 0.72);
+    c.position.set(Math.cos(a) * R * 0.72, tH + R * r.range(0.62, 1.05), Math.sin(a) * R * 0.72);
     g.add(c);
     if (i < 2) { // visible branch feeding the side blob
       const br = cyl(M(r.pick(BARK), { rough: 0.9 }), { r: 0.05, len: R * 0.9, seg: 6 });
-      br.position.set(Math.cos(a) * R * 0.36, tH + R * 0.3, Math.sin(a) * R * 0.36);
+      br.position.set(Math.cos(a) * R * 0.36, tH + R * 0.42, Math.sin(a) * R * 0.36);
       br.rotation.z = Math.cos(a) * 0.7;
       br.rotation.x = -Math.sin(a) * 0.7;
       g.add(br);
     }
   }
-  const H = tH + R * 1.7;
+  const H = tH + R * 1.85;
   return { g, bodies: dynGround(g, H, 700 + R * 300, [
     cylSh(H / 2, tR * 1.9, 0, H / 2, 0),
-    boxSh(R * 0.85, R * 0.6, R * 0.85, 0, tH + R * 0.66, 0),
+    boxSh(R * 0.85, R * 0.6, R * 0.85, 0, tH + R * 0.8, 0),
   ], { fr: 0.7, rest: 0.08 }) };
 }
 function treePine(r, M) {
@@ -219,7 +219,7 @@ function treePine(r, M) {
     tier.position.y = y + tierH / 2;
     tier.rotation.y = r.range(0, 1);
     g.add(tier);
-    y += tierH * 0.62;
+    y += tierH * 0.7; // clear tier separation — silhouettes read as stacked cones
     H = y + tierH * 0.42;
   }
   return { g, bodies: dynGround(g, H, 420 + H * 90, [
@@ -286,20 +286,20 @@ function treePalm(r, M) {
 }
 function treeBlossom(r, M) {
   const g = new THREE.Group();
-  const tH = r.range(0.9, 1.3);
-  trunk(g, M, r, tH, r.range(0.11, 0.16));
+  const tH = r.range(1.2, 1.6);
+  trunk(g, M, r, tH + 0.3, r.range(0.11, 0.16));
   const hex = jitterColor(r, r.pick(BLOSSOM));
   const R = r.range(1.0, 1.3);
   const c1 = canopy(M, r, hex, R, { squash: 0.85 });
-  c1.position.y = tH + R * 0.66;
+  c1.position.y = tH + R * 0.82;
   g.add(c1);
   const c2 = canopy(M, r, shade(hex, 0.07), R * 0.55);
-  c2.position.set(r.range(-0.4, 0.4), tH + R * 1.15, r.range(-0.4, 0.4));
+  c2.position.set(r.range(-0.4, 0.4), tH + R * 1.32, r.range(-0.4, 0.4));
   g.add(c2);
-  const H = tH + R * 1.6;
+  const H = tH + R * 1.75;
   return { g, bodies: dynGround(g, H, 360 + R * 200, [
     cylSh(H / 2, 0.24, 0, H / 2, 0),
-    boxSh(R * 0.62, R * 0.5, R * 0.62, 0, tH + R * 0.7, 0),
+    boxSh(R * 0.62, R * 0.5, R * 0.62, 0, tH + R * 0.85, 0),
   ], { fr: 0.7, rest: 0.08 }) };
 }
 function bush(r, M) {
@@ -700,8 +700,8 @@ function gazebo(r, M) {
 }
 function fountain(r, M) {
   const g = new THREE.Group();
-  const stone = M(r.pick(['#b3b8be', '#c9ccd2', '#a8a094']), { rough: 0.85 });
-  const water = M('#5fa8d8', { rough: 0.1, env: 1.7 });
+  const stone = M(r.pick(['#a3a8ae', '#b3b8be', '#98918a']), { rough: 0.88, env: 0.3 });
+  const water = M('#3f86c9', { rough: 0.12, env: 0.9 }); // saturated so it reads against the stone
   const basin = cyl(stone, { r: 1.42, r2: 1.5, len: 0.42, seg: 12 });
   basin.position.y = 0.21;
   g.add(basin);
@@ -760,32 +760,37 @@ function picnicTable(r, M) {
   ], { fr: 0.6, rest: 0.12 }) };
 }
 function bench(r, M) {
+  // park bench along x: seat slats step in depth (z), backrest leans back
   const g = new THREE.Group();
   const slat = M(r.chance(0.5) ? '#2e6339' : jitterColor(r, '#8a6a3f'), { rough: 0.85 });
   const iron = M('#33373d', { rough: 0.6, metal: 0.3 });
   for (let i = 0; i < 3; i++) {
-    const s = box(slat, 1.5, 0.045, 0.11);
-    s.position.set(0.06 - i * 0.13, 0.5, 0);
+    const s = box(slat, 1.5, 0.045, 0.12);
+    s.position.set(0, 0.48, 0.14 - i * 0.14);
     g.add(s);
   }
   for (let i = 0; i < 2; i++) {
-    const s = box(slat, 1.5, 0.045, 0.11);
-    s.position.set(-0.28, 0.68 + i * 0.16, 0);
-    s.rotation.z = Math.PI / 2 - 0.25;
+    const y = 0.66 + i * 0.17;
+    const s = box(slat, 1.5, 0.12, 0.04);
+    s.position.set(0, y, -0.25 - (y - 0.48) * 0.22);
+    s.rotation.x = 0.2;
     g.add(s);
   }
-  for (const sz of [-1, 1]) {
-    const leg = box(iron, 0.4, 0.5, 0.05);
-    leg.position.set(-0.06, 0.26, sz * 0.66);
+  for (const sx of [-1, 1]) { // cast-iron ends
+    const leg = box(iron, 0.06, 0.48, 0.42);
+    leg.position.set(sx * 0.66, 0.24, 0);
     g.add(leg);
-    const back = box(iron, 0.05, 0.5, 0.05);
-    back.position.set(-0.28, 0.72, sz * 0.66);
-    back.rotation.z = -0.22;
+    const back = box(iron, 0.06, 0.52, 0.05);
+    back.position.set(sx * 0.66, 0.68, -0.28);
+    back.rotation.x = 0.2;
     g.add(back);
+    const arm = box(iron, 0.06, 0.05, 0.44);
+    arm.position.set(sx * 0.66, 0.6, -0.04);
+    g.add(arm);
   }
-  return { g, bodies: dynGround(g, 0.98, 55, [
-    boxSh(0.28, 0.26, 0.75, 0, 0.26, 0),
-    boxSh(0.06, 0.26, 0.75, -0.28, 0.72, 0),
+  return { g, bodies: dynGround(g, 0.95, 55, [
+    boxSh(0.78, 0.25, 0.24, 0, 0.25, 0),
+    boxSh(0.78, 0.22, 0.05, 0, 0.72, -0.3),
   ], { fr: 0.6, rest: 0.12 }) };
 }
 function playground(r, M) {
@@ -800,8 +805,8 @@ function playground(r, M) {
   // slide tower
   const tx = 1.1;
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const post = box(A, 0.08, 1.75, 0.08);
-    post.position.set(tx + sx * 0.5, 0.875, sz * 0.5);
+    const post = box(A, 0.08, 2.06, 0.08); // posts reach the roof — nothing floats
+    post.position.set(tx + sx * 0.5, 1.03, sz * 0.5);
     g.add(post);
   }
   const platform = box(C, 1.2, 0.07, 1.2);
@@ -810,20 +815,23 @@ function playground(r, M) {
   for (const s of [-1, 1]) { // mini gable roof
     const panel = box(A, 1.25, 0.05, 0.72);
     panel.position.set(tx, 2.18, s * 0.3);
-    panel.rotation.x = -s * 0.62;
+    panel.rotation.x = s * 0.62;
     g.add(panel);
   }
-  // slide down +x
-  const slide = box(B, 1.9, 0.05, 0.55);
-  slide.position.set(tx + 1.28, 0.68, 0);
-  slide.rotation.z = 0.6;
+  // slide descends from the platform edge down to the ground (+x)
+  const slide = box(B, 1.85, 0.05, 0.55);
+  slide.position.set(tx + 1.32, 0.76, 0);
+  slide.rotation.z = -0.6;
   g.add(slide);
   for (const s of [-1, 1]) {
-    const rail = box(B, 1.9, 0.14, 0.04);
-    rail.position.set(tx + 1.28, 0.75, s * 0.28);
-    rail.rotation.z = 0.6;
+    const rail = box(B, 1.85, 0.14, 0.04);
+    rail.position.set(tx + 1.32, 0.83, s * 0.28);
+    rail.rotation.z = -0.6;
     g.add(rail);
   }
+  const slideEnd = box(B, 0.4, 0.05, 0.55); // flat run-out at the bottom
+  slideEnd.position.set(tx + 2.28, 0.16, 0);
+  g.add(slideEnd);
   // ladder on -x side
   for (const s of [-1, 1]) {
     const lr = box(steel, 0.05, 1.35, 0.05);
@@ -860,7 +868,7 @@ function playground(r, M) {
   }
   return { g, bodies: fixedBody(g, [
     boxSh(0.62, 0.85, 0.62, tx, 0.85, 0),
-    { kind: 'box', he: [0.98, 0.04, 0.29], pos: [tx + 1.28, 0.68, 0], rot: quatArr(0, 0, 0.6) },
+    { kind: 'box', he: [0.95, 0.04, 0.29], pos: [tx + 1.32, 0.76, 0], rot: quatArr(0, 0, -0.6) },
     boxSh(0.34, 1.05, 0.14, sx0, 1.05, 1.45),
     boxSh(0.34, 1.05, 0.14, sx0, 1.05, -1.45),
   ], 0.7, 0.1) };
@@ -1226,18 +1234,18 @@ function bikeRack(r, M) {
   const g = new THREE.Group();
   const steel = M('#9aa0a7', { rough: 0.35, metal: 0.6, env: 1 });
   for (let i = 0; i < 3; i++) {
-    const z = (i - 1) * 0.55;
-    const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.032, 6, 10, Math.PI), steel);
-    hoop.position.set(0, 0.38, z);
+    const z = (i - 1) * 0.5;
+    const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.021, 6, 10, Math.PI), steel);
+    hoop.position.set(0, 0.42, z);
     hoop.castShadow = true;
     g.add(hoop);
     for (const s of [-1, 1]) {
-      const leg = cyl(steel, { r: 0.032, len: 0.4, seg: 6 });
-      leg.position.set(s * 0.33, 0.2, z);
+      const leg = cyl(steel, { r: 0.021, len: 0.44, seg: 6 });
+      leg.position.set(s * 0.26, 0.22, z);
       g.add(leg);
     }
   }
-  return { g, bodies: fixedBody(g, [boxSh(0.38, 0.36, 0.75, 0, 0.36, 0)], 0.6, 0.2) };
+  return { g, bodies: fixedBody(g, [boxSh(0.3, 0.34, 0.68, 0, 0.34, 0)], 0.6, 0.2) };
 }
 function foodCart(r, M) {
   const g = new THREE.Group();
@@ -1779,6 +1787,1355 @@ function vmsBoard(r, M) {
   ], { fr: 0.6, rest: 0.12 }) };
 }
 
+/* ================= batch 2 — 50 more (reference-image sweep) ================= */
+const tMat = (hex, op) => new THREE.MeshStandardMaterial({
+  color: hex, roughness: 0.6, transparent: true, opacity: op, flatShading: true, side: THREE.DoubleSide,
+});
+
+/* ---- nature ---- */
+function treeDead(r, M) {
+  const g = new THREE.Group();
+  const bark = M(r.pick(['#6e5a48', '#5e4c3c', '#75604e']), { rough: 0.95 });
+  const t = cyl(bark, { r: 0.19, r2: 0.11, len: 2.3, seg: 7 });
+  t.position.y = 1.15;
+  t.rotation.z = r.range(-0.06, 0.06);
+  g.add(t);
+  const n = r.int(3, 4);
+  for (let i = 0; i < n; i++) {
+    const br = cyl(bark, { r: 0.025, r2: 0.05, len: r.range(0.8, 1.25), seg: 5 });
+    const a = (i / n) * Math.PI * 2 + r.range(0, 0.8);
+    br.position.set(Math.cos(a) * 0.3, r.range(1.0, 1.9), Math.sin(a) * 0.3);
+    br.rotation.z = Math.cos(a) * r.range(0.55, 0.95);
+    br.rotation.x = -Math.sin(a) * r.range(0.55, 0.95);
+    g.add(br);
+  }
+  return { g, bodies: dynGround(g, 2.6, 240, [cylSh(1.3, 0.16, 0, 1.3, 0)], { fr: 0.7, rest: 0.08 }) };
+}
+function treeStump(r, M) {
+  const g = new THREE.Group();
+  const st = cyl(M(r.pick(BARK), { rough: 0.95 }), { r: 0.34, r2: 0.3, len: 0.45, seg: 9 });
+  st.position.y = 0.225;
+  g.add(st);
+  const cut = cyl(M('#c8a06a', { rough: 0.8 }), { r: 0.28, len: 0.025, seg: 9 });
+  cut.position.y = 0.455;
+  g.add(cut);
+  for (let i = 0; i < 3; i++) { // root flares
+    const root = box(M(r.pick(BARK), { rough: 0.95 }), 0.3, 0.14, 0.16);
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    root.position.set(Math.cos(a) * 0.32, 0.07, Math.sin(a) * 0.32);
+    root.rotation.y = -a;
+    g.add(root);
+  }
+  return { g, bodies: dynGround(g, 0.48, 150, [cylSh(0.24, 0.34, 0, 0.24, 0)], { fr: 0.8, rest: 0.05 }) };
+}
+function cactus(r, M) {
+  const g = new THREE.Group();
+  const green = M(jitterColor(r, r.pick(['#4c8c52', '#3f7d48', '#5a9a58'])), { rough: 0.8, env: 0.3 });
+  const H = r.range(1.6, 2.0);
+  const main = cyl(green, { r: 0.18, r2: 0.15, len: H, seg: 8 });
+  main.position.y = H / 2;
+  g.add(main);
+  const top = sphere(green, 0.15, 1);
+  top.scale.y = 0.7;
+  top.position.y = H;
+  g.add(top);
+  for (const s of r.chance(0.85) ? (r.chance(0.5) ? [-1, 1] : [r.sign()]) : []) {
+    const ay = r.range(0.55, 0.95) * H;
+    const elbow = cyl(green, { r: 0.1, len: 0.34, axis: 'z', seg: 7 });
+    elbow.position.set(0, ay, s * 0.28);
+    g.add(elbow);
+    const arm = cyl(green, { r: 0.1, r2: 0.085, len: r.range(0.5, 0.75), seg: 7 });
+    arm.position.set(0, ay + 0.28, s * 0.4);
+    g.add(arm);
+    const tip = sphere(green, 0.085, 1);
+    tip.scale.y = 0.7;
+    tip.position.set(0, ay + 0.58, s * 0.4);
+    g.add(tip);
+  }
+  if (r.chance(0.4)) {
+    const fl = sphere(M('#e08cc0', { rough: 0.55 }), 0.055, 0);
+    fl.position.y = H + 0.12;
+    g.add(fl);
+  }
+  return { g, bodies: dynGround(g, H + 0.2, 130, [cylSh((H + 0.2) / 2, 0.2, 0, (H + 0.2) / 2, 0)], { fr: 0.7, rest: 0.1 }) };
+}
+function tumbleweed(r, M) {
+  const g = new THREE.Group();
+  const twig = M('#b09a5e', { rough: 0.95 });
+  for (let i = 0; i < 4; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r.range(0.26, 0.34), 0.018, 5, 9), twig);
+    ring.rotation.set(r.range(0, Math.PI), r.range(0, Math.PI), r.range(0, Math.PI));
+    ring.position.y = 0.36;
+    ring.castShadow = true;
+    g.add(ring);
+  }
+  for (let i = 0; i < 5; i++) {
+    const stick = cyl(twig, { r: 0.012, len: r.range(0.4, 0.62), seg: 4 });
+    stick.position.y = 0.36;
+    stick.rotation.set(r.range(0, Math.PI), r.range(0, Math.PI), r.range(0, Math.PI));
+    g.add(stick);
+  }
+  return { g, bodies: dynGround(g, 0.72, 2.5, [boxSh(0.28, 0.28, 0.28, 0, 0.36, 0)], { fr: 0.4, rest: 0.45 }) };
+}
+function flowersWild(r, M) {
+  const g = new THREE.Group();
+  const dirt = new THREE.Mesh(new THREE.CircleGeometry(0.55, 9), M('#55452f', { rough: 0.95 }));
+  dirt.rotation.x = -Math.PI / 2;
+  dirt.position.y = 0.012;
+  dirt.receiveShadow = true;
+  g.add(dirt);
+  flowerHeads(g, M, r, -0.42, 0.42, -0.42, 0.42, 0, r.int(8, 12));
+  for (let i = 0; i < 7; i++) {
+    const blade = box(M(r.pick(['#6b9a48', '#5a8a3c']), { rough: 0.85 }), 0.035, r.range(0.16, 0.3), 0.012);
+    blade.position.set(r.range(-0.45, 0.45), 0.1, r.range(-0.45, 0.45));
+    blade.rotation.y = r.range(0, Math.PI);
+    blade.rotation.z = r.range(-0.25, 0.25);
+    g.add(blade);
+  }
+  return { g, bodies: [] };
+}
+function logPile(r, M) {
+  const g = new THREE.Group();
+  P.logsLoad(g, M, { x0: -0.95, x1: 0.95, y: 0, w: 1.6 });
+  return { g, bodies: dynGround(g, 1.16, 380, [boxSh(0.95, 0.55, 0.52, 0, 0.55, 0)], { fr: 0.7, rest: 0.08 }) };
+}
+function hayBale(r, M) {
+  const g = new THREE.Group();
+  const hay = M(jitterColor(r, '#d9c26a'), { rough: 0.92 });
+  const bale = cyl(hay, { r: 0.5, len: 0.85, axis: 'z', seg: 12 });
+  bale.position.y = 0.5;
+  g.add(bale);
+  for (const z of [-0.2, 0.2]) {
+    const band = cyl(M('#b89a4a', { rough: 0.9 }), { r: 0.51, len: 0.06, axis: 'z', seg: 12 });
+    band.position.set(0, 0.5, z);
+    g.add(band);
+  }
+  const core = cyl(M('#c0a854', { rough: 0.92 }), { r: 0.2, len: 0.87, axis: 'z', seg: 9 });
+  core.position.y = 0.5;
+  g.add(core);
+  return { g, bodies: dynGround(g, 1.0, 190, [
+    { kind: 'cyl', hh: 0.42, r: 0.5, pos: [0, 0.5, 0], rot: quatArr(Math.PI / 2, 0, 0) }, // rolls!
+  ], { fr: 0.55, rest: 0.1 }) };
+}
+function stoneWall(r, M) {
+  const g = new THREE.Group();
+  const stone = M(r.pick(ROCKS), { rough: 0.95 });
+  const base = box(stone, 2.4, 0.6, 0.4);
+  jitterGeo(base, r, 0.045);
+  base.position.y = 0.3;
+  g.add(base);
+  for (let i = 0; i < r.int(5, 7); i++) { // cap stones
+    const s = sphere(M(r.pick(ROCKS), { rough: 0.95 }), r.range(0.12, 0.18), 0);
+    jitterGeo(s, r, 0.03);
+    s.scale.y = 0.6;
+    s.position.set(r.range(-1.05, 1.05), 0.63, r.range(-0.08, 0.08));
+    g.add(s);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(1.2, 0.34, 0.22, 0, 0.34, 0)], 0.85, 0.05) };
+}
+
+/* ---- suburbia ---- */
+function fenceGate(r, M) {
+  const g = new THREE.Group();
+  const mat = M(r.pick(['#eceff1', '#e8e0d0', '#b08a54']), { rough: 0.8 });
+  for (const s of [-1, 1]) {
+    const post = box(mat, 0.11, 1.12, 0.11);
+    post.position.set(s * 0.62, 0.56, 0);
+    g.add(post);
+    const ball = sphere(mat, 0.075, 1);
+    ball.position.set(s * 0.62, 1.16, 0);
+    g.add(ball);
+  }
+  const n = 6;
+  for (let i = 0; i < n; i++) { // arched gate pickets
+    const f = i / (n - 1);
+    const h = 0.62 + Math.sin(f * Math.PI) * 0.24;
+    const p = box(mat, 0.085, h, 0.03);
+    p.position.set(-0.45 + f * 0.9, 0.16 + h / 2, 0.04);
+    g.add(p);
+  }
+  for (const y of [0.3, 0.68]) {
+    const rail = box(mat, 1.0, 0.07, 0.035);
+    rail.position.set(0, y, 0.065);
+    g.add(rail);
+  }
+  const hinge = box(M('#33373d', { rough: 0.6 }), 0.05, 0.09, 0.06);
+  hinge.position.set(-0.54, 0.68, 0.05);
+  g.add(hinge);
+  return { g, bodies: dynGround(g, 1.24, 22, [boxSh(0.7, 0.56, 0.08, 0, 0.56, 0.02)], { fr: 0.6, rest: 0.08 }) };
+}
+function fenceMetal(r, M) {
+  const g = new THREE.Group();
+  const mat = M(r.pick(['#2e6339', '#26292e', '#2b3a55']), { rough: 0.5, metal: 0.35, env: 0.7 });
+  const len = 2.6;
+  for (const x of [-len / 2, 0, len / 2]) {
+    const post = box(mat, 0.06, 1.06, 0.06);
+    post.position.set(x, 0.53, 0);
+    g.add(post);
+    const fin = sphere(mat, 0.05, 0);
+    fin.position.set(x, 1.1, 0);
+    g.add(fin);
+  }
+  for (const y of [0.28, 0.95]) {
+    const rail = box(mat, len, 0.055, 0.04);
+    rail.position.set(0, y, 0);
+    g.add(rail);
+  }
+  const n = Math.round(len / 0.16);
+  for (let i = 1; i < n; i++) {
+    const b = cyl(mat, { r: 0.013, len: 0.72, seg: 5 });
+    b.position.set(-len / 2 + (i / n) * len, 0.6, 0);
+    g.add(b);
+  }
+  return { g, bodies: dynGround(g, 1.14, 60, [boxSh(len / 2, 0.55, 0.05, 0, 0.55, 0)], { fr: 0.5, rest: 0.1 }) };
+}
+function doghouse(r, M) {
+  const g = new THREE.Group();
+  const wallHex = r.pick(['#8c5a4a', '#75552f', '#8c3a34', '#3a5e8c']);
+  const b = box(M(wallHex, { rough: 0.8 }), 0.95, 0.72, 0.85);
+  b.position.y = 0.4;
+  g.add(b);
+  for (const s of [-1, 1]) {
+    const panel = box(M('#4a4e55', { rough: 0.85 }), 1.08, 0.05, 0.58);
+    panel.position.set(0, 0.92, s * 0.21);
+    panel.rotation.x = s * 0.55; // +z panel drops its outer edge → real gable
+    g.add(panel);
+  }
+  const door = new THREE.Mesh(new THREE.CircleGeometry(0.2, 12), M('#1c1e22', { rough: 0.95 }));
+  door.rotation.y = Math.PI / 2;
+  door.position.set(0.48, 0.34, 0);
+  g.add(door);
+  const trim = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.25, 12), M('#f2f3f5', { rough: 0.7 }));
+  trim.rotation.y = Math.PI / 2;
+  trim.position.set(0.481, 0.34, 0);
+  g.add(trim);
+  if (r.chance(0.5)) {
+    const bowl = cyl(M('#c9302c', { rough: 0.5 }), { r: 0.09, r2: 0.11, len: 0.06, seg: 8 });
+    bowl.position.set(0.75, 0.03, 0.3);
+    g.add(bowl);
+  }
+  return { g, bodies: dynGround(g, 1.22, 55, [boxSh(0.48, 0.55, 0.43, 0, 0.55, 0)], { fr: 0.65, rest: 0.12 }) };
+}
+function bbqGrill(r, M) {
+  const g = new THREE.Group();
+  const dark = M('#26292e', { rough: 0.6 });
+  const drum = cyl(dark, { r: 0.29, len: 0.64, axis: 'z', seg: 10 });
+  drum.position.y = 0.82;
+  g.add(drum);
+  const lidHandle = box(M('#8a6a3f', { rough: 0.8 }), 0.05, 0.05, 0.3);
+  lidHandle.position.y = 1.14;
+  g.add(lidHandle);
+  const shelf = box(M('#8a6a3f', { rough: 0.85 }), 0.42, 0.035, 0.5);
+  shelf.position.set(0.5, 0.82, 0);
+  g.add(shelf);
+  if (r.chance(0.6)) {
+    const chim = cyl(dark, { r: 0.045, len: 0.28, seg: 7 });
+    chim.position.set(-0.18, 1.22, 0);
+    g.add(chim);
+  }
+  for (const [sx, sz] of [[-0.2, 0.24], [-0.2, -0.24], [0.22, 0]]) {
+    const leg = cyl(M('#3d4147', { rough: 0.6, metal: 0.3 }), { r: 0.025, len: 0.56, seg: 6 });
+    leg.position.set(sx, 0.28, sz);
+    g.add(leg);
+  }
+  for (const s of [-1, 1]) {
+    const wheel = cyl(dark, { r: 0.07, len: 0.04, axis: 'z', seg: 9 });
+    wheel.position.set(-0.2, 0.07, s * 0.26);
+    g.add(wheel);
+  }
+  return { g, bodies: dynGround(g, 1.18, 42, [
+    cylSh(0.3, 0.32, 0, 0.82, 0),
+    boxSh(0.2, 0.28, 0.2, 0, 0.28, 0),
+  ], { fr: 0.55, rest: 0.18 }) };
+}
+function birdbath(r, M) {
+  const g = new THREE.Group();
+  const stone = M(r.pick(['#b3b8be', '#c9ccd2', '#a8a094']), { rough: 0.88 });
+  const foot = cyl(stone, { r: 0.22, r2: 0.14, len: 0.1, seg: 9 });
+  foot.position.y = 0.05;
+  g.add(foot);
+  const col = cyl(stone, { r: 0.075, r2: 0.06, len: 0.62, seg: 8 });
+  col.position.y = 0.4;
+  g.add(col);
+  const bowl = cyl(stone, { r: 0.16, r2: 0.42, len: 0.14, seg: 10 });
+  bowl.position.y = 0.76;
+  g.add(bowl);
+  const water = cyl(M('#3f86c9', { rough: 0.12, env: 0.9 }), { r: 0.36, len: 0.025, seg: 10 });
+  water.position.y = 0.835;
+  g.add(water);
+  if (r.chance(0.55)) { // little bird on the rim
+    const bird = sphere(M(r.pick(['#c9302c', '#5f9ecc', '#8a6a3f']), { rough: 0.7 }), 0.055, 1);
+    bird.scale.set(1.3, 1, 1);
+    bird.position.set(0.36, 0.9, 0);
+    g.add(bird);
+    const head = sphere(M('#33373d', { rough: 0.7 }), 0.032, 0);
+    head.position.set(0.43, 0.95, 0);
+    g.add(head);
+  }
+  return { g, bodies: dynGround(g, 0.88, 55, [cylSh(0.44, 0.2, 0, 0.44, 0)], { fr: 0.6, rest: 0.12 }) };
+}
+function wheelbarrow(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#3e8948', '#c9403a', '#3a76c4']);
+  const tub = slab(M(hex, { rough: 0.55 }), { x0: -0.48, x1: 0.42, y0: 0.32, y1: 0.62, w: 0.5, wT: 0.68 });
+  g.add(tub);
+  const wood = M('#8a6a3f', { rough: 0.85 });
+  for (const s of [-1, 1]) {
+    const handle = box(wood, 1.15, 0.045, 0.05);
+    handle.position.set(0.35, 0.3, s * 0.2);
+    handle.rotation.z = -0.1;
+    g.add(handle);
+    const leg = box(M('#3d4147', { rough: 0.6 }), 0.04, 0.3, 0.04);
+    leg.position.set(0.3, 0.15, s * 0.2);
+    g.add(leg);
+  }
+  const wheel = P.wheel(M, 0.17, 0.08, { seg: 10 });
+  wheel.position.set(-0.58, 0.17, 0);
+  g.add(wheel);
+  return { g, bodies: dynGround(g, 0.66, 24, [boxSh(0.45, 0.16, 0.3, 0, 0.46, 0)], { fr: 0.55, rest: 0.2 }) };
+}
+function well(r, M) {
+  const g = new THREE.Group();
+  const stone = M(r.pick(['#a3a8ae', '#98918a']), { rough: 0.92 });
+  const ring = cyl(stone, { r: 0.52, r2: 0.5, len: 0.55, seg: 10 });
+  jitterGeo(ring, r, 0.03);
+  ring.position.y = 0.275;
+  g.add(ring);
+  const hole = cyl(M('#16181c', { rough: 1 }), { r: 0.38, len: 0.02, seg: 10 });
+  hole.position.y = 0.56;
+  g.add(hole);
+  const wood = M('#75552f', { rough: 0.85 });
+  for (const s of [-1, 1]) {
+    const post = box(wood, 0.09, 1.05, 0.09);
+    post.position.set(0, 1.05, s * 0.48);
+    g.add(post);
+  }
+  for (const s of [-1, 1]) { // little gable roof, ridge across the posts
+    const panel = box(M('#5a4633', { rough: 0.85 }), 0.78, 0.045, 0.72);
+    panel.position.set(s * 0.21, 1.72, 0);
+    panel.rotation.z = -s * 0.55; // outer (+x) edge drops → gable, not valley
+    g.add(panel);
+  }
+  const axle = cyl(wood, { r: 0.05, len: 1.0, axis: 'z', seg: 7 });
+  axle.position.y = 1.32;
+  g.add(axle);
+  const crank = box(M('#3d4147', { rough: 0.6 }), 0.04, 0.2, 0.04);
+  crank.position.set(0, 1.24, 0.54);
+  g.add(crank);
+  const rope = box(M('#8a6a3f', { rough: 0.95 }), 0.025, 0.55, 0.025);
+  rope.position.y = 1.02;
+  g.add(rope);
+  const bucket = cyl(M('#6d4a2b', { rough: 0.85 }), { r: 0.1, r2: 0.12, len: 0.14, seg: 8 });
+  bucket.position.y = 0.7;
+  g.add(bucket);
+  return { g, bodies: fixedBody(g, [cylSh(0.28, 0.54, 0, 0.28, 0), boxSh(0.06, 1.0, 0.55, 0, 1.0, 0)], 0.8, 0.05) };
+}
+function trampoline(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#8d939a', { rough: 0.5, metal: 0.4 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const leg = cyl(steel, { r: 0.03, len: 0.56, seg: 6 });
+    leg.position.set(Math.cos(a) * 0.88, 0.28, Math.sin(a) * 0.88);
+    g.add(leg);
+  }
+  const mat2 = cyl(M('#22252a', { rough: 0.85 }), { r: 0.88, len: 0.045, seg: 14 });
+  mat2.position.y = 0.57;
+  g.add(mat2);
+  const pad = new THREE.Mesh(new THREE.TorusGeometry(0.92, 0.11, 6, 14), M(r.pick(['#3a76c4', '#3e8948', '#c9403a']), { rough: 0.6 }));
+  pad.rotation.x = Math.PI / 2;
+  pad.scale.z = 0.45;
+  pad.position.y = 0.6;
+  pad.castShadow = true;
+  g.add(pad);
+  // the mat is a launch pad: near-full restitution
+  return { g, bodies: fixedBody(g, [cylSh(0.05, 0.95, 0, 0.55, 0)], 0.7, 0.92) };
+}
+function basketballHoop(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#3d4147', { rough: 0.55, metal: 0.3 });
+  const base = box(steel, 0.62, 0.22, 0.75);
+  base.position.set(-0.3, 0.11, 0);
+  g.add(base);
+  const pole = cyl(steel, { r: 0.055, len: 2.95, seg: 8 });
+  pole.position.set(-0.3, 0.22 + 1.475, 0);
+  g.add(pole);
+  const arm = box(steel, 0.6, 0.06, 0.06);
+  arm.position.set(0, 2.95, 0);
+  g.add(arm);
+  const board = box(M('#eef0f2', { rough: 0.5 }), 0.045, 0.85, 1.15);
+  board.position.set(0.32, 2.85, 0);
+  g.add(board);
+  P.facePane(g, { x0b: 0.32, x1b: 0.32, x0t: 0.32, x1t: 0.32, zb: 1.15, zt: 1.15, y0: 2.42, y1: 3.28 }, 'front', [0.33, 0.67, 0.12, 0.55], M('#e07b39', { rough: 0.55 }), 0.02, 0.03);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.02, 6, 12), M('#e0662e', { rough: 0.4, metal: 0.3 }));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.set(0.58, 2.55, 0);
+  rim.castShadow = true;
+  g.add(rim);
+  const net = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.13, 0.3, 9, 1, true), tMat('#f2f3f5', 0.5));
+  net.position.set(0.58, 2.38, 0);
+  g.add(net);
+  return { g, bodies: dynGround(g, 3.3, 150, [
+    boxSh(0.31, 0.11, 0.37, -0.3, 0.11, 0),
+    cylSh(1.48, 0.07, -0.3, 1.7, 0),
+    boxSh(0.03, 0.43, 0.58, 0.32, 2.85, 0),
+  ], { fr: 0.55, rest: 0.2 }) };
+}
+function soccerGoal(r, M) {
+  const g = new THREE.Group();
+  const white = M('#eef0f2', { rough: 0.5 });
+  for (const s of [-1, 1]) {
+    const post = cyl(white, { r: 0.045, len: 1.5, seg: 7 });
+    post.position.set(0.55, 0.75, s * 1.2);
+    g.add(post);
+    const stay = cyl(white, { r: 0.035, len: 1.55, seg: 6 });
+    stay.position.set(0, 0.65, s * 1.2);
+    stay.rotation.z = 0.75;
+    g.add(stay);
+  }
+  const bar = cyl(white, { r: 0.045, len: 2.48, axis: 'z', seg: 7 });
+  bar.position.set(0.55, 1.5, 0);
+  g.add(bar);
+  const backBar = cyl(white, { r: 0.03, len: 2.48, axis: 'z', seg: 6 });
+  backBar.position.set(-0.58, 0.06, 0);
+  g.add(backBar);
+  // net: thin translucent slab sloping from the crossbar to the ground bar
+  const net = box(tMat('#e8eaec', 0.3), 1.66, 0.015, 2.3);
+  net.position.set(-0.05, 0.74, 0);
+  net.rotation.z = 0.9;
+  net.castShadow = false;
+  g.add(net);
+  return { g, bodies: dynGround(g, 1.55, 35, [
+    boxSh(0.05, 0.75, 1.24, 0.55, 0.75, 0),
+    boxSh(0.6, 0.06, 1.24, -0.05, 0.08, 0),
+  ], { fr: 0.5, rest: 0.15 }) };
+}
+function kiddiePool(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#5f9ecc', '#e08cc0', '#7fb85a']);
+  const wall = cyl(M(hex, { rough: 0.55 }), { r: 0.78, r2: 0.74, len: 0.3, seg: 12 });
+  wall.position.y = 0.15;
+  g.add(wall);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.055, 6, 12), M(shade(hex, 0.08), { rough: 0.55 }));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.3;
+  rim.castShadow = true;
+  g.add(rim);
+  const water = cyl(M('#7fc0e8', { rough: 0.15, env: 0.9 }), { r: 0.68, len: 0.02, seg: 12 });
+  water.position.y = 0.26;
+  g.add(water);
+  if (r.chance(0.7)) { // rubber duck
+    const duck = sphere(M('#e3c53a', { rough: 0.4, env: 0.8 }), 0.11, 1);
+    duck.scale.y = 0.75;
+    duck.position.set(0.2, 0.32, 0.1);
+    g.add(duck);
+    const head = sphere(M('#e3c53a', { rough: 0.4, env: 0.8 }), 0.065, 1);
+    head.position.set(0.29, 0.42, 0.1);
+    g.add(head);
+    const beak = box(M('#e0662e', { rough: 0.5 }), 0.06, 0.025, 0.04);
+    beak.position.set(0.36, 0.41, 0.1);
+    g.add(beak);
+  }
+  return { g, bodies: fixedBody(g, [cylSh(0.16, 0.78, 0, 0.16, 0)], 0.6, 0.2) };
+}
+function gardenGnome(r, M) {
+  const g = new THREE.Group();
+  const body = cyl(M(r.pick(['#3a76c4', '#3e8948', '#5f3f96']), { rough: 0.6 }), { r: 0.1, r2: 0.07, len: 0.22, seg: 8 });
+  body.position.y = 0.13;
+  g.add(body);
+  const beard = sphere(M('#f2f3f5', { rough: 0.8 }), 0.065, 1);
+  beard.scale.y = 1.2;
+  beard.position.set(0.045, 0.26, 0);
+  g.add(beard);
+  const face = sphere(M('#e8b88a', { rough: 0.6 }), 0.05, 1);
+  face.position.set(0.02, 0.32, 0);
+  g.add(face);
+  const hat = cyl(M('#c9302c', { rough: 0.55 }), { r: 0.068, r2: 0.008, len: 0.2, seg: 8 });
+  hat.position.y = 0.44;
+  hat.rotation.z = -0.12;
+  g.add(hat);
+  for (const s of [-1, 1]) {
+    const shoe = box(M('#33373d', { rough: 0.7 }), 0.07, 0.03, 0.045);
+    shoe.position.set(0.05, 0.015, s * 0.045);
+    g.add(shoe);
+  }
+  return { g, bodies: dynGround(g, 0.53, 3.5, [cylSh(0.26, 0.09, 0, 0.26, 0)], { fr: 0.6, rest: 0.3 }) };
+}
+function seesaw(r, M) {
+  const g = new THREE.Group();
+  const [aHex, bHex] = r.pick([['#c9403a', '#e3c53a'], ['#3a76c4', '#c9403a'], ['#3e8948', '#e07b39']]);
+  const pivot = slab(M(aHex, { rough: 0.55 }), { x0: -0.2, x1: 0.2, y0: 0, y1: 0.42, w: 0.42, wT: 0.1, nose: 0.14, tail: 0.14 });
+  g.add(pivot);
+  const plank = box(M(bHex, { rough: 0.55 }), 2.3, 0.05, 0.3);
+  plank.position.y = 0.47;
+  plank.rotation.z = 0.15;
+  g.add(plank);
+  for (const s of [-1, 1]) {
+    const seat = box(M(aHex, { rough: 0.55 }), 0.3, 0.03, 0.3);
+    seat.position.set(s * 0.98, 0.49 + s * 0.98 * 0.151, 0);
+    seat.rotation.z = 0.15;
+    g.add(seat);
+    const grip = box(M('#3d4147', { rough: 0.6 }), 0.04, 0.16, 0.04);
+    grip.position.set(s * 0.78, 0.58 + s * 0.78 * 0.151, 0);
+    grip.rotation.z = 0.15;
+    g.add(grip);
+    const bar = box(M('#3d4147', { rough: 0.6 }), 0.04, 0.04, 0.3);
+    bar.position.set(s * 0.78, 0.64 + s * 0.78 * 0.151, 0);
+    bar.rotation.z = 0.15;
+    g.add(bar);
+  }
+  return { g, bodies: dynGround(g, 0.85, 38, [
+    { kind: 'box', he: [1.15, 0.03, 0.15], pos: [0, 0.47, 0], rot: quatArr(0, 0, 0.15) },
+    boxSh(0.18, 0.21, 0.18, 0, 0.21, 0),
+  ], { fr: 0.6, rest: 0.15 }) };
+}
+function statue(r, M) {
+  const g = new THREE.Group();
+  const stone = M('#b3b8be', { rough: 0.9 });
+  const bronze = M(r.chance(0.6) ? '#6e8578' : '#8a7a5a', { rough: 0.45, metal: 0.55, env: 0.9 });
+  const step = box(stone, 0.95, 0.14, 0.95);
+  step.position.y = 0.07;
+  g.add(step);
+  const plinth = box(stone, 0.62, 0.55, 0.62);
+  plinth.position.y = 0.42;
+  g.add(plinth);
+  const plaque = box(M('#8a7a5a', { rough: 0.4, metal: 0.5 }), 0.02, 0.16, 0.3);
+  plaque.position.set(0.32, 0.42, 0);
+  g.add(plaque);
+  const legs = box(bronze, 0.2, 0.42, 0.26);
+  legs.position.y = 0.9;
+  g.add(legs);
+  const torso = slab(bronze, { x0: -0.13, x1: 0.13, y0: 1.1, y1: 1.55, w: 0.3, wT: 0.38 });
+  g.add(torso);
+  const head = sphere(bronze, 0.11, 1);
+  head.position.y = 1.68;
+  g.add(head);
+  const armUp = box(bronze, 0.08, 0.42, 0.08); // raised arm — heroic!
+  armUp.position.set(0.05, 1.52, 0.14);
+  armUp.rotation.x = -0.5;
+  g.add(armUp);
+  const armDown = box(bronze, 0.08, 0.36, 0.08);
+  armDown.position.set(0, 1.3, -0.16);
+  armDown.rotation.x = 0.28;
+  g.add(armDown);
+  return { g, bodies: dynGround(g, 1.85, 420, [
+    boxSh(0.32, 0.35, 0.32, 0, 0.35, 0),
+    boxSh(0.2, 0.55, 0.2, 0, 1.25, 0),
+  ], { fr: 0.7, rest: 0.05 }) };
+}
+function waterTower(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.chance(0.55) ? '#8d939a' : '#a05a48', { rough: 0.55, metal: 0.35, env: 0.7 });
+  const shapes = [];
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const leg = box(steel, 0.12, 3.4, 0.12);
+    leg.position.set(sx * 0.8, 1.7, sz * 0.8);
+    g.add(leg);
+    shapes.push(boxSh(0.08, 1.7, 0.08, sx * 0.8, 1.7, sz * 0.8));
+  }
+  for (const y of [1.1, 2.4]) { // brace rings
+    for (const s of [-1, 1]) {
+      const bx = box(steel, 1.75, 0.06, 0.06);
+      bx.position.set(0, y, s * 0.8);
+      g.add(bx);
+      const bz = box(steel, 0.06, 0.06, 1.75);
+      bz.position.set(s * 0.8, y, 0);
+      g.add(bz);
+    }
+  }
+  const tank = cyl(steel, { r: 1.3, len: 1.55, seg: 12 });
+  tank.position.y = 4.15;
+  g.add(tank);
+  const belly = cyl(steel, { r: 1.3, r2: 0.35, len: 0.55, seg: 12 });
+  belly.rotation.x = Math.PI;
+  belly.position.y = 3.1;
+  g.add(belly);
+  const roof = cyl(M('#5c6167', { rough: 0.6 }), { r: 1.4, r2: 0.06, len: 0.65, seg: 12 });
+  roof.position.y = 5.25;
+  g.add(roof);
+  const ladder = box(M('#5c6167', { rough: 0.6 }), 0.04, 3.4, 0.24);
+  ladder.position.set(0.95, 1.9, 0);
+  g.add(ladder);
+  shapes.push(cylSh(1.3, 1.35, 0, 4.2, 0));
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.1) };
+}
+function flagpole(r, M) {
+  const g = new THREE.Group();
+  const base = cyl(M('#8d9096', { rough: 0.85 }), { r: 0.16, len: 0.12, seg: 9 });
+  base.position.y = 0.06;
+  g.add(base);
+  const pole = cyl(M('#c9ced4', { rough: 0.3, metal: 0.6, env: 1.1 }), { r: 0.035, r2: 0.02, len: 5.1, seg: 8 });
+  pole.position.y = 0.12 + 2.55;
+  g.add(pole);
+  const ball = sphere(M('#c9a03a', { rough: 0.3, metal: 0.7, env: 1.2 }), 0.07, 1);
+  ball.position.y = 5.3;
+  g.add(ball);
+  const hex = r.pick(['#e07b39', '#c9302c', '#3a76c4', '#3e8948']);
+  const flag = slab(M(hex, { rough: 0.65 }), { x0: 0.05, x1: 1.05, y0: 4.55, y1: 5.1, w: 0.03, nose: 0.28 });
+  g.add(flag);
+  const stripe = slab(M('#f2f3f5', { rough: 0.65 }), { x0: 0.05, x1: 0.82, y0: 4.72, y1: 4.9, w: 0.035 });
+  g.add(stripe);
+  return { g, bodies: dynGround(g, 5.4, 70, [cylSh(2.7, 0.05, 0, 2.7, 0)], { fr: 0.5, rest: 0.15 }) };
+}
+
+/* ---- street & city ---- */
+function buildingCity(r, M) {
+  const g = new THREE.Group();
+  const wallHex = jitterColor(r, r.pick(['#a05a48', '#8c6a52', '#c8b89a', '#7a8577', '#5a6b7a', '#b08468']));
+  const accent = r.pick(ACCENTS);
+  const wall = M(wallHex, { rough: 0.75, env: 0.3 });
+  const glass = M('#8fb4cf', { rough: 0.2, env: 1.25 });
+  const floors = r.int(3, 4);
+  const D = r.jitter(5.4, 0.07), W = r.jitter(6.8, 0.09);
+  const y0 = 0.12, fh = 1.7;
+  const top = y0 + floors * fh;
+  const found = box(M('#8d9096', { rough: 0.9 }), D + 0.1, 0.12, W + 0.1);
+  found.position.y = 0.06;
+  g.add(found);
+  const body = slab(wall, { x0: -D / 2, x1: D / 2, y0, y1: top, w: W });
+  g.add(body);
+  const pt = body.userData.pt;
+  const vy = (y) => (y - y0) / (top - y0);
+  // ground floor: storefront + door
+  g.add(panesOnQuad(faceQuad(pt, 'front'), glass, { cols: 3, gap: 0.03, f0: 0.07, f1: 0.66, v0: vy(y0 + 0.22), v1: vy(y0 + 1.4), t: 0.03 }));
+  P.facePane(g, pt, 'front', [0.74, 0.88, vy(y0 + 0.02), vy(y0 + 1.4)], glass, 0.03, 0.012);
+  const band = box(M(accent, { rough: 0.55 }), 0.07, 0.42, W * 0.92);
+  band.position.set(D / 2 + 0.035, y0 + fh - 0.1, 0);
+  g.add(band);
+  for (let i = 0; i < 4; i++) {
+    const chip = box(M('#f2f3f5', { rough: 0.5 }), 0.03, 0.18, r.range(0.18, 0.34));
+    chip.position.set(D / 2 + 0.085, y0 + fh - 0.1, -W * 0.3 + (i / 3) * W * 0.6);
+    g.add(chip);
+  }
+  // upper floors: window grid + sill bands
+  for (let f = 2; f <= floors; f++) {
+    const fy = y0 + (f - 1) * fh;
+    g.add(panesOnQuad(faceQuad(pt, 'front'), glass, { cols: 4, gap: 0.045, f0: 0.09, f1: 0.91, v0: vy(fy + 0.45), v1: vy(fy + 1.3), t: 0.026 }));
+    for (const side of ['left', 'right']) {
+      g.add(panesOnQuad(faceQuad(pt, side), glass, { cols: 3, gap: 0.05, f0: 0.14, f1: 0.86, v0: vy(fy + 0.45), v1: vy(fy + 1.3), t: 0.026 }));
+    }
+    P.facePane(g, pt, 'front', [0.04, 0.96, vy(fy + 0.32), vy(fy + 0.42)], M(shade(wallHex, -0.09), { rough: 0.7 }), 0.02, 0.008);
+  }
+  const parapet = slab(M(shade(wallHex, -0.08), { rough: 0.7 }), { x0: -D / 2 - 0.07, x1: D / 2 + 0.07, y0: top - 0.02, y1: top + 0.38, w: W + 0.14 });
+  g.add(parapet);
+  for (let i = 0; i < 2; i++) {
+    const ac = box(M('#c9ccd2', { rough: 0.6 }), 0.7, 0.4, 0.55);
+    ac.position.set(r.range(-D * 0.25, D * 0.25), top + 0.2, (i - 0.5) * W * 0.4);
+    g.add(ac);
+  }
+  if (r.chance(0.5)) { // rooftop water tank — classic skyline silhouette
+    const tk = cyl(M('#75552f', { rough: 0.85 }), { r: 0.5, len: 0.85, seg: 9 });
+    tk.position.set(0, top + 0.62, W * 0.28);
+    g.add(tk);
+    const tkRoof = cyl(M('#5a4633', { rough: 0.85 }), { r: 0.56, r2: 0.05, len: 0.3, seg: 9 });
+    tkRoof.position.set(0, top + 1.2, W * 0.28);
+    g.add(tkRoof);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(D / 2 + 0.07, (top + 0.38) / 2, W / 2 + 0.07, 0, (top + 0.38) / 2, 0)], 0.8, 0.05) };
+}
+function marketStall(r, M) {
+  const g = new THREE.Group();
+  const accent = r.pick(['#c9302c', '#3e8948', '#3a76c4', '#e07b39']);
+  const wood = M('#8a6a3f', { rough: 0.85 });
+  const table = box(wood, 1.5, 0.07, 0.95);
+  table.position.y = 0.78;
+  g.add(table);
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const leg = box(wood, 0.06, 0.75, 0.06);
+    leg.position.set(sx * 0.68, 0.375, sz * 0.4);
+    g.add(leg);
+    const post = box(wood, 0.05, 1.25, 0.05);
+    post.position.set(sx * 0.68, 1.45, sz * 0.4);
+    g.add(post);
+  }
+  for (const s of [-1, 1]) { // striped gable canopy
+    for (let i = 0; i < 4; i++) {
+      const slat = box(M(i % 2 ? '#f7f3ea' : accent, { rough: 0.7 }), 1.7 / 4, 0.028, 0.62);
+      slat.position.set(-0.85 + (i + 0.5) * (1.7 / 4), 2.2, s * 0.26);
+      slat.rotation.x = s * 0.45;
+      g.add(slat);
+    }
+  }
+  const kinds = [['#c9403a', '#b83a30'], ['#e8a02e', '#d99426'], ['#7fb85a', '#6da84c']];
+  for (let c = 0; c < 2; c++) { // produce crates
+    const crate = box(M('#9a7a4f', { rough: 0.85 }), 0.42, 0.16, 0.42);
+    crate.position.set(-0.35 + c * 0.75, 0.9, 0);
+    g.add(crate);
+    const [f1, f2] = r.pick(kinds);
+    for (let i = 0; i < 5; i++) {
+      const fruit = sphere(M(i % 2 ? f1 : f2, { rough: 0.5, env: 0.6 }), 0.06, 0);
+      fruit.position.set(-0.35 + c * 0.75 + r.range(-0.12, 0.12), 1.02, r.range(-0.12, 0.12));
+      g.add(fruit);
+    }
+  }
+  return { g, bodies: dynGround(g, 2.35, 80, [
+    boxSh(0.75, 0.42, 0.48, 0, 0.45, 0),
+    boxSh(0.85, 0.06, 0.55, 0, 2.2, 0),
+  ], { fr: 0.55, rest: 0.15 }) };
+}
+function planterStone(r, M) {
+  const g = new THREE.Group();
+  const pot = cyl(M(r.pick(['#a3a8ae', '#b3b8be', '#98918a']), { rough: 0.9 }), { r: 0.55, r2: 0.6, len: 0.46, seg: 6 });
+  pot.position.y = 0.23;
+  g.add(pot);
+  const soil = cyl(M('#4e3a26', { rough: 0.95 }), { r: 0.52, len: 0.03, seg: 6 });
+  soil.position.y = 0.46;
+  g.add(soil);
+  if (r.chance(0.4)) {
+    const c = canopy(M, r, r.pick(GREENS), 0.42, { squash: 0.8 });
+    c.position.y = 0.78;
+    g.add(c);
+  } else flowerHeads(g, M, r, -0.32, 0.32, -0.32, 0.32, 0.46, r.int(5, 8));
+  return { g, bodies: dynGround(g, 0.5, 210, [cylSh(0.25, 0.58, 0, 0.25, 0)], { fr: 0.7, rest: 0.08 }) };
+}
+function bollard(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#33373d', '#a3a8ae', '#2b3a55']);
+  const b = cyl(M(hex, { rough: 0.7 }), { r: 0.115, r2: 0.1, len: 0.56, seg: 9 });
+  b.position.y = 0.28;
+  g.add(b);
+  const capD = sphere(M(hex, { rough: 0.7 }), 0.1, 1);
+  capD.scale.y = 0.6;
+  capD.position.y = 0.57;
+  g.add(capD);
+  if (r.chance(0.6)) {
+    const band = cyl(M('#f2f3f5', { rough: 0.45, env: 0.8 }), { r: 0.118, len: 0.07, seg: 9 });
+    band.position.y = 0.46;
+    g.add(band);
+  }
+  return { g, bodies: dynGround(g, 0.64, 85, [cylSh(0.32, 0.12, 0, 0.32, 0)], { fr: 0.6, rest: 0.15 }) };
+}
+function retainingWall(r, M) {
+  const g = new THREE.Group();
+  const conc = M(r.pick(['#a2a4aa', '#98918a']), { rough: 0.92 });
+  const wallB = box(conc, 2.4, 1.0, 0.28);
+  wallB.position.y = 0.5;
+  g.add(wallB);
+  const cap = box(M(shade('#a2a4aa', -0.06), { rough: 0.9 }), 2.5, 0.09, 0.36);
+  cap.position.y = 1.04;
+  g.add(cap);
+  for (const x of [-0.8, 0, 0.8]) {
+    const seam = box(M('#8a8c92', { rough: 0.95 }), 0.02, 0.95, 0.29);
+    seam.position.set(x, 0.5, 0);
+    g.add(seam);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(1.25, 0.55, 0.18, 0, 0.55, 0)], 0.8, 0.1) };
+}
+function utilityPole(r, M) {
+  const g = new THREE.Group();
+  const wood = M('#75552f', { rough: 0.95 });
+  const pole = cyl(wood, { r: 0.075, r2: 0.09, len: 5.4, seg: 8 });
+  pole.position.y = 2.7;
+  g.add(pole);
+  const arm = box(wood, 0.09, 0.09, 1.7);
+  arm.position.y = 4.9;
+  g.add(arm);
+  for (const z of [-0.7, 0, 0.7]) {
+    const ins = cyl(M('#c9ccd2', { rough: 0.4 }), { r: 0.035, len: 0.09, seg: 6 });
+    ins.position.set(0, 5.0, z);
+    g.add(ins);
+  }
+  const brace = box(wood, 0.05, 0.7, 0.05);
+  brace.position.set(0, 4.55, 0.35);
+  brace.rotation.x = 0.55;
+  g.add(brace);
+  if (r.chance(0.7)) { // transformer drum
+    const tr = cyl(M('#5c6167', { rough: 0.6, metal: 0.2 }), { r: 0.2, len: 0.52, seg: 9 });
+    tr.position.set(0, 4.1, 0.32);
+    g.add(tr);
+  }
+  return { g, bodies: dynGround(g, 5.5, 230, [
+    cylSh(2.75, 0.1, 0, 2.75, 0),
+    boxSh(0.06, 0.06, 0.85, 0, 4.9, 0),
+  ], { fr: 0.6, rest: 0.08 }) };
+}
+function lampCobra(r, M) {
+  const g = new THREE.Group();
+  const galv = M('#9aa0a7', { rough: 0.45, metal: 0.5, env: 0.9 });
+  const base = cyl(M('#5c6167', { rough: 0.8 }), { r: 0.13, len: 0.14, seg: 8 });
+  base.position.y = 0.07;
+  g.add(base);
+  const pole = cyl(galv, { r: 0.06, r2: 0.045, len: 4.3, seg: 8 });
+  pole.position.y = 0.14 + 2.15;
+  g.add(pole);
+  const arm1 = cyl(galv, { r: 0.04, len: 0.85, seg: 7 });
+  arm1.position.set(0.32, 4.55, 0);
+  arm1.rotation.z = -1.05;
+  g.add(arm1);
+  const arm2 = cyl(galv, { r: 0.035, len: 0.7, axis: 'x', seg: 7 });
+  arm2.position.set(0.98, 4.72, 0);
+  g.add(arm2);
+  const head = box(M('#3d4147', { rough: 0.5 }), 0.6, 0.09, 0.24);
+  head.position.set(1.28, 4.72, 0);
+  g.add(head);
+  const lens = box(M('#fff2cf', { rough: 0.3, emissive: '#ffe9b0', emInt: 1.2 }), 0.4, 0.03, 0.16);
+  lens.position.set(1.32, 4.66, 0);
+  g.add(lens);
+  return { g, bodies: dynGround(g, 4.8, 130, [
+    cylSh(2.35, 0.07, 0, 2.35, 0),
+    boxSh(0.32, 0.06, 0.13, 1.28, 4.72, 0),
+  ], { fr: 0.5, rest: 0.1 }) };
+}
+function streetClock(r, M) {
+  const g = new THREE.Group();
+  const iron = M(r.chance(0.6) ? '#2e4a3f' : '#26292e', { rough: 0.55, metal: 0.2 });
+  const base = cyl(iron, { r: 0.17, r2: 0.11, len: 0.32, seg: 9 });
+  base.position.y = 0.16;
+  g.add(base);
+  const pole = cyl(iron, { r: 0.045, len: 2.15, seg: 8 });
+  pole.position.y = 0.32 + 1.075;
+  g.add(pole);
+  const collar = cyl(iron, { r: 0.08, len: 0.06, seg: 8 });
+  collar.position.y = 2.45;
+  g.add(collar);
+  const drum = cyl(iron, { r: 0.34, len: 0.14, axis: 'x', seg: 12 });
+  drum.position.y = 2.85;
+  g.add(drum);
+  const face = canvasMat(128, 128, (x, w, h) => {
+    x.fillStyle = '#f7f5ee';
+    x.beginPath(); x.arc(64, 64, 62, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = '#26292e';
+    x.lineWidth = 5;
+    x.beginPath(); x.arc(64, 64, 58, 0, Math.PI * 2); x.stroke();
+    x.lineWidth = 4;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      x.beginPath();
+      x.moveTo(64 + Math.cos(a) * 48, 64 + Math.sin(a) * 48);
+      x.lineTo(64 + Math.cos(a) * 54, 64 + Math.sin(a) * 54);
+      x.stroke();
+    }
+    x.lineWidth = 6;
+    x.beginPath(); x.moveTo(64, 64); x.lineTo(64, 30); x.stroke();  // ten past ten — showroom pose
+    x.beginPath(); x.moveTo(64, 64); x.lineTo(88, 48); x.stroke();
+  }, { fallback: '#f7f5ee' });
+  for (const s of [-1, 1]) {
+    const f = new THREE.Mesh(new THREE.CircleGeometry(0.29, 16), s === 1 ? face : face);
+    f.rotation.y = s * Math.PI / 2;
+    f.position.set(s * 0.078, 2.85, 0);
+    g.add(f);
+  }
+  const crown = cyl(iron, { r: 0.1, r2: 0.02, len: 0.16, seg: 8 });
+  crown.position.y = 3.28;
+  g.add(crown);
+  return { g, bodies: dynGround(g, 3.35, 110, [
+    cylSh(1.35, 0.06, 0, 1.35, 0),
+    boxSh(0.09, 0.35, 0.35, 0, 2.85, 0),
+  ], { fr: 0.5, rest: 0.12 }) };
+}
+function parkingMeter(r, M) {
+  const g = new THREE.Group();
+  const pole = cyl(M('#5c6167', { rough: 0.5, metal: 0.4 }), { r: 0.028, len: 0.95, seg: 7 });
+  pole.position.y = 0.475;
+  g.add(pole);
+  const head = box(M('#7a8087', { rough: 0.45, metal: 0.4, env: 0.8 }), 0.1, 0.22, 0.17);
+  head.position.y = 1.06;
+  g.add(head);
+  const dome = cyl(M('#7a8087', { rough: 0.45, metal: 0.4, env: 0.8 }), { r: 0.085, len: 0.1, axis: 'x', seg: 9 });
+  dome.position.y = 1.17;
+  g.add(dome);
+  const win = box(M(r.chance(0.3) ? '#c9403a' : '#dfe4ea', { rough: 0.35, env: 0.9 }), 0.02, 0.07, 0.11);
+  win.position.set(0.052, 1.16, 0);
+  g.add(win);
+  const slot = box(M('#33373d', { rough: 0.6 }), 0.015, 0.04, 0.015);
+  slot.position.set(0.055, 1.02, 0);
+  g.add(slot);
+  return { g, bodies: dynGround(g, 1.24, 12, [cylSh(0.62, 0.05, 0, 0.62, 0)], { fr: 0.5, rest: 0.28 }) };
+}
+function manhole(r, M) {
+  const g = new THREE.Group();
+  const iron = M('#4a4d52', { rough: 0.75, metal: 0.25 });
+  const rim = cyl(M('#3d4045', { rough: 0.8 }), { r: 0.4, len: 0.014, seg: 14 });
+  rim.position.y = 0.007;
+  rim.receiveShadow = true;
+  g.add(rim);
+  const lid = cyl(iron, { r: 0.34, len: 0.022, seg: 14 });
+  lid.position.y = 0.018;
+  lid.receiveShadow = true;
+  g.add(lid);
+  const rng = makeRng('mh:' + r.int(0, 999));
+  for (let i = 0; i < 8; i++) { // tread pattern
+    const a = (i / 8) * Math.PI * 2;
+    const dot = box(M('#565a60', { rough: 0.7 }), 0.1, 0.008, 0.03);
+    dot.position.set(Math.cos(a) * 0.2, 0.032, Math.sin(a) * 0.2);
+    dot.rotation.y = -a;
+    g.add(dot);
+  }
+  return { g, bodies: [] };
+}
+function drainGrate(r, M) {
+  const g = new THREE.Group();
+  const frame = box(M('#3d4045', { rough: 0.8 }), 0.78, 0.026, 0.56);
+  frame.position.y = 0.013;
+  frame.receiveShadow = true;
+  g.add(frame);
+  for (let i = 0; i < 6; i++) {
+    const slat = box(M('#565a60', { rough: 0.7, metal: 0.2 }), 0.62, 0.014, 0.045);
+    slat.position.set(0, 0.03, -0.2 + i * 0.08);
+    g.add(slat);
+  }
+  return { g, bodies: [] };
+}
+function sidewalkSlab(r, M) {
+  const g = new THREE.Group();
+  const slab1 = box(M(jitterColor(r, '#b9bec4', 0.003, 0.02, 0.03), { rough: 0.95 }), 1.5, 0.05, 1.5);
+  slab1.position.y = 0.025;
+  slab1.receiveShadow = true;
+  g.add(slab1);
+  for (const [w, d, x, z] of [[1.5, 0.02, 0, 0], [0.02, 1.5, 0, 0]]) {
+    const groove = box(M('#9aa0a7', { rough: 0.95 }), w, 0.052, d);
+    groove.position.set(x, 0.026, z);
+    g.add(groove);
+  }
+  if (r.chance(0.3)) { // crack
+    const crack = box(M('#9aa0a7', { rough: 0.95 }), 0.65, 0.052, 0.018);
+    crack.position.set(r.range(-0.3, 0.3), 0.026, r.range(-0.5, 0.5));
+    crack.rotation.y = r.range(0, Math.PI);
+    g.add(crack);
+  }
+  return { g, bodies: [] };
+}
+function portaPotty(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#2f6bb0', '#3e8948', '#2f6bb0', '#e07b39']);
+  const skid = box(M('#33373d', { rough: 0.8 }), 1.05, 0.08, 1.05);
+  skid.position.y = 0.04;
+  g.add(skid);
+  const bodyS = slab(M(hex, { rough: 0.55 }), { x0: -0.48, x1: 0.48, y0: 0.08, y1: 2.02, w: 0.95, wT: 0.88 });
+  g.add(bodyS);
+  const pt = bodyS.userData.pt;
+  P.facePane(g, pt, 'front', [0.16, 0.84, 0.03, 0.9], M(shade(hex, -0.09), { rough: 0.6 }), 0.035, 0.012);
+  P.facePane(g, pt, 'front', [0.7, 0.78, 0.42, 0.52], M('#c9ccd2', { rough: 0.4 }), 0.03, 0.05); // handle
+  for (const side of ['left', 'right']) {
+    P.facePane(g, pt, side, [0.2, 0.8, 0.82, 0.92], M('#dfe4ea', { rough: 0.5 }), 0.02, 0.01); // vent
+  }
+  const roof = slab(M('#eef0f2', { rough: 0.55 }), { x0: -0.52, x1: 0.52, y0: 2.02, y1: 2.14, w: 1.02, wT: 0.9, nose: 0.06, tail: 0.06 });
+  g.add(roof);
+  return { g, bodies: dynGround(g, 2.16, 85, [boxSh(0.5, 1.05, 0.5, 0, 1.08, 0)], { fr: 0.5, rest: 0.2 }) };
+}
+function tireStack(r, M) {
+  const g = new THREE.Group();
+  const rubber = M('#232629', { rough: 0.95, env: 0.2 });
+  const n = r.int(3, 4);
+  for (let i = 0; i < n; i++) {
+    const tire = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.125, 7, 12), rubber);
+    tire.rotation.x = Math.PI / 2;
+    tire.scale.z = 0.62;
+    tire.position.set(r.range(-0.05, 0.05), 0.13 + i * 0.17, r.range(-0.05, 0.05));
+    if (i === n - 1) tire.rotation.y = r.range(0, 1);
+    tire.castShadow = true;
+    g.add(tire);
+  }
+  return { g, bodies: dynGround(g, 0.26 + n * 0.17, 45 + n * 12, [
+    cylSh((0.26 + n * 0.17) / 2, 0.42, 0, (0.26 + n * 0.17) / 2, 0),
+  ], { fr: 0.7, rest: 0.4 }) };
+}
+
+/* ---- signs & traffic (batch 2) ---- */
+function gantry(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#b3b8be', { rough: 0.45, metal: 0.4, env: 0.9 });
+  const H = 5.3, SPAN = 9;
+  const shapes = [];
+  for (const s of [-1, 1]) { // lattice columns
+    for (const dx of [-0.26, 0.26]) {
+      const leg = box(steel, 0.11, H, 0.11);
+      leg.position.set(dx, H / 2, s * SPAN / 2);
+      g.add(leg);
+    }
+    for (let yy = 0.7; yy < H; yy += 1.1) {
+      const rung = box(steel, 0.52, 0.07, 0.07);
+      rung.position.set(0, yy, s * SPAN / 2);
+      g.add(rung);
+    }
+    const foot = box(M('#5c6167', { rough: 0.8 }), 0.8, 0.22, 0.8);
+    foot.position.set(0, 0.11, s * SPAN / 2);
+    g.add(foot);
+    shapes.push(boxSh(0.32, H / 2, 0.32, 0, H / 2, s * SPAN / 2));
+  }
+  for (const yy of [H - 0.65, H]) { // truss chords
+    for (const dx of [-0.26, 0.26]) {
+      const chord = box(steel, 0.09, 0.09, SPAN + 0.4);
+      chord.position.set(dx, yy, 0);
+      g.add(chord);
+    }
+  }
+  const nDiag = 10;
+  for (let i = 0; i < nDiag; i++) { // truss diagonals
+    const diag = box(steel, 0.06, 0.75, 0.06);
+    diag.position.set(0.26, H - 0.32, -SPAN / 2 + 0.6 + i * (SPAN - 1.2) / (nDiag - 1));
+    diag.rotation.x = (i % 2 ? 1 : -1) * 0.72;
+    g.add(diag);
+    const diag2 = diag.clone();
+    diag2.position.x = -0.26;
+    g.add(diag2);
+  }
+  shapes.push(boxSh(0.4, 0.5, SPAN / 2, 0, H - 0.32, 0)); // beam — cars pass under
+  const texts = r.pick([
+    [['NORTH', '↑'], ['EXIT 12', '→']],
+    [['CITY CENTER', '↑'], ['AIRPORT', '→']],
+    [['CRASHVILLE', '↑'], ['SANDBOX RD', '→']],
+  ]);
+  [-1.9, 1.9].forEach((z, i) => {
+    const face = canvasMat(384, 224, (x, w, h) => {
+      x.fillStyle = '#2e7a45';
+      x.fillRect(0, 0, w, h);
+      x.strokeStyle = '#f2f3f5';
+      x.lineWidth = 7;
+      x.strokeRect(7, 7, w - 14, h - 14);
+      x.fillStyle = '#f2f3f5';
+      x.textAlign = 'center';
+      x.font = 'bold 46px Arial, sans-serif';
+      x.fillText(texts[i][0], w / 2, 96);
+      x.font = 'bold 62px Arial, sans-serif';
+      x.fillText(texts[i][1], w / 2, 180);
+    }, { fallback: '#2e7a45' });
+    const holder = new THREE.Group();
+    plate(holder, new THREE.PlaneGeometry(1.95, 1.15), face, GRAY_BACK(M), 0);
+    holder.position.set(0.34, H - 0.95, z);
+    g.add(holder);
+  });
+  return { g, bodies: fixedBody(g, shapes, 0.5, 0.15) };
+}
+function tollGate(r, M) {
+  const g = new THREE.Group();
+  const cab = box(M('#8d939a', { rough: 0.55, metal: 0.2 }), 0.5, 1.05, 0.42);
+  cab.position.set(0, 0.6, 0.65);
+  g.add(cab);
+  const cabTop = box(M('#5c6167', { rough: 0.6 }), 0.56, 0.07, 0.48);
+  cabTop.position.set(0, 1.16, 0.65);
+  g.add(cabTop);
+  const pivot = box(M('#33373d', { rough: 0.6 }), 0.22, 0.9, 0.22);
+  pivot.position.set(0, 0.45, 0.2);
+  g.add(pivot);
+  const armLen = 2.5;
+  for (let i = 0; i < 5; i++) { // striped boom across the road
+    const seg = box(M(i % 2 ? '#f2f3f5' : '#c9302c', { rough: 0.5 }), 0.075, 0.075, armLen / 5);
+    seg.position.set(0, 0.88, 0.06 - (i + 0.5) * (armLen / 5));
+    g.add(seg);
+  }
+  const weight = box(M('#33373d', { rough: 0.6 }), 0.12, 0.18, 0.3);
+  weight.position.set(0, 0.88, 0.38);
+  g.add(weight);
+  return { g, bodies: dynGround(g, 1.25, 65, [
+    boxSh(0.26, 0.53, 0.22, 0, 0.6, 0.65),
+    boxSh(0.05, 0.05, armLen / 2, 0, 0.88, 0.06 - armLen / 2),
+  ], { fr: 0.5, rest: 0.15 }) };
+}
+function trafficLightPed(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#33373d', { rough: 0.55, metal: 0.3 });
+  const pole = cyl(steel, { r: 0.045, len: 2.7, seg: 8 });
+  pole.position.y = 1.35;
+  g.add(pole);
+  const head = box(M('#22252a', { rough: 0.7 }), 0.16, 0.44, 0.3);
+  head.position.y = 2.5;
+  g.add(head);
+  const walk = r.chance(0.5);
+  const hand = box(M('#e0662e', { rough: 0.3, emissive: '#ff7a3d', emInt: walk ? 0.12 : 1.6 }), 0.02, 0.13, 0.13);
+  hand.position.set(0.085, 2.61, 0);
+  g.add(hand);
+  const man = box(M('#dfe8f0', { rough: 0.3, emissive: '#eef6ff', emInt: walk ? 1.5 : 0.1 }), 0.02, 0.13, 0.13);
+  man.position.set(0.085, 2.4, 0);
+  g.add(man);
+  const btn = box(M('#e3c53a', { rough: 0.5 }), 0.09, 0.16, 0.09);
+  btn.position.set(0.05, 1.1, 0);
+  g.add(btn);
+  const dot = cyl(M('#c9302c', { rough: 0.4 }), { r: 0.022, len: 0.03, axis: 'x', seg: 6 });
+  dot.position.set(0.1, 1.12, 0);
+  g.add(dot);
+  return { g, bodies: dynGround(g, 2.75, 42, [
+    cylSh(1.36, 0.055, 0, 1.36, 0),
+    boxSh(0.1, 0.24, 0.17, 0, 2.5, 0),
+  ], { fr: 0.5, rest: 0.2 }) };
+}
+function barrelDrum(r, M) {
+  const g = new THREE.Group();
+  const drum = cyl(M('#e8641f', { rough: 0.55 }), { r: 0.3, r2: 0.26, len: 0.88, seg: 10 });
+  drum.position.y = 0.47;
+  g.add(drum);
+  for (const y of [0.33, 0.58, 0.83]) {
+    const band = cyl(M('#f2f3f5', { rough: 0.4, env: 0.8 }), { r: 0.303 - (y - 0.33) * 0.028, len: 0.1, seg: 10 });
+    band.position.y = y;
+    g.add(band);
+  }
+  const lid = cyl(M('#26292e', { rough: 0.7 }), { r: 0.2, len: 0.05, seg: 10 });
+  lid.position.y = 0.93;
+  g.add(lid);
+  const base = cyl(M('#26292e', { rough: 0.85 }), { r: 0.33, len: 0.06, seg: 10 });
+  base.position.y = 0.03;
+  g.add(base);
+  return { g, bodies: dynGround(g, 0.96, 13, [cylSh(0.48, 0.3, 0, 0.48, 0)], { fr: 0.6, rest: 0.3 }) };
+}
+function chevronBoard(r, M) {
+  const g = new THREE.Group();
+  for (const z of [-0.3, 0.3]) {
+    const post = box(M('#8d939a', { rough: 0.5, metal: 0.4 }), 0.05, 0.95, 0.05);
+    post.position.set(0, 0.475, z);
+    g.add(post);
+  }
+  const dir = r.sign();
+  const face = canvasMat(300, 200, (x, w, h) => {
+    x.fillStyle = '#26292e';
+    x.fillRect(0, 0, w, h);
+    x.fillStyle = '#e8b12e';
+    for (let i = 0; i < 3; i++) {
+      const cx = 50 + i * 90;
+      x.beginPath();
+      if (dir > 0) {
+        x.moveTo(cx, 30); x.lineTo(cx + 45, 100); x.lineTo(cx, 170);
+        x.lineTo(cx - 22, 170); x.lineTo(cx + 23, 100); x.lineTo(cx - 22, 30);
+      } else {
+        x.moveTo(cx + 22, 30); x.lineTo(cx - 23, 100); x.lineTo(cx + 22, 170);
+        x.lineTo(cx, 170); x.lineTo(cx - 45, 100); x.lineTo(cx, 30);
+      }
+      x.closePath();
+      x.fill();
+    }
+  }, { fallback: '#e8b12e' });
+  plate(g, new THREE.PlaneGeometry(0.95, 0.62), face, GRAY_BACK(M), 1.22);
+  return { g, bodies: dynGround(g, 1.55, 24, [boxSh(0.04, 0.32, 0.48, 0, 1.22, 0), boxSh(0.04, 0.48, 0.35, 0, 0.48, 0)], { fr: 0.5, rest: 0.2 }) };
+}
+function barricadeEnd(r, M) {
+  const g = new THREE.Group();
+  const frameM = M('#f2f3f5', { rough: 0.6 });
+  for (const sz of [-1, 1]) {
+    for (const sx of [-1, 1]) {
+      const leg = box(frameM, 0.05, 0.6, 0.05);
+      leg.position.set(sx * 0.02, 0.29, sz * 0.32);
+      leg.rotation.x = sx * 0.35;
+      g.add(leg);
+    }
+  }
+  const stripes = canvasMat(240, 90, (x, w, h) => {
+    x.fillStyle = '#26292e';
+    x.fillRect(0, 0, w, h);
+    x.fillStyle = '#e8b12e';
+    for (let sx = -h; sx < w + h; sx += 60) {
+      x.beginPath();
+      x.moveTo(sx, h); x.lineTo(sx + 30, h); x.lineTo(sx + 30 + h, 0); x.lineTo(sx + h, 0);
+      x.closePath();
+      x.fill();
+    }
+  }, { fallback: '#e8b12e' });
+  const board = box(frameM, 0.05, 0.32, 0.92);
+  board.position.set(0, 0.62, 0);
+  g.add(board);
+  const facePl = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.3), stripes);
+  facePl.rotation.y = Math.PI / 2;
+  facePl.position.set(0.028, 0.62, 0);
+  facePl.castShadow = true;
+  g.add(facePl);
+  if (r.chance(0.5)) {
+    const lamp = box(M('#e8a02e', { rough: 0.35, emissive: '#ffb03a', emInt: 1.4 }), 0.06, 0.08, 0.06);
+    lamp.position.set(0, 0.82, 0);
+    g.add(lamp);
+  }
+  return { g, bodies: dynGround(g, 0.85, 12, [boxSh(0.05, 0.2, 0.46, 0, 0.62, 0), boxSh(0.2, 0.3, 0.35, 0, 0.3, 0)], { fr: 0.55, rest: 0.25 }) };
+}
+function crashAttenuator(r, M) {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const seg = box(M(i % 2 ? '#d9a326' : '#e8b12e', { rough: 0.6 }), 0.34, 0.82, 0.88);
+    seg.position.set(-0.42 + i * 0.42, 0.45, 0);
+    g.add(seg);
+    if (i < 2) { // dark accordion gaps so the segments read
+      const gap = box(M('#33373d', { rough: 0.7 }), 0.09, 0.72, 0.8);
+      gap.position.set(-0.21 + i * 0.42, 0.45, 0);
+      g.add(gap);
+    }
+  }
+  const rearTex = canvasMat(220, 200, (x, w, h) => {
+    x.fillStyle = '#e8b12e';
+    x.fillRect(0, 0, w, h);
+    x.strokeStyle = '#26292e';
+    x.lineWidth = 26;
+    for (const s of [-1, 1]) {
+      x.beginPath();
+      x.moveTo(w / 2 + s * 14, 24);
+      x.lineTo(w / 2 + s * (w / 2 - 6), h - 30);
+      x.stroke();
+    }
+  }, { fallback: '#e8b12e' });
+  const rear = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.78), rearTex);
+  rear.rotation.y = -Math.PI / 2;
+  rear.position.set(-0.64, 0.45, 0);
+  rear.castShadow = true;
+  g.add(rear);
+  const nose = cyl(M('#d9a326', { rough: 0.6 }), { r: 0.44, len: 0.8, seg: 10 });
+  nose.scale.x = 0.4;
+  nose.position.set(0.52, 0.45, 0);
+  g.add(nose);
+  return { g, bodies: dynGround(g, 0.9, 160, [boxSh(0.62, 0.42, 0.46, 0, 0.45, 0)], { fr: 0.75, rest: 0.02 }) };
+}
+function signWork(r, M) {
+  const g = new THREE.Group();
+  for (const sz of [-1, 1]) { // A-frame feet
+    const foot = box(M('#8d939a', { rough: 0.5, metal: 0.4 }), 0.6, 0.05, 0.05);
+    foot.position.set(0, 0.03, sz * 0.06);
+    foot.rotation.y = sz * 0.35;
+    g.add(foot);
+  }
+  const post = box(M('#8d939a', { rough: 0.5, metal: 0.4 }), 0.05, 1.5, 0.05);
+  post.position.y = 0.78;
+  g.add(post);
+  const kind = r.pick(['ROAD WORK', 'DETOUR', 'LANE CLOSED']);
+  const face = canvasMat(256, 256, (x, w, h) => {
+    x.fillStyle = '#e8641f';
+    x.fillRect(0, 0, w, h);
+    x.strokeStyle = '#26292e';
+    x.lineWidth = 10;
+    x.beginPath();
+    x.moveTo(128, 12); x.lineTo(244, 128); x.lineTo(128, 244); x.lineTo(12, 128);
+    x.closePath();
+    x.stroke();
+    x.fillStyle = '#26292e';
+    x.textAlign = 'center';
+    x.font = 'bold 34px Arial, sans-serif';
+    const wds = kind.split(' ');
+    if (wds.length === 2) { x.fillText(wds[0], 128, 116); x.fillText(wds[1], 128, 158); }
+    else x.fillText(kind, 128, 138);
+  }, { fallback: '#e8641f' });
+  plate(g, new THREE.CircleGeometry(0.44, 4, 0), face, GRAY_BACK(M), 1.32);
+  return { g, bodies: dynGround(g, 1.8, 13, [
+    boxSh(0.03, 0.32, 0.32, 0, 1.32, 0),
+    boxSh(0.04, 0.75, 0.04, 0, 0.75, 0),
+  ], { fr: 0.5, rest: 0.25 }) };
+}
+function lightTrailer(r, M) {
+  const g = new THREE.Group();
+  trailerBase(g, M);
+  const gen = box(M(r.chance(0.6) ? '#e8a02e' : '#8d939a', { rough: 0.55 }), 0.75, 0.6, 0.7);
+  gen.position.set(0.25, 0.88, 0);
+  g.add(gen);
+  const vents = box(M('#33373d', { rough: 0.7 }), 0.02, 0.3, 0.4);
+  vents.position.set(0.64, 0.9, 0);
+  g.add(vents);
+  const mast = cyl(M('#8d939a', { rough: 0.45, metal: 0.4 }), { r: 0.05, r2: 0.035, len: 2.6, seg: 7 });
+  mast.position.set(-0.4, 1.18 + 1.3, 0);
+  g.add(mast);
+  const bar = box(M('#33373d', { rough: 0.6 }), 0.08, 0.12, 0.95);
+  bar.position.set(-0.4, 3.82, 0);
+  g.add(bar);
+  for (let i = 0; i < 4; i++) {
+    const lamp = box(M('#fff2cf', { rough: 0.3, emissive: '#ffe9b0', emInt: 2 }), 0.1, 0.16, 0.18);
+    lamp.position.set(-0.36, 3.82, -0.36 + i * 0.24);
+    lamp.rotation.z = -0.3;
+    g.add(lamp);
+  }
+  return { g, bodies: dynGround(g, 3.95, 360, [
+    boxSh(0.75, 0.35, 0.55, 0.1, 0.6, 0),
+    cylSh(1.35, 0.06, -0.4, 2.5, 0),
+  ], { fr: 0.6, rest: 0.1 }) };
+}
+function scaffolding(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#8d939a', { rough: 0.45, metal: 0.45, env: 0.9 });
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const post = cyl(steel, { r: 0.035, len: 3.3, seg: 6 });
+      post.position.set(sx * 0.95, 1.65, sz * 0.55);
+      g.add(post);
+    }
+    for (const y of [0.5, 1.55, 2.6]) { // end rungs
+      const rung = cyl(steel, { r: 0.028, len: 1.06, axis: 'z', seg: 6 });
+      rung.position.set(sx * 0.95, y, 0);
+      g.add(rung);
+    }
+  }
+  for (const sz of [-1, 1]) { // X braces on the long faces
+    for (const s of [-1, 1]) {
+      const brace = cyl(steel, { r: 0.02, len: 2.3, seg: 5 });
+      brace.position.set(0, 1.05, sz * 0.57);
+      brace.rotation.z = s * 1.05;
+      g.add(brace);
+    }
+  }
+  for (let i = 0; i < 3; i++) { // plank deck
+    const plank = box(M('#9a7a4f', { rough: 0.9 }), 2.1, 0.045, 0.3);
+    plank.position.set(0, 1.62, -0.32 + i * 0.32);
+    g.add(plank);
+  }
+  const toe = box(M('#e8a02e', { rough: 0.6 }), 2.1, 0.14, 0.03);
+  toe.position.set(0, 1.74, 0.53);
+  g.add(toe);
+  return { g, bodies: dynGround(g, 3.35, 240, [
+    boxSh(1.0, 1.65, 0.6, 0, 1.65, 0),
+  ], { fr: 0.55, rest: 0.1 }) };
+}
+function pallet(r, M) {
+  const g = new THREE.Group();
+  const wood = M('#b08a54', { rough: 0.9 });
+  for (const z of [-0.5, 0, 0.5]) {
+    const stringer = box(wood, 1.1, 0.09, 0.09);
+    stringer.position.set(0, 0.045, z);
+    g.add(stringer);
+  }
+  for (let i = 0; i < 5; i++) {
+    const slatB = box(wood, 0.16, 0.03, 1.15);
+    slatB.position.set(-0.46 + i * 0.23, 0.105, 0);
+    g.add(slatB);
+  }
+  if (r.chance(0.55)) { // cement bags
+    const bagM = M('#dfd8c8', { rough: 0.85 });
+    for (let i = 0; i < 5; i++) {
+      const bag = box(bagM, 0.5, 0.14, 0.32);
+      bag.position.set((i % 2) * 0.4 - 0.2, 0.19 + Math.floor(i / 2) * 0.14, (i % 2 ? -0.16 : 0.16) * (Math.floor(i / 2) % 2 ? -1 : 1));
+      bag.rotation.y = r.range(-0.08, 0.08);
+      g.add(bag);
+    }
+  } else { // brick stack
+    const brickM = M('#a05a48', { rough: 0.85 });
+    for (let row = 0; row < 3; row++) {
+      for (let i = 0; i < 3; i++) {
+        const brick = box(brickM, 0.62, 0.13, 0.28);
+        brick.position.set(0, 0.19 + row * 0.135, -0.32 + i * 0.32);
+        g.add(brick);
+      }
+    }
+  }
+  return { g, bodies: dynGround(g, 0.62, 130, [boxSh(0.56, 0.28, 0.58, 0, 0.28, 0)], { fr: 0.7, rest: 0.05 }) };
+}
+function cellTower(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#b3b8be', { rough: 0.45, metal: 0.4, env: 0.9 });
+  const H = 7.4;
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const leg = box(steel, 0.08, H, 0.08);
+    leg.position.set(sx * 0.42, H / 2, sz * 0.42);
+    leg.rotation.z = -sx * 0.045;
+    leg.rotation.x = sz * 0.045;
+    g.add(leg);
+  }
+  for (let yy = 0.9; yy < H - 0.4; yy += 1.3) {
+    const k = 1 - (yy / H) * 0.55; // lattice narrows with height
+    for (const s of [-1, 1]) {
+      const bx = box(steel, 0.95 * k, 0.055, 0.06);
+      bx.position.set(0, yy, s * 0.45 * k);
+      g.add(bx);
+      const bz = box(steel, 0.06, 0.055, 0.95 * k);
+      bz.position.set(s * 0.45 * k, yy, 0);
+      g.add(bz);
+    }
+  }
+  const head = cyl(M('#5c6167', { rough: 0.6 }), { r: 0.14, len: 0.9, seg: 8 });
+  head.position.y = H + 0.3;
+  g.add(head);
+  for (let i = 0; i < 3; i++) { // antenna panels
+    const a = (i / 3) * Math.PI * 2;
+    const panel = box(M('#eef0f2', { rough: 0.5 }), 0.09, 0.78, 0.22);
+    panel.position.set(Math.cos(a) * 0.32, H + 0.25, Math.sin(a) * 0.32);
+    panel.rotation.y = -a + Math.PI / 2;
+    g.add(panel);
+  }
+  if (r.chance(0.6)) {
+    const dish = cyl(M('#dfe4ea', { rough: 0.4 }), { r: 0.28, r2: 0.05, len: 0.18, axis: 'x', seg: 10 });
+    dish.position.set(0.3, H - 1.6, 0.2);
+    g.add(dish);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(0.5, H / 2, 0.5, 0, H / 2, 0)], 0.55, 0.1) };
+}
+
 /* ================= registry ================= */
 const NAT = 'Nature', SUB = 'Suburbia', CITY = 'Street & City', TRAF = 'Signs & Traffic';
 export const SCENERY = [
@@ -1836,6 +3193,61 @@ export const SCENERY = [
   { id: 'speed_bump', label: 'Speed Bump', icon: '〰️', cat: TRAF, build: speedBump },
   { id: 'arrow_board', label: 'Arrow Board', icon: '➡️', cat: TRAF, build: arrowBoard },
   { id: 'vms_board', label: 'Message Board', icon: '💬', cat: TRAF, build: vmsBoard },
+
+  // batch 2 — reference-image sweep
+  { id: 'tree_dead', label: 'Dead Tree', icon: '🪾', cat: NAT, build: treeDead },
+  { id: 'tree_stump', label: 'Tree Stump', icon: '🪵', cat: NAT, build: treeStump },
+  { id: 'cactus', label: 'Cactus', icon: '🌵', cat: NAT, build: cactus },
+  { id: 'tumbleweed', label: 'Tumbleweed', icon: '🌀', cat: NAT, build: tumbleweed },
+  { id: 'flowers_wild', label: 'Wildflowers', icon: '🌼', cat: NAT, build: flowersWild },
+  { id: 'log_pile', label: 'Log Pile', icon: '🪵', cat: NAT, build: logPile },
+  { id: 'hay_bale', label: 'Hay Bale', icon: '🌾', cat: NAT, build: hayBale },
+  { id: 'stone_wall', label: 'Stone Wall', icon: '🧱', cat: NAT, build: stoneWall },
+
+  { id: 'fence_gate', label: 'Garden Gate', icon: '🚪', cat: SUB, build: fenceGate },
+  { id: 'fence_metal', label: 'Metal Fence', icon: '🛡️', cat: SUB, build: fenceMetal },
+  { id: 'doghouse', label: 'Doghouse', icon: '🐶', cat: SUB, build: doghouse },
+  { id: 'bbq_grill', label: 'BBQ Grill', icon: '🍖', cat: SUB, build: bbqGrill },
+  { id: 'birdbath', label: 'Birdbath', icon: '🐦', cat: SUB, build: birdbath },
+  { id: 'wheelbarrow', label: 'Wheelbarrow', icon: '🛞', cat: SUB, build: wheelbarrow },
+  { id: 'well', label: 'Wishing Well', icon: '🪣', cat: SUB, build: well },
+  { id: 'trampoline', label: 'Trampoline', icon: '🤸', cat: SUB, build: trampoline },
+  { id: 'basketball_hoop', label: 'Basketball Hoop', icon: '🏀', cat: SUB, build: basketballHoop },
+  { id: 'soccer_goal', label: 'Soccer Goal', icon: '⚽', cat: SUB, build: soccerGoal },
+  { id: 'kiddie_pool', label: 'Kiddie Pool', icon: '🦆', cat: SUB, build: kiddiePool },
+  { id: 'garden_gnome', label: 'Garden Gnome', icon: '🧙', cat: SUB, build: gardenGnome },
+  { id: 'seesaw', label: 'Seesaw', icon: '⚖️', cat: SUB, build: seesaw },
+  { id: 'statue', label: 'Park Statue', icon: '🗽', cat: SUB, build: statue },
+  { id: 'water_tower', label: 'Water Tower', icon: '🗼', cat: SUB, build: waterTower },
+  { id: 'flagpole', label: 'Flagpole', icon: '🚩', cat: SUB, build: flagpole },
+
+  { id: 'building_city', label: 'City Building', icon: '🏢', cat: CITY, build: buildingCity },
+  { id: 'market_stall', label: 'Market Stall', icon: '🍎', cat: CITY, build: marketStall },
+  { id: 'planter_stone', label: 'Stone Planter', icon: '🪻', cat: CITY, build: planterStone },
+  { id: 'bollard', label: 'Bollard', icon: '⚫', cat: CITY, build: bollard },
+  { id: 'retaining_wall', label: 'Retaining Wall', icon: '🧱', cat: CITY, build: retainingWall },
+  { id: 'utility_pole', label: 'Utility Pole', icon: '🗼', cat: CITY, build: utilityPole },
+  { id: 'lamp_cobra', label: 'Cobra Light', icon: '💡', cat: CITY, build: lampCobra },
+  { id: 'street_clock', label: 'Street Clock', icon: '🕰️', cat: CITY, build: streetClock },
+  { id: 'parking_meter', label: 'Parking Meter', icon: '🪙', cat: CITY, build: parkingMeter },
+  { id: 'manhole', label: 'Manhole Cover', icon: '⭕', cat: CITY, build: manhole },
+  { id: 'drain_grate', label: 'Drain Grate', icon: '🕳️', cat: CITY, build: drainGrate },
+  { id: 'sidewalk_slab', label: 'Sidewalk Slab', icon: '⬜', cat: CITY, build: sidewalkSlab },
+  { id: 'porta_potty', label: 'Porta-Potty', icon: '🚽', cat: CITY, build: portaPotty },
+  { id: 'tire_stack', label: 'Tire Stack', icon: '🛞', cat: CITY, build: tireStack },
+
+  { id: 'gantry', label: 'Sign Gantry', icon: '🌉', cat: TRAF, build: gantry },
+  { id: 'toll_gate', label: 'Toll Gate', icon: '🚧', cat: TRAF, build: tollGate },
+  { id: 'traffic_light_ped', label: 'Ped Signal', icon: '🚶', cat: TRAF, build: trafficLightPed },
+  { id: 'barrel_drum', label: 'Traffic Drum', icon: '🛢️', cat: TRAF, build: barrelDrum },
+  { id: 'chevron_board', label: 'Chevron Board', icon: '⏩', cat: TRAF, build: chevronBoard },
+  { id: 'barricade_end', label: 'End Barricade', icon: '⛔', cat: TRAF, build: barricadeEnd },
+  { id: 'crash_attenuator', label: 'Crash Cushion', icon: '🧽', cat: TRAF, build: crashAttenuator },
+  { id: 'sign_work', label: 'Road Work Sign', icon: '👷', cat: TRAF, build: signWork },
+  { id: 'light_trailer', label: 'Light Trailer', icon: '🔦', cat: TRAF, build: lightTrailer },
+  { id: 'scaffolding', label: 'Scaffolding', icon: '🏗️', cat: TRAF, build: scaffolding },
+  { id: 'pallet', label: 'Loaded Pallet', icon: '📦', cat: TRAF, build: pallet },
+  { id: 'cell_tower', label: 'Cell Tower', icon: '📡', cat: TRAF, build: cellTower },
 ];
 
 export const isScenery = (kind) => SCENERY.some((s) => s.id === kind);
