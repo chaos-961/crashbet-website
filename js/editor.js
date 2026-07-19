@@ -55,6 +55,7 @@ export function initEditor(ctx) {
   ctx.scene.add(selBox);
 
   /* ================= transform gizmo (move arrows + rotate ring) ================= */
+  const coarse = matchMedia('(pointer: coarse)').matches;
   const gz = new THREE.Group();
   gz.visible = false;
   ctx.scene.add(gz);
@@ -74,7 +75,7 @@ export function initEditor(ctx) {
     tip.rotation.z = -Math.PI / 2;
     tip.position.x = 1.21;
     g.add(tip);
-    const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.6, 6), hitMat);
+    const hit = new THREE.Mesh(new THREE.CylinderGeometry(coarse ? 0.62 : 0.4, coarse ? 0.62 : 0.4, 1.7, 6), hitMat);
     hit.rotation.z = -Math.PI / 2;
     hit.position.x = 0.85;
     hit.userData.gz = axis;
@@ -89,7 +90,7 @@ export function initEditor(ctx) {
   ringVis.rotation.x = Math.PI / 2;
   ringVis.renderOrder = 4;
   gz.add(ringVis);
-  const ringHit = new THREE.Mesh(new THREE.TorusGeometry(1, 0.3, 6, 32), hitMat);
+  const ringHit = new THREE.Mesh(new THREE.TorusGeometry(1, coarse ? 0.42 : 0.3, 6, 32), hitMat);
   ringHit.rotation.x = Math.PI / 2;
   ringHit.userData.gz = 'ring';
   gz.add(ringHit);
@@ -121,6 +122,23 @@ export function initEditor(ctx) {
     return _bb;
   }
 
+  // object-size radius cached so zooming only re-runs the cheap scale math
+  let gzObjRad = 1;
+  function gizmoRescale() {
+    // keep the gizmo grabbable at any zoom: never smaller than ~6% of the
+    // camera distance on screen, never comically larger than the object
+    const dist = ctx.camera.position.distanceTo(gz.position);
+    const rad = clamp(Math.max(gzObjRad, dist * 0.058), 0.8, gzObjRad + dist * 0.1);
+    ringVis.scale.setScalar(rad);
+    ringHit.scale.setScalar(rad);
+    ringNotch.position.x = rad + 0.28;
+    const aScale = clamp(rad * 0.75, 0.9, 2.6);
+    for (const a of [arrowX, arrowZ]) a.scale.setScalar(aScale);
+    arrowX.position.x = rad * 0.25;
+    arrowZ.position.z = rad * 0.25;
+  }
+  ctx.controls.addEventListener('change', () => { if (gz.visible) gizmoRescale(); });
+
   function syncGizmo() {
     const spec = specOf(sel);
     if (!spec || (sim && sim.playing)) { gz.visible = false; selBox.visible = false; ctx.invalidate(); return; }
@@ -128,16 +146,10 @@ export function initEditor(ctx) {
     if (!bb) { gz.visible = false; selBox.visible = false; return; }
     selBox.box.copy(bb);
     selBox.visible = true;
-    const rad = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * 0.62 + 0.3;
+    gzObjRad = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * 0.62 + 0.3;
     gz.position.set(spec.x, 0.06, spec.z);
     gz.rotation.y = spec.heading || 0;
-    ringVis.scale.setScalar(rad);
-    ringHit.scale.setScalar(rad);
-    ringNotch.position.x = rad + 0.28;
-    const aScale = clamp(rad * 0.75, 0.9, 2.4);
-    for (const a of [arrowX, arrowZ]) a.scale.setScalar(aScale);
-    arrowX.position.x = rad * 0.25;
-    arrowZ.position.z = rad * 0.25;
+    gizmoRescale();
     gz.visible = true;
     ctx.invalidate();
   }
@@ -605,12 +617,28 @@ export function initEditor(ctx) {
 
   /* ================= spawn ================= */
   $('s_dice').addEventListener('click', () => { $('s_seed').value = ctx.randomSeed(); });
+
+  function syncPlaceUI() {
+    // armed-state feedback + mobile drawer auto-hide (body.placing, CSS)
+    document.body.classList.toggle('placing', !!placing);
+    $('spawnCar').classList.toggle('arm', !!placing && placing.kind === 'car');
+    for (const p of PROPS) $('prop_' + p.id).classList.toggle('arm', !!placing && placing.prop === p.id);
+  }
+
+  function cancelPlace() {
+    placing = null;
+    ctx.stage.style.cursor = '';
+    syncPlaceUI();
+  }
+
   function beginPlace(kind, prop) {
+    if (placing && placing.kind === kind && placing.prop === prop) { cancelPlace(); return; } // toggle off
     if (kind === 'car' && scenario.cars.length >= MAX_CARS) { ctx.toast(`Max ${MAX_CARS} cars`); return; }
     if (kind === 'prop' && scenario.props.length >= MAX_PROPS) { ctx.toast(`Max ${MAX_PROPS} props`); return; }
     ensureRapier().then(() => {
       placing = { kind, prop };
       ctx.stage.style.cursor = 'crosshair';
+      syncPlaceUI();
       ctx.toast(kind === 'car' ? 'Tap the ground to place the car' : 'Tap the ground to place the ' + prop);
     }).catch((e) => { console.error(e); ctx.toast('Physics failed to load'); });
   }
@@ -621,8 +649,7 @@ export function initEditor(ctx) {
 
   function placeAt(pt) {
     const kind = placing.kind, prop = placing.prop;
-    placing = null;
-    ctx.stage.style.cursor = '';
+    cancelPlace();
     if (!sim) return;
     if (kind === 'car' && scenario.cars.length >= MAX_CARS) { ctx.toast(`Max ${MAX_CARS} cars`); return; }
     if (kind === 'prop' && scenario.props.length >= MAX_PROPS) { ctx.toast(`Max ${MAX_PROPS} props`); return; }
@@ -960,7 +987,7 @@ export function initEditor(ctx) {
     if (k === 'r') { reset(); return true; }
     if (e.key === '.') { stepTick(); return true; }
     if (e.key === 'Escape') {
-      if (placing) { placing = null; ctx.stage.style.cursor = ''; return true; }
+      if (placing) { cancelPlace(); return true; }
       if (sel) { deselect(); return true; }
       return true;
     }

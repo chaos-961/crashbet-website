@@ -63,7 +63,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: none;
 }
 
 /* ---------- right-docked inspector ---------- */
-:root { --dockw: 344px; }
+/* dock narrows on tablets (36vw) so the viewport keeps majority share */
+:root { --dockw: clamp(280px, 36vw, 344px); }
+@media (min-width: 1800px) { :root { --dockw: 384px; } }
 .hud.bottom {
   left: auto; right: 0; top: 0; bottom: 0;
   flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: 10px;
@@ -194,6 +196,13 @@ body.has-sel .nosel { display: none; }
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .propbtn:hover { color: var(--text); border-color: rgba(255, 176, 58, 0.5); background: rgba(255, 176, 58, 0.08); }
+
+/* armed placement state — button pressed, waiting for the ground tap */
+.propbtn.arm {
+  border-style: solid; border-color: #ffb03a; color: var(--text);
+  background: rgba(255, 176, 58, 0.16); box-shadow: 0 0 0 2px rgba(255, 176, 58, 0.25);
+}
+#spawnCar.arm { filter: brightness(1.12); box-shadow: 0 0 0 3px rgba(255, 176, 58, 0.45), 0 8px 26px rgba(255, 106, 61, 0.36); }
 
 /* ---------- sliders ---------- */
 .sliders { gap: 10px; }
@@ -333,6 +342,34 @@ input[type="range"]::-moz-range-thumb {
 /* ---------- golden find ---------- */
 .namechip.golden { border-color: rgba(232, 179, 58, 0.6); box-shadow: 0 0 26px rgba(232, 179, 58, 0.28), inset 0 0 14px rgba(232, 179, 58, 0.1); }
 
+/* ---------- short screens (landscape phones / small laptops) ---------- */
+@media (min-width: 621px) and (max-height: 560px) {
+  .hud.bottom { padding-top: calc(46px + env(safe-area-inset-top)); gap: 7px; }
+  .namechip { padding: 4px 16px; }
+  .namechip .vsub { display: none; }
+  .panel { padding: 8px; gap: 7px; }
+  .secbody { gap: 6px; padding-bottom: 9px; }
+  .ibtn, .primary { height: 42px; }
+  .hint.dockhint { display: none; }
+  .topright .chip { display: none; }
+}
+
+/* ---------- touch ergonomics ---------- */
+@media (pointer: coarse) {
+  input[type="range"] { height: 34px; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; }
+  input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; margin-top: -8px; }
+  input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; }
+  input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
+  summary { padding: 13px 12px; }
+  .checkrow { padding: 6px 4px; }
+  .checkrow input { width: 22px; height: 22px; }
+  .checkrow input:checked::after { left: 6.5px; top: 3px; width: 6px; height: 10px; }
+  .chipbtn { width: 40px; height: 40px; }
+  .ccar { padding: 8px 13px; }
+  .propbtn { padding: 12px 8px; }
+}
+
 /* ---------- mobile: bottom drawer ---------- */
 @media (max-width: 620px) {
   :root { --dockw: 100%; }
@@ -347,22 +384,34 @@ input[type="range"]::-moz-range-thumb {
     align-items: stretch;
     gap: 8px;
   }
-  body.ui-collapsed .hud.bottom { transform: translateY(calc(100% + 8px)); }
+  body.ui-collapsed .hud.bottom,
+  body.placing .hud.bottom { transform: translateY(calc(100% + 8px)); opacity: 0; }
+  body.placing .hud.bottom > * { pointer-events: none; }
   .namechip { max-width: none; padding: 6px 18px; }
   .namechip .vname { font-size: 13.5px; }
   .panel { max-width: none; padding: 10px; gap: 8px; }
   .sections { max-height: 34vh; }
+  /* toggle docks under the top bar, clear of the drawer */
   .uitoggle {
-    top: auto; bottom: calc(50% - 29px); right: calc(12px + env(safe-area-inset-right));
-    transform: none;
+    top: calc(54px + env(safe-area-inset-top)); bottom: auto;
+    right: calc(10px + env(safe-area-inset-right));
+    transform: none; width: 44px; height: 40px;
   }
-  body.ui-collapsed .uitoggle { transform: none; }
+  body.ui-collapsed .uitoggle { transform: none; right: calc(10px + env(safe-area-inset-right)); }
   .uitoggle svg { transform: rotate(90deg); }
   body.ui-collapsed .uitoggle svg { transform: rotate(-90deg); }
-  #emptyhint { top: 34%; }
+  #emptyhint { top: 30%; }
+  #emptyhint .eh-title { font-size: 18px; }
   .hint.dockhint { display: none; }
   .ibtn.wide span { display: none; }
   .ibtn.wide { flex: 1 1 0; }
+}
+/* tiny landscape phones: keep most of the screen for the viewport */
+@media (max-width: 620px) and (max-height: 460px) {
+  .namechip { display: none; }
+  .sections { max-height: 24vh; }
+  .panel { padding: 8px; gap: 6px; }
+  .ibtn, .primary { height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
