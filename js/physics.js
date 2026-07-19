@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { buildVehicle } from './vehicles.js';
 import { makeRng, clamp, disposeGroup } from './lib.js';
 import { makeDeformState, applyImpact, flushDeform } from './deform.js';
+import { buildProp } from './props.js';
 
 export const STEP = 1 / 60;
 
@@ -154,7 +155,12 @@ function buildRig(R, world, spec, entryCat) {
   });
   const size = bb.getSize(new THREE.Vector3());
   const footprint = Math.max(0.8, size.x * size.z);
-  const mass = cat.mass * clamp(footprint / cat.ref, 0.4, 2.8);
+  // per-car tuning multipliers — defaults are exactly 1.0 so legacy scenarios
+  // (and their reference hashes) are bit-identical
+  const massK = clamp(spec.mass || 1, 0.25, 4);
+  const gripK = clamp(spec.grip || 1, 0.2, 4);
+  const restit = spec.rest == null ? 0.12 : clamp(spec.rest, 0, 1);
+  const mass = cat.mass * clamp(footprint / cat.ref, 0.4, 2.8) * massK;
 
   const { phys: wheels, visual: visualWheels } = findWheels(wrap);
   const avgR = wheels.length ? wheels.reduce((a, w) => a + w.r, 0) / wheels.length : clamp(size.y * 0.22, 0.18, 0.5);
@@ -180,14 +186,17 @@ function buildRig(R, world, spec, entryCat) {
     }
   }
 
-  // spawn pose
+  // spawn pose — cars with a start delay or rolling start hold still at first
   const yaw = spec.heading || 0;
+  const delayTicks = Math.round((spec.delay || 0) * 60);
+  const rolling = !!spec.rolling;
+  const v0 = (delayTicks > 0 || rolling) ? 0 : (spec.speed || 0);
   const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
   const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(qYaw);
   const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(spec.x || 0, 0.035, spec.z || 0)
     .setRotation({ x: qYaw.x, y: qYaw.y, z: qYaw.z, w: qYaw.w })
-    .setLinvel(fwd.x * (spec.speed || 0), 0, fwd.z * (spec.speed || 0))
+    .setLinvel(fwd.x * v0, 0, fwd.z * v0)
     .setAngularDamping(0.35)
     .setLinearDamping(0.04)
     .setCcdEnabled(true);
@@ -213,7 +222,7 @@ function buildRig(R, world, spec, entryCat) {
     else if (s.kind === 'box') cd = RAPIER.ColliderDesc.cuboid(s.he[0], s.he[1], s.he[2]).setTranslation(s.pos[0], s.pos[1], s.pos[2]).setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] });
     else if (s.kind === 'cyl') cd = RAPIER.ColliderDesc.cylinder(s.hh, s.r).setTranslation(s.pos[0], s.pos[1], s.pos[2]).setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] });
     if (!cd) continue;
-    cd.setFriction(0.5).setRestitution(0.12).setDensity(1);
+    cd.setFriction(0.5).setRestitution(restit).setDensity(1);
     const col = world.createCollider(cd, body);
     if (col) colliders.push(col);
   }
@@ -248,7 +257,7 @@ function buildRig(R, world, spec, entryCat) {
     veh.setWheelSuspensionRelaxation(i, 3.2);
     veh.setWheelMaxSuspensionTravel(i, rest * 1.05);
     veh.setWheelMaxSuspensionForce(i, mass * 9.81 * 0.9);
-    veh.setWheelFrictionSlip(i, cat.grip);
+    veh.setWheelFrictionSlip(i, cat.grip * gripK);
     veh.setWheelSideFrictionStiffness(i, 1);
     wheelMeta.push({ steer: w.x >= steerXCut, conn: { x: w.x, y: w.y + rest * 0.65, z: w.z }, r: w.r });
   }
@@ -270,7 +279,9 @@ function buildRig(R, world, spec, entryCat) {
 
   return {
     spec, built, wrap, body, colliders, veh, wheelMeta, vis, mass, cat, engineF, virtual,
-    deform: makeDeformState(wrap, size),
+    delayTicks, rolling, brakeTick: (spec.brake || 0) > 0 ? Math.round(spec.brake * 60) : Infinity,
+    launchV: spec.speed || 0, launchFwd: { x: fwd.x, z: fwd.z },
+    deform: makeDeformState(wrap, size, clamp(spec.crumple || 1, 0.2, 3)),
     prev: { p: new THREE.Vector3(0, 0.035, 0), q: qYaw.clone() },
     cur: { p: new THREE.Vector3(spec.x || 0, 0.035, spec.z || 0), q: qYaw.clone() },
     susPrev: new Float32Array(wheels.length), susCur: new Float32Array(wheels.length),
@@ -304,7 +315,10 @@ export class CrashSim {
   }
 
   build() {
-    this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    // creation order is the determinism backbone: ground → walls → props (array
+    // order) → cars (array order). Anything that appends bodies must keep it.
+    const W = this.scenario.world || {};
+    this.world = new RAPIER.World({ x: 0, y: -(W.gravity == null ? 9.81 : W.gravity), z: 0 });
     this.world.timestep = STEP;
     this.events = new RAPIER.EventQueue(true);
     const g = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
@@ -312,28 +326,105 @@ export class CrashSim {
       RAPIER.ColliderDesc.cuboid(220, 1, 220).setTranslation(0, -1, 0).setFriction(0.9),
       g,
     );
+    if (W.walls) {
+      const half = (W.arena || 80) / 2;
+      const wb = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+      for (const [x, z, rx, rz] of [[half + 1, 0, 1, half + 2], [-half - 1, 0, 1, half + 2], [0, half + 1, half + 2, 1], [0, -half - 1, half + 2, 1]]) {
+        this.world.createCollider(
+          RAPIER.ColliderDesc.cuboid(rx, 6, rz).setTranslation(x, 6, z).setFriction(0.3).setRestitution(0.35),
+          wb,
+        );
+      }
+    }
+    this.props = [];
+    for (const spec of (this.scenario.props || [])) this._addPropRig(spec);
     this.cars = [];
     this.colToCar = new Map();
-    for (const spec of this.scenario.cars) {
-      const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type));
-      rig.stream = makeStream(spec);
-      this.root.add(rig.wrap);
-      for (const c of rig.colliders) this.colToCar.set(c.handle, rig);
-      this.cars.push(rig);
-    }
+    for (const spec of this.scenario.cars) this._addCarRig(spec);
     this.tick = 0;
     this.accum = 0;
     this.syncVisuals(1);
+  }
+
+  _addCarRig(spec) {
+    const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type));
+    rig.stream = makeStream(spec);
+    this.root.add(rig.wrap);
+    for (const c of rig.colliders) this.colToCar.set(c.handle, rig);
+    this.cars.push(rig);
+    return rig;
+  }
+
+  _addPropRig(spec) {
+    const built = buildProp(spec.kind);
+    if (!built) return null;
+    const yaw = spec.heading || 0;
+    const qProp = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    built.group.position.set(spec.x || 0, 0, spec.z || 0);
+    built.group.rotation.y = yaw;
+    this.root.add(built.group);
+    built.group.updateMatrixWorld(true);
+    const rec = { spec, group: built.group, dyn: [], bodies: [] };
+    const _p = new THREE.Vector3(), _q = new THREE.Quaternion();
+    for (const bd of built.bodies) {
+      // body world pose = prop pose ∘ node local pose (+ optional rest height);
+      // when the node IS the prop group its local pose is identity by definition
+      const isRoot = bd.node === built.group;
+      if (isRoot) _p.set(0, 0, 0);
+      else _p.copy(bd.node.position);
+      _p.y += bd.y || 0;
+      _p.applyQuaternion(qProp);
+      _p.x += spec.x || 0; _p.z += spec.z || 0;
+      _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw + (isRoot ? 0 : bd.node.rotation.y));
+      const desc = (bd.fixed ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic().setCcdEnabled(true))
+        .setTranslation(_p.x, _p.y, _p.z)
+        .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w });
+      const body = this.world.createRigidBody(desc);
+      rec.bodies.push(body);
+      const cols = [];
+      for (const s of bd.shapes) {
+        let cd = null;
+        if (s.kind === 'hull') cd = RAPIER.ColliderDesc.convexHull(s.pts);
+        else if (s.kind === 'box') cd = RAPIER.ColliderDesc.cuboid(s.he[0], s.he[1], s.he[2]).setTranslation(s.pos[0], s.pos[1], s.pos[2]).setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] });
+        else if (s.kind === 'cyl') cd = RAPIER.ColliderDesc.cylinder(s.hh, s.r).setTranslation(s.pos[0], s.pos[1], s.pos[2]).setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] });
+        if (!cd) continue;
+        cd.setFriction(bd.friction).setRestitution(bd.restitution).setDensity(1);
+        cols.push(this.world.createCollider(cd, body));
+      }
+      if (!bd.fixed) {
+        const m0 = body.mass();
+        if (m0 > 1e-6) for (const c of cols) c.setDensity((bd.mass || 50) / m0);
+        // dynamic nodes sync straight from their body — pull them up to root
+        this.root.attach(bd.node);
+        bd.node.position.set(_p.x, _p.y, _p.z);
+        bd.node.quaternion.copy(_q);
+        rec.dyn.push({
+          node: bd.node, body,
+          prev: { p: _p.clone(), q: _q.clone() },
+          cur: { p: _p.clone(), q: _q.clone() },
+        });
+      }
+    }
+    this.props.push(rec);
+    return rec;
   }
 
   stepOnce() {
     for (const car of this.cars) {
       const inp = car.stream(this.tick);
       const v = car.veh.currentVehicleSpeed();
-      const th = v < car.cat.vmax ? inp.throttle : 0;
+      let th = v < car.cat.vmax ? inp.throttle : 0;
+      let brake = inp.brake;
+      // launch phases: hold until the start delay, then release (with a launch
+      // impulse unless it's a rolling start); brake out after brakeTick
+      if (this.tick < car.delayTicks) { th = 0; brake = 1; }
+      else if (this.tick === car.delayTicks && car.delayTicks > 0 && !car.rolling && car.launchV > 0) {
+        car.body.setLinvel({ x: car.launchFwd.x * car.launchV, y: 0, z: car.launchFwd.z * car.launchV }, true);
+      }
+      if (this.tick >= car.brakeTick) { th = 0; brake = 1; }
       for (let i = 0; i < car.wheelMeta.length; i++) {
         car.veh.setWheelEngineForce(i, th * car.engineF);
-        car.veh.setWheelBrake(i, inp.brake * car.mass * 0.02);
+        car.veh.setWheelBrake(i, brake * car.mass * 0.02);
         if (car.wheelMeta[i].steer) car.veh.setWheelSteering(i, inp.steer);
       }
       car.veh.updateVehicle(STEP);
@@ -351,6 +442,13 @@ export class CrashSim {
         car.rotCur[i] = car.veh.wheelRotation(i) ?? 0;
       }
       car.steerCur = car.veh.wheelSteering(0) ?? 0;
+    }
+    for (const prop of this.props) {
+      for (const d of prop.dyn) {
+        d.prev.p.copy(d.cur.p); d.prev.q.copy(d.cur.q);
+        const t = d.body.translation(), q = d.body.rotation();
+        d.cur.p.set(t.x, t.y, t.z); d.cur.q.set(q.x, q.y, q.z, q.w);
+      }
     }
     this.events.drainCollisionEvents(() => {});
     this.processImpacts();
@@ -419,6 +517,12 @@ export class CrashSim {
         v.obj.quaternion.copy(qy).multiply(qz);
       }
     }
+    for (const prop of this.props) {
+      for (const d of prop.dyn) {
+        d.node.position.lerpVectors(d.prev.p, d.cur.p, alpha);
+        d.node.quaternion.slerpQuaternions(d.prev.q, d.cur.q, alpha);
+      }
+    }
   }
 
   // FNV-1a over the f32 bits of every chassis transform — the determinism probe
@@ -430,7 +534,109 @@ export class CrashSim {
       f[0] = t.x; f[1] = t.y; f[2] = t.z; f[3] = q.x; f[4] = q.y; f[5] = q.z; f[6] = q.w;
       for (let i = 0; i < 7; i++) { h ^= u[i]; h = Math.imul(h, 16777619) >>> 0; }
     }
+    for (const prop of this.props) {
+      for (const d of prop.dyn) {
+        const t = d.body.translation(), q = d.body.rotation();
+        f[0] = t.x; f[1] = t.y; f[2] = t.z; f[3] = q.x; f[4] = q.y; f[5] = q.z; f[6] = q.w;
+        for (let i = 0; i < 7; i++) { h ^= u[i]; h = Math.imul(h, 16777619) >>> 0; }
+      }
+    }
     return h >>> 0;
+  }
+
+  /* ---------------- incremental editing (paused only) ----------------
+     These keep the paused scene responsive: only the touched object is
+     rebuilt, everything else keeps its meshes and creation index untouched.
+     They intentionally do NOT promise a deterministic world — the editor
+     marks the scenario dirty and Play/Reset/Step trigger a full build(),
+     which is the only path a recorded run ever starts from. */
+  replaceCar(i) {
+    const old = this.cars[i];
+    if (!old) return null;
+    for (const c of old.colliders) this.colToCar.delete(c.handle);
+    old.veh.free();
+    this.world.removeRigidBody(old.body);
+    this.root.remove(old.wrap);
+    disposeGroup(old.wrap);
+    const spec = this.scenario.cars[i];
+    const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type));
+    rig.stream = makeStream(spec);
+    this.root.add(rig.wrap);
+    for (const c of rig.colliders) this.colToCar.set(c.handle, rig);
+    this.cars[i] = rig;
+    this.syncVisuals(1);
+    return rig;
+  }
+
+  appendCar() { // scenario.cars already has the new spec at the end
+    const rig = this._addCarRig(this.scenario.cars[this.cars.length]);
+    this.syncVisuals(1);
+    return rig;
+  }
+
+  removeCarAt(i) {
+    const old = this.cars[i];
+    if (!old) return;
+    for (const c of old.colliders) this.colToCar.delete(c.handle);
+    old.veh.free();
+    this.world.removeRigidBody(old.body);
+    this.root.remove(old.wrap);
+    disposeGroup(old.wrap);
+    this.cars.splice(i, 1);
+  }
+
+  // paused pose edit: move body + visuals together so Step stays sane
+  setCarPose(i, x, z, heading) {
+    const car = this.cars[i];
+    if (!car) return;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading);
+    car.body.setTranslation({ x, y: 0.035, z }, true);
+    car.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+    car.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    car.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    car.prev.p.set(x, 0.035, z); car.cur.p.set(x, 0.035, z);
+    car.prev.q.copy(q); car.cur.q.copy(q);
+    car.wrap.position.set(x, car.wrap.position.y, z);
+    car.wrap.quaternion.copy(q);
+  }
+
+  _disposePropRig(rec) {
+    for (const b of rec.bodies) this.world.removeRigidBody(b);
+    for (const d of rec.dyn) { this.root.remove(d.node); disposeGroup(d.node); }
+    this.root.remove(rec.group);
+    disposeGroup(rec.group);
+  }
+
+  appendProp() {
+    const rec = this._addPropRig(this.scenario.props[this.props.length]);
+    this.syncVisuals(1);
+    return rec;
+  }
+
+  removePropAt(i) {
+    const rec = this.props[i];
+    if (!rec) return;
+    this._disposePropRig(rec);
+    this.props.splice(i, 1);
+  }
+
+  replaceProp(i) {
+    this.removePropAt(i);
+    const rec = this._addPropRig(this.scenario.props[i]);
+    if (rec) {
+      this.props.pop();
+      this.props.splice(i, 0, rec);
+    }
+    this.syncVisuals(1);
+    return rec;
+  }
+
+  // paused prop pose edit: rebuild in place (props are cheap to build)
+  setPropPose(i, x, z, heading) {
+    const rec = this.props[i];
+    if (!rec) return;
+    rec.spec.x = x; rec.spec.z = z; rec.spec.heading = heading;
+    this.replaceProp(i);
   }
 
   // perfect reset: rebuild world + fresh (undeformed) meshes from the scenario
@@ -445,25 +651,51 @@ export class CrashSim {
       disposeGroup(car.wrap);
       car.veh.free();
     }
+    for (const rec of this.props) {
+      for (const d of rec.dyn) { this.root.remove(d.node); disposeGroup(d.node); }
+      this.root.remove(rec.group);
+      disposeGroup(rec.group);
+    }
     this.events.free();
-    this.world.free();
+    this.world.free(); // frees every body/collider, prop bodies included
     this.cars = [];
+    this.props = [];
   }
 
   dispose() { this.disposeSim(); }
 }
 
-/* ---------------- determinism self-test (?simtest=1) ---------------- */
-export async function simSelfTest(catOf, log = console.log) {
-  const R = await loadRapier();
-  const scenario = {
+/* ---------------- determinism self-test (?simtest=1) ----------------
+   Two scenarios: the legacy 3-car crash (reference hash must never drift
+   unless physics intentionally changed) and a full-feature one exercising
+   non-default gravity, arena walls, props (ramp jump + box stack), and the
+   per-car physics/launch parameters. Each runs twice and must match. */
+export const TEST_SCENARIOS = {
+  legacy: {
     cars: [
       { seed: '11', type: 'sedan', x: -14, z: 0, heading: 0, speed: 16, throttle: 1, steer: 0 },
       { seed: '22', type: 'pickup', x: 14, z: 0.4, heading: Math.PI, speed: 16, throttle: 1, steer: 0 },
       { seed: '33', type: 'citybus', x: 0, z: -14, heading: Math.PI / 2, speed: 10, throttle: 1, steer: 0.2 },
     ],
-  };
-  const run = () => {
+  },
+  extended: {
+    world: { gravity: 20, arena: 70, walls: true },
+    props: [
+      { kind: 'ramp', x: 0, z: 0, heading: 0 },
+      { kind: 'boxes', x: 10, z: 0, heading: 0.3 },
+      { kind: 'pole', x: 14, z: 3, heading: 0 },
+    ],
+    cars: [
+      { seed: '11', type: 'muscle', x: -22, z: 0, heading: 0, speed: 24, throttle: 1, steer: 0, mass: 1.5, grip: 1.3, rest: 0.4, crumple: 1.6 },
+      { seed: '77', type: 'pickup', x: -16, z: 6, heading: 0, speed: 18, throttle: 1, steer: 0, delay: 0.5 },
+      { seed: '5', type: 'hatch', x: 18, z: -4, heading: Math.PI, speed: 0, throttle: 1, steer: 0.1, rolling: 1, delay: 0.3, brake: 3.5 },
+    ],
+  },
+};
+
+export async function simSelfTest(catOf, log = console.log) {
+  const R = await loadRapier();
+  const runScenario = (scenario) => {
     const sim = new CrashSim(R, scenario, catOf);
     const hashes = new Uint32Array(301);
     for (let i = 0; i < 300; i++) { sim.stepOnce(); hashes[i] = sim.hashState(); }
@@ -479,11 +711,16 @@ export async function simSelfTest(catOf, log = console.log) {
     sim.dispose();
     return hashes;
   };
-  const a = run(), b = run();
-  let firstDiff = -1;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { firstDiff = i; break; }
-  const ok = firstDiff === -1;
-  log(ok ? `SIM DETERMINISTIC: ok (300 steps + crumple, final hash ${a[299].toString(16)}, geo ${a[300].toString(16)})`
-         : `SIM DETERMINISTIC: FAIL — first divergence at ${firstDiff === 300 ? 'geometry' : 'step ' + firstDiff}`);
-  return ok;
+  let allOk = true;
+  for (const [name, scenario] of Object.entries(TEST_SCENARIOS)) {
+    const a = runScenario(scenario), b = runScenario(scenario);
+    let firstDiff = -1;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { firstDiff = i; break; }
+    const ok = firstDiff === -1;
+    allOk = allOk && ok;
+    log(ok ? `SIM DETERMINISTIC [${name}]: ok (300 steps + crumple, final hash ${a[299].toString(16)}, geo ${a[300].toString(16)})`
+           : `SIM DETERMINISTIC [${name}]: FAIL — first divergence at ${firstDiff === 300 ? 'geometry' : 'step ' + firstDiff}`);
+  }
+  log(allOk ? 'SIM DETERMINISTIC: ok' : 'SIM DETERMINISTIC: FAIL');
+  return allOk;
 }

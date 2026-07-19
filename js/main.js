@@ -1,10 +1,14 @@
-// main.js — scene, turntable, UI
+// main.js — renderer/scene shell for the unified editor.
+// Owns: renderer, camera, lights, environment hookup, camera tweens,
+// snapshot/.glb export, help overlay, keyboard routing, boot. Everything
+// scene-authoring lives in editor.js; simulation in physics.js.
 import * as THREE from 'three';
 import { OrbitControls } from '../libs/OrbitControls.js';
 import { RoomEnvironment } from '../libs/RoomEnvironment.js';
 import { buildVehicle, REG } from './vehicles.js';
-import { disposeGroup, clamp, makeRng } from './lib.js';
-import { initCrash } from './crash.js';
+import { disposeGroup, clamp } from './lib.js';
+import { initEnv } from './env.js';
+import { initEditor } from './editor.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -22,27 +26,21 @@ renderer.toneMappingExposure = 1.18;
 stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const BG = new THREE.Color('#35383e');
-scene.background = BG;
-scene.fog = new THREE.Fog(BG, 32, 78);
 
-const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 220);
-camera.position.set(7.4, 4.6, 7.4);
+const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 260);
+camera.position.set(13, 8.5, 13);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.enablePan = false;
-controls.autoRotate = !reduceMotion;
-controls.autoRotateSpeed = -1.7;
+controls.enablePan = true;
 controls.minDistance = 2.2;
-controls.maxDistance = 60;
+controls.maxDistance = 90;
 controls.minPolarAngle = 0.15;
 controls.maxPolarAngle = 1.5;
 controls.target.set(0, 0.8, 0);
 
-// render-on-demand: skip renderer.render when nothing moves (spin off, no
-// tweens, controls settled) instead of burning 60fps idle
+// render-on-demand: skip renderer.render when nothing moves
 let needsRender = 3;
 function invalidate() { needsRender = 2; }
 controls.addEventListener('change', invalidate);
@@ -62,7 +60,8 @@ renderer.domElement.addEventListener('webglcontextrestored', () => {
   toast('Recovered');
 });
 
-scene.add(new THREE.HemisphereLight('#dfe6ee', '#4a4d53', 0.55));
+const hemi = new THREE.HemisphereLight('#dfe6ee', '#4a4d53', 0.55);
+scene.add(hemi);
 const key = new THREE.DirectionalLight('#fff1de', 1.7);
 key.position.set(6, 9, 4);
 key.castShadow = true;
@@ -76,44 +75,20 @@ const fill = new THREE.DirectionalLight('#a9c0d8', 0.45);
 fill.position.set(-6, 4, -5);
 scene.add(fill);
 
-function groundTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 512;
-  const x = c.getContext('2d');
-  const grad = x.createRadialGradient(256, 256, 40, 256, 256, 256);
-  grad.addColorStop(0, '#4b4e55');
-  grad.addColorStop(0.55, '#3f424a');
-  grad.addColorStop(1, '#35383e');
-  x.fillStyle = grad;
-  x.fillRect(0, 0, 512, 512);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-const ground = new THREE.Mesh(
-  new THREE.CircleGeometry(90, 48),
-  new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 0.96 }),
-);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-scene.add(ground);
+/* ---------------- environment (ground + presets) ---------------- */
+const env = initEnv({ scene, hemi, key, fill, invalidate });
+env.apply('proving');
 
-/* ---------------- state ---------------- */
-let current = null;
-let paintSel = null;
-let spawnT = 1;
+/* ---------------- camera fitting / tween ---------------- */
 let camFrom = null, camTo = null, camT = 1;
-const hist = [];
-let histIdx = -1;
-
-const easeOutBack = (t) => { const c1 = 1.35, c3 = c1 + 1; return 1 + c3 * ((t - 1) ** 3) + c1 * ((t - 1) ** 2); };
 const easeInOut = (t) => t * t * (3 - 2 * t);
 
 function fitCamera(bb, instant) {
   const size = bb.getSize(new THREE.Vector3());
+  const center = bb.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.z, size.y * 1.9);
-  const dist = clamp((maxDim / 2) / Math.tan((camera.fov * Math.PI) / 360) * 0.98 + 0.9, 3.4, 50);
-  const tgt = new THREE.Vector3(0, Math.min(size.y * 0.46, 2.2), 0);
+  const dist = clamp((maxDim / 2) / Math.tan((camera.fov * Math.PI) / 360) * 0.98 + 0.9, 3.4, 80);
+  const tgt = new THREE.Vector3(center.x, Math.min(size.y * 0.46, 2.2), center.z);
   const dir = camera.position.clone().sub(controls.target).normalize();
   const pos = tgt.clone().addScaledVector(dir, dist);
   if (instant || reduceMotion) {
@@ -125,244 +100,20 @@ function fitCamera(bb, instant) {
     camTo = { pos, tgt };
     camT = 0;
   }
-  // fog follows the fitted distance so long rigs / zoomed-out views don't sink into it
-  // (32/78 is the tuned baseline for a ~8-unit fit distance)
-  const fk = clamp(dist / 8, 1, 2.6);
-  scene.fog.near = 32 * fk;
-  scene.fog.far = 78 * fk;
-  // shadow frustum follows model size
+  // fog follows the fitted distance so big scenes don't sink into it
+  // (each env preset's near/far is tuned for a ~8-unit fit)
+  env.setFogScale(clamp(dist / 8, 1, 2.8));
+  // shadow frustum follows scene size
   const s = maxDim * 0.72 + 1.6;
   const sc = key.shadow.camera;
   sc.left = -s; sc.right = s; sc.top = s; sc.bottom = -s;
   sc.updateProjectionMatrix();
   key.position.set(6, 9, 4).normalize().multiplyScalar(maxDim * 0.9 + 12);
-}
-
-/* ---------------- generate ---------------- */
-function generate(seed, typeId, opts = {}) {
-  if (crash && crash.active) return; // crash mode owns the scene
-  exitFleet();
-  if (current) {
-    scene.remove(current.group);
-    disposeGroup(current.group);
-  }
-  let v;
-  try {
-    v = buildVehicle(seed, typeId, paintSel);
-  } catch (err) {
-    console.error('BUILD FAIL', typeId, seed, err);
-    toast(`${typeId} build failed — showing a sedan instead`);
-    v = buildVehicle(seed, 'sedan', paintSel);
-  }
-  current = v;
-  scene.add(v.group);
-  const bb = new THREE.Box3().setFromObject(v.group);
-  fitCamera(bb, opts.instant);
-  spawnT = reduceMotion || opts.instant ? 1 : 0;
-
-  $('vname').textContent = v.name;
-  $('vsub').textContent = `${v.typeLabel} · seed ${seed}`;
-  if (v.golden) toast('✨ 1-in-100 golden find!');
-  $('seed').value = seed;
-  const chip = $('namechip');
-  chip.classList.toggle('golden', !!v.golden);
-  chip.classList.remove('pop');
-  void chip.offsetWidth; // restart animation
-  chip.classList.add('pop');
-
-  if (!opts.noHist) {
-    hist.splice(histIdx + 1);
-    hist.push({ seed: String(seed), typeId: $('type').value, paint: paintSel });
-    histIdx = hist.length - 1;
-    updateHistBtns();
-  }
-  writeGarageURL();
-
-  // count triangles from geometry — renderer.info is 0/stale before a real frame
-  // (e.g. hidden tab suspends rAF) and includes the ground disc
-  let tris = 0;
-  v.group.traverse((o) => {
-    if (o.isMesh && o.geometry) {
-      const g = o.geometry;
-      tris += (g.index ? g.index.count : g.attributes.position ? g.attributes.position.count : 0) / 3;
-    }
-  });
-  $('stats').textContent = Math.round(tris).toLocaleString() + ' tris';
-  updateFavBtn();
+  key.shadow.camera.far = Math.max(80, maxDim * 2.2 + 30);
   invalidate();
 }
 
-const randomSeed = () => String(Math.floor(Math.random() * 90000) + 10000);
-
-function writeGarageURL() {
-  const q = new URLSearchParams();
-  q.set('seed', $('seed').value || (current && current.seed) || '11');
-  if ($('type').value !== 'any' && REG.some((e) => e.id === $('type').value)) q.set('type', $('type').value);
-  if (paintSel) q.set('paint', paintSel.replace('#', ''));
-  history.replaceState(null, '', '?' + q.toString());
-}
-
-/* ---------------- UI ---------------- */
-const typeSel = $('type');
-{
-  const optAny = document.createElement('option');
-  optAny.value = 'any';
-  optAny.textContent = `Surprise me — any of ${REG.length} types`;
-  typeSel.appendChild(optAny);
-  const CAT_ICON = {
-    Cars: '🚗', 'Racing & Fun': '🏁', 'Off-Road': '🏔️', 'Vans & Buses': '🚌', Trucks: '🚚',
-    'Service & Emergency': '🚨', Construction: '🏗️', Rail: '🚋', Special: '✨',
-  };
-  const cats = [...new Set(REG.map((e) => e.cat))];
-  for (const cat of cats) {
-    const og = document.createElement('optgroup');
-    og.label = (CAT_ICON[cat] ? CAT_ICON[cat] + ' ' : '') + cat;
-    for (const e of REG.filter((x) => x.cat === cat)) {
-      const o = document.createElement('option');
-      o.value = e.id;
-      o.textContent = e.label;
-      og.appendChild(o);
-    }
-    typeSel.appendChild(og);
-  }
-}
-$('countline').textContent = `${REG.length} vehicle types · endless seeds`;
-
-const SWATCHES = ['#c63d3d', '#e07b39', '#e3c53a', '#3e8948', '#3a76c4', '#2b3a55', '#e8e9eb', '#26292e', '#dd8fb4'];
-const paintRow = $('paints');
-{
-  const auto = document.createElement('button');
-  auto.className = 'chipbtn auto sel';
-  auto.title = 'Automatic paint';
-  auto.setAttribute('aria-label', 'Automatic paint');
-  auto.textContent = 'Auto';
-  auto.addEventListener('click', () => setPaint(null, auto));
-  paintRow.appendChild(auto);
-  for (const hex of SWATCHES) {
-    const b = document.createElement('button');
-    b.className = 'chipbtn';
-    b.style.setProperty('--c', hex);
-    b.title = 'Paint ' + hex;
-    b.setAttribute('aria-label', 'Paint ' + hex);
-    b.addEventListener('click', () => setPaint(hex, b));
-    paintRow.appendChild(b);
-  }
-}
-function setPaint(hex, btn) {
-  paintSel = hex;
-  paintRow.querySelectorAll('.chipbtn').forEach((c) => c.classList.remove('sel'));
-  btn.classList.add('sel');
-  if (crash.active) { crash.pickersChanged(); return; }
-  if (current) generate($('seed').value || randomSeed(), typeSel.value, { noHist: true });
-}
-
-$('gen').addEventListener('click', () => generate(randomSeed(), typeSel.value));
-$('dice').addEventListener('click', () => {
-  if (crash.active) { $('seed').value = randomSeed(); crash.pickersChanged(); return; }
-  generate(randomSeed(), typeSel.value);
-});
-$('seed').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    if (crash.active) { crash.pickersChanged(); $('seed').blur(); return; }
-    generate($('seed').value.trim() || randomSeed(), typeSel.value);
-    $('seed').blur();
-  }
-});
-typeSel.addEventListener('change', () => {
-  const val = typeSel.value;
-  if (val.startsWith('fav:')) { // favorites live in the same dropdown
-    const f = favs[+val.slice(4)];
-    if (f) {
-      paintSel = f.paint;
-      syncPaintChips();
-      typeSel.value = REG.some((e) => e.id === f.type) ? f.type : 'any';
-      if (crash.active) { $('seed').value = f.seed; crash.pickersChanged(); return; }
-      generate(f.seed, f.type);
-    }
-    return;
-  }
-  if (crash.active) { crash.pickersChanged(); return; }
-  generate($('seed').value.trim() || randomSeed(), val);
-});
-
-function syncPaintChips() {
-  paintRow.querySelectorAll('.chipbtn').forEach((c, j) => {
-    c.classList.toggle('sel', paintSel === null ? j === 0 : SWATCHES[j - 1] === paintSel);
-  });
-}
-
-/* ---------------- favorites (localStorage) ---------------- */
-const FAVKEY = 'lg_favs';
-let favs = [];
-try { favs = JSON.parse(localStorage.getItem(FAVKEY) || '[]'); } catch { favs = []; }
-function favIndex() {
-  if (!current) return -1;
-  return favs.findIndex((f) => f.seed === current.seed && f.type === current.typeId && (f.paint || null) === paintSel);
-}
-function renderFavGroup() {
-  const old = document.getElementById('favgroup');
-  if (old) old.remove();
-  if (!favs.length) return;
-  const og = document.createElement('optgroup');
-  og.id = 'favgroup';
-  og.label = '★ Favorites';
-  favs.forEach((f, i) => {
-    const o = document.createElement('option');
-    o.value = 'fav:' + i;
-    o.textContent = f.name;
-    og.appendChild(o);
-  });
-  typeSel.insertBefore(og, typeSel.children[1]);
-}
-function updateFavBtn() {
-  const on = favIndex() >= 0;
-  $('fav').classList.toggle('on', on);
-  $('fav').setAttribute('aria-pressed', String(on));
-  $('favstar').setAttribute('fill', on ? 'currentColor' : 'none');
-}
-$('fav').addEventListener('click', () => {
-  if (!current) return;
-  const i = favIndex();
-  if (i >= 0) {
-    favs.splice(i, 1);
-    toast('Removed from favorites');
-  } else {
-    favs.push({ seed: current.seed, type: current.typeId, paint: paintSel, name: `${current.name} · ${current.seed}` });
-    if (favs.length > 24) favs.shift();
-    toast('★ Saved to favorites');
-  }
-  localStorage.setItem(FAVKEY, JSON.stringify(favs));
-  renderFavGroup();
-  updateFavBtn();
-});
-renderFavGroup();
-
-function updateHistBtns() {
-  $('prev').disabled = histIdx <= 0;
-  $('next').disabled = histIdx >= hist.length - 1;
-}
-function goHist(d) {
-  const i = histIdx + d;
-  if (i < 0 || i >= hist.length) return;
-  histIdx = i;
-  const h = hist[i];
-  typeSel.value = h.typeId;
-  paintSel = h.paint;
-  syncPaintChips();
-  generate(h.seed, h.typeId, { noHist: true });
-  updateHistBtns();
-}
-$('prev').addEventListener('click', () => goHist(-1));
-$('next').addEventListener('click', () => goHist(1));
-
-$('spin').addEventListener('click', () => {
-  controls.autoRotate = !controls.autoRotate;
-  $('spin').classList.toggle('on', controls.autoRotate);
-  $('spin').setAttribute('aria-pressed', controls.autoRotate);
-});
-$('spin').classList.toggle('on', controls.autoRotate);
-
+/* ---------------- toast ---------------- */
 let toastT = null;
 function toast(msg) {
   const t = $('toast');
@@ -371,6 +122,19 @@ function toast(msg) {
   clearTimeout(toastT);
   toastT = setTimeout(() => t.classList.remove('show'), 2200);
 }
+
+const randomSeed = () => String(Math.floor(Math.random() * 90000) + 10000);
+
+/* ---------------- editor ---------------- */
+$('countline').textContent = `${REG.length} vehicle types · one sandbox`;
+const editor = initEditor({
+  scene, camera, controls, renderer, stage,
+  toast, invalidate,
+  fitBox: (bb, instant) => fitCamera(bb, instant),
+  randomSeed, env, smallScreen,
+});
+
+/* ---------------- share link ---------------- */
 $('namechip').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(location.href);
@@ -387,8 +151,8 @@ $('snap').addEventListener('click', async () => {
   out.height = src.height;
   const c2 = out.getContext('2d');
   c2.drawImage(src, 0, 0);
-  const name = fleet ? `Fleet — seed ${$('seed').value}` : ($('vname').textContent || 'vehicle');
-  const sub = fleet ? '' : $('vsub').textContent;
+  const name = $('vname').textContent || 'crash-bet';
+  const sub = $('vsub').textContent;
   const s = Math.max(out.width, out.height);
   c2.shadowColor = 'rgba(0,0,0,0.55)';
   c2.shadowBlur = s * 0.008;
@@ -402,7 +166,7 @@ $('snap').addEventListener('click', async () => {
   }
   const blob = await new Promise((res) => out.toBlob(res, 'image/png'));
   if (!blob) { toast('Snapshot failed'); return; }
-  const fname = (name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'vehicle') + '.png';
+  const fname = (name.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'scene') + '.png';
   const file = new File([blob], fname, { type: 'image/png' });
   if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: name }); return; }
@@ -416,18 +180,26 @@ $('snap').addEventListener('click', async () => {
   toast('Snapshot saved');
 });
 
-/* ---------------- .glb export ---------------- */
+/* ---------------- .glb export (selected car, else the whole scene) ---------------- */
 $('glb').addEventListener('click', async () => {
-  const target = fleet || (current && current.group);
-  if (!target) return;
+  const sim = editor.sim;
+  const sel = editor.selection;
+  let target = null, base = 'scene';
+  if (sim && sel && sel.kind === 'car' && sim.cars[sel.i]) {
+    target = sim.cars[sel.i].wrap;
+    base = sim.cars[sel.i].built.name;
+  } else if (sim && (sim.cars.length || sim.props.length)) {
+    target = sim.root;
+    base = 'crash-bet-scene';
+  }
+  if (!target) { toast('Nothing to export'); return; }
   toast('Exporting .glb…');
   try {
     const { GLTFExporter } = await import('../libs/GLTFExporter.js');
     new GLTFExporter().parse(target, (buf) => {
       const blob = new Blob([buf], { type: 'model/gltf-binary' });
-      const base = fleet ? `fleet-${$('seed').value}` : ($('vname').textContent || 'vehicle');
       const a = document.createElement('a');
-      a.download = (base.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'vehicle') + '.glb';
+      a.download = (base.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'scene') + '.glb';
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
@@ -439,94 +211,6 @@ $('glb').addEventListener('click', async () => {
   }
 });
 
-/* ---------------- fleet view ---------------- */
-let fleet = null;
-function exitFleet() {
-  if (!fleet) return;
-  scene.remove(fleet);
-  disposeGroup(fleet);
-  fleet = null;
-  $('fleet').classList.remove('on');
-  $('fleet').setAttribute('aria-pressed', 'false');
-  if (current) scene.add(current.group);
-  invalidate();
-}
-function showFleet() {
-  if (fleet) { // toggle back to the single vehicle
-    exitFleet();
-    if (current) fitCamera(new THREE.Box3().setFromObject(current.group), false);
-    return;
-  }
-  const seed = $('seed').value.trim() || randomSeed();
-  $('seed').value = seed;
-  const rf = makeRng('fleet:' + seed);
-  const pool = [...REG];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(rf() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  const picks = pool.slice(0, 40);
-  const items = picks.map((e, i) => {
-    const v = buildVehicle(seed + '#' + i, e.id, paintSel);
-    const bb = new THREE.Box3().setFromObject(v.group);
-    return { v, len: bb.max.x - bb.min.x, wid: bb.max.z - bb.min.z };
-  });
-  items.sort((a, b) => a.len - b.len); // small up front, big rigs in the back
-  fleet = new THREE.Group();
-  const perRow = 8;
-  let x = 0;
-  for (let rI = 0; rI * perRow < items.length; rI++) {
-    const row = items.slice(rI * perRow, (rI + 1) * perRow);
-    const maxLen = Math.max(...row.map((it) => it.len));
-    const step = Math.max(...row.map((it) => it.wid)) + 1.15;
-    row.forEach((it, i) => {
-      it.v.group.position.set(x - maxLen / 2, 0, (i - (row.length - 1) / 2) * step);
-      fleet.add(it.v.group);
-    });
-    x -= maxLen + 1.8;
-  }
-  const fc = new THREE.Box3().setFromObject(fleet).getCenter(new THREE.Vector3());
-  fleet.position.x -= fc.x;
-  fleet.position.z -= fc.z;
-  if (current) scene.remove(current.group);
-  scene.add(fleet);
-  fitCamera(new THREE.Box3().setFromObject(fleet), false);
-  spawnT = 1;
-  $('fleet').classList.add('on');
-  $('fleet').setAttribute('aria-pressed', 'true');
-  invalidate();
-  toast(`${picks.length} vehicles on the lot — seed ${seed}`);
-}
-$('fleet').addEventListener('click', showFleet);
-
-/* ---------------- crash mode (Crash Bet) ---------------- */
-const crash = initCrash({
-  scene, camera, controls, renderer, stage,
-  toast, invalidate,
-  fitBox: (bb, instant) => fitCamera(bb, instant),
-  hideGarage: () => { exitFleet(); if (current) scene.remove(current.group); invalidate(); },
-  showGarage: () => {
-    if (current) {
-      scene.add(current.group);
-      $('vname').textContent = current.name;
-      $('vsub').textContent = `${current.typeLabel} · seed ${current.seed}`;
-      fitCamera(new THREE.Box3().setFromObject(current.group), false);
-    }
-    invalidate();
-  },
-  randomSeed,
-  getPickers: () => ({ type: typeSel.value, seed: $('seed').value.trim(), paint: paintSel }),
-  setPickers: ({ type, seed, paint }) => {
-    if (REG.some((e) => e.id === type)) typeSel.value = type;
-    if (seed !== undefined) $('seed').value = seed;
-    paintSel = paint || null;
-    syncPaintChips();
-  },
-  writeGarageURL,
-});
-$('tabGarage').addEventListener('click', () => crash.exit());
-$('tabCrash').addEventListener('click', () => { crash.enter(false).catch((e) => { console.error(e); toast('Physics failed to load'); }); });
-
 /* ---------------- hide / show controls ---------------- */
 function toggleUI(force) {
   const hidden = document.body.classList.toggle('ui-collapsed', force);
@@ -537,41 +221,31 @@ function toggleUI(force) {
 }
 $('uitoggle').addEventListener('click', () => toggleUI());
 
-addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  // A clicked button keeps focus; Space would re-activate it on keyup AND
-  // trigger Generate here. Blur it so only the shortcut fires.
-  if (e.key === ' ' && e.target.tagName === 'BUTTON') e.target.blur();
-  if (crash.active) { // crash mode: its own shortcuts; only H falls through
-    if (!crash.keydown(e) && e.key.toLowerCase() === 'h') toggleUI();
-    return;
-  }
-  if (e.key === ' ' || e.key.toLowerCase() === 'g') { e.preventDefault(); generate(randomSeed(), typeSel.value); }
-  else if (e.key.toLowerCase() === 'r') $('spin').click();
-  else if (e.key.toLowerCase() === 'h') toggleUI();
-  else if (e.key.toLowerCase() === 'f') showFleet();
-  else if (e.key.toLowerCase() === 't') { // cycle types with the current seed
-    const dir = e.shiftKey ? REG.length - 1 : 1;
-    const cur = current ? REG.findIndex((x) => x.id === current.typeId) : -1;
-    const next = REG[(cur + dir + REG.length) % REG.length].id;
-    typeSel.value = next;
-    generate($('seed').value.trim() || randomSeed(), next);
-  } else if (e.key.toLowerCase() === 's') { // slideshow / attract mode
-    slideshow = !slideshow;
-    slideT = 0;
-    toast(slideshow ? 'Slideshow on — S to stop' : 'Slideshow off');
-  } else if (e.key === 'ArrowLeft') goHist(-1);
-  else if (e.key === 'ArrowRight') goHist(1);
-});
+/* ---------------- help overlay ---------------- */
+function toggleHelp(force) {
+  const ov = $('helpov');
+  const show = force !== undefined ? force : ov.hidden;
+  ov.hidden = !show;
+}
+$('helpBtn').addEventListener('click', () => toggleHelp());
+$('helpClose').addEventListener('click', () => toggleHelp(false));
+$('helpov').addEventListener('click', (e) => { if (e.target === $('helpov')) toggleHelp(false); });
 
-/* ---------------- slideshow / attract mode ---------------- */
-let slideshow = false, slideT = 0;
+/* ---------------- keyboard ---------------- */
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  // A clicked button keeps focus; Space would re-activate it on keyup AND
+  // trigger Play here. Blur it so only the shortcut fires.
+  if (e.key === ' ' && e.target.tagName === 'BUTTON') e.target.blur();
+  if (!$('helpov').hidden && e.key !== '?') { if (e.key === 'Escape') toggleHelp(false); return; }
+  if (e.key === '?') { toggleHelp(); return; }
+  if (editor.keydown(e)) return;
+  if (e.key.toLowerCase() === 'h') toggleUI();
+});
 
 /* ---------------- resize / loop ---------------- */
 function resize() {
   const w = stage.clientWidth, h = stage.clientHeight;
-  // updateStyle=true: canvas drawing buffer is w*DPR but lays out at w CSS px —
-  // without it, DPR 2-3 phones get a canvas 2-3x bigger than the viewport.
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -585,11 +259,7 @@ function animate(now) {
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (slideshow) {
-    slideT += dt;
-    if (slideT > 6) { slideT = 0; generate(randomSeed(), typeSel.value); }
-  }
-  let animating = crash.update(dt); // crash sim steps at fixed 60 Hz internally
+  let animating = editor.update(dt); // sim steps at fixed 60 Hz internally
   if (camT < 1 && camTo) {
     camT = Math.min(1, camT + dt / 0.55);
     const e = easeInOut(camT);
@@ -597,14 +267,7 @@ function animate(now) {
     controls.target.lerpVectors(camFrom.tgt, camTo.tgt, e);
     animating = true;
   }
-  if (current && !fleet && !crash.active && spawnT < 1) {
-    spawnT = Math.min(1, spawnT + dt / 0.5);
-    const e = easeOutBack(spawnT);
-    current.group.scale.setScalar(Math.max(0.001, e));
-    current.group.rotation.y = (1 - easeInOut(spawnT)) * -0.5;
-    animating = true;
-  }
-  const moved = controls.update(); // true while auto-rotating or damping out
+  const moved = controls.update(); // true while damping out
   if (animating || moved || needsRender > 0) {
     renderer.render(scene, camera);
     if (needsRender > 0) needsRender--;
@@ -612,7 +275,7 @@ function animate(now) {
 }
 requestAnimationFrame(animate);
 
-/* ---------------- boot (URL params + smoke test) ---------------- */
+/* ---------------- boot (URL params + test hooks) ---------------- */
 const q0 = new URLSearchParams(location.search);
 if (q0.has('smoke')) {
   let fails = 0, total = 0;
@@ -625,24 +288,14 @@ if (q0.has('smoke')) {
   }
   console.log(`SMOKE DONE: ${total - fails}/${total} ok, ${fails} failures`);
 }
-if (q0.has('paint')) {
-  const hex = '#' + q0.get('paint');
-  const idx = SWATCHES.indexOf(hex);
-  if (idx >= 0) {
-    paintSel = hex;
-    paintRow.querySelectorAll('.chipbtn').forEach((c, j) => c.classList.toggle('sel', j === idx + 1));
-  }
-}
-const t0 = q0.get('type');
-if (t0 && REG.some((e) => e.id === t0)) typeSel.value = t0;
 
 // PWA: offline cache + installability (network-first SW, see sw.js)
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-// dev-only contact sheet: ?sheet=1 renders every registry type into one tiled canvas.
-// Runs synchronously at boot so it works even when rAF is suspended (hidden tab).
+// dev-only contact sheet: ?sheet=1 renders every registry type into one tiled
+// canvas. Runs synchronously at boot so it works even with rAF suspended.
 function contactSheet() {
   const tile = 340, cols = 8;
   const seed = q0.get('seed') || '11';
@@ -657,14 +310,16 @@ function contactSheet() {
   renderer.setSize(tile, tile);
   camera.aspect = 1;
   camera.updateProjectionMatrix();
-  // canonical front-three-quarter view; fitCamera preserves this direction per vehicle
-  camera.position.set(7.4, 4.6, 7.4);
-  controls.target.set(0, 0.8, 0);
   for (let i = 0; i < REG.length; i++) {
     const e = REG[i];
     const x = (i % cols) * tile, y = Math.floor(i / cols) * tile;
+    let v = null;
     try {
-      generate(seed, e.id, { instant: true, noHist: true });
+      v = buildVehicle(seed, e.id);
+      scene.add(v.group);
+      camera.position.set(7.4, 4.6, 7.4);
+      controls.target.set(0, 0.8, 0);
+      fitCamera(new THREE.Box3().setFromObject(v.group), true);
       controls.update();
       renderer.render(scene, camera);
       c2.drawImage(renderer.domElement, x, y, tile, tile);
@@ -673,6 +328,7 @@ function contactSheet() {
       c2.fillStyle = '#7a2020';
       c2.fillRect(x, y, tile, tile);
     }
+    if (v) { scene.remove(v.group); disposeGroup(v.group); }
     c2.fillStyle = '#ffffff';
     c2.font = 'bold 15px monospace';
     c2.fillText(e.id, x + 10, y + 22);
@@ -685,22 +341,15 @@ function contactSheet() {
   console.log(`SHEET DONE: ${REG.length} types, seed ${seed}`);
 }
 
-if (q0.has('sheet')) contactSheet();
-else generate(q0.get('seed') || randomSeed(), typeSel.value, { instant: true });
-
-// determinism self-test: ?simtest=1 runs the same crash twice and compares hashes
+// determinism self-test: ?simtest=1 runs both scenarios twice and compares hashes
 if (q0.has('simtest')) {
   import('./physics.js')
     .then((m) => m.simSelfTest((id) => (REG.find((e) => e.id === id) || {}).cat || 'Cars'))
     .catch((e) => console.error('SIM DETERMINISTIC: FAIL (error)', e));
 }
 
-// deep-link into crash mode: ?mode=crash&car=seed~type~paint~x~z~deg~v~th~st…
-if (q0.get('mode') === 'crash') {
-  const hasCars = q0.getAll('car').length > 0;
-  if (hasCars) crash.loadFromURL(q0);
-  crash.enter(hasCars).catch((e) => { console.error(e); toast('Physics failed to load'); });
-}
+if (q0.has('sheet')) contactSheet();
+else editor.boot(q0).catch((e) => { console.error(e); toast('Failed to load scene'); });
 
 // debug hook for automated visual verification
-window.__app = { renderer, scene, camera, controls, generate, REG, crash };
+window.__app = { renderer, scene, camera, controls, REG, editor, env, fitCamera, invalidate };

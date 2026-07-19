@@ -10,7 +10,8 @@ import * as THREE from 'three';
 const KEY_EPS = 2048; // weld quantization: 1/2048 m ≈ half a millimetre
 
 // Build once per car at rig creation. Wheels are excluded (rigid, controller-driven).
-export function makeDeformState(wrap, size) {
+// soft = crumple-softness multiplier (1 = baseline; must be float-exact at 1).
+export function makeDeformState(wrap, size, soft = 1) {
   wrap.updateMatrixWorld(true);
   const meshes = [];
   wrap.traverse((o) => {
@@ -53,8 +54,8 @@ export function makeDeformState(wrap, size) {
       toWrap, fromWrap, bs, dirty: false,
     });
   });
-  const maxCrush = clampN(Math.min(size.x, size.y, size.z) * 0.34, 0.14, 0.85);
-  return { meshes, maxCrush, hits: 0 };
+  const maxCrush = clampN(Math.min(size.x, size.y, size.z) * 0.34, 0.14, 0.85) * soft;
+  return { meshes, maxCrush, soft, hits: 0 };
 }
 
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -75,7 +76,7 @@ const _m = new THREE.Matrix4();
    body pose passed explicitly — wrap's rendered transform may lag the sim. */
 export function applyImpact(state, ev, bodyPos, bodyQuat) {
   const dv = ev.dv;
-  const depth = clampN(dv * 0.03, 0.015, 0.42);       // crumple depth per hit
+  const depth = clampN(dv * 0.03, 0.015, 0.42) * state.soft; // crumple depth per hit
   const R = clampN(0.34 + dv * 0.045, 0.4, 1.5);      // falloff radius
   const R2 = R * R;
   // world → wrap-local (undeformed chassis frame)
