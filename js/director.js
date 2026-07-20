@@ -222,6 +222,203 @@ function topoIntersection(rTopo, rDress) {
   };
 }
 
+/* ---------------- G4 topologies ----------------
+   All six build ordinary road specs and extract lanes through lanesOfRoad,
+   so opposite-lane pairing (`road` identity), the conflict scrub and the
+   placement solver keep working unchanged. Roads must never OVERLAP — same
+   height asphalt z-fights — so junctions leave a small gap and, where the
+   hole would read as a mistake, an `asphalt_patch` fills it 2 mm lower.
+   Lane arms run long (±130 m) because a 10 s approach at road speed is over
+   100 m; short arms silently throttle every actor to a crawl (G1 sweeps). */
+const dress = (props, rDress) => (kind, x, z, heading) =>
+  props.push({ kind, x, z, heading, seed: String(rDress.int(1, 9999)) });
+
+function lanesFrom(roads, rng, vBase) {
+  const lanes = [];
+  for (const spec of roads) for (const l of lanesOfRoad(spec, rng, vBase)) lanes.push(l);
+  lanes.sort((a, b) => b.len - a.len);
+  return lanes;
+}
+
+// Causeway: a bridge deck over open water. Showcases elevation + the basin —
+// leaving this road is not a spin onto grass, it is a swim.
+function topoCauseway(rTopo, rDress, vBase) {
+  const A = 130, deckY = rTopo.range(3.2, 4.6);
+  const roads = [{
+    w: 9, loop: 0, style: 1 | 8,
+    pts: [
+      { x: -A, y: 0, z: 0 }, { x: -46, y: deckY * 0.55, z: 0 },
+      { x: -20, y: deckY, z: 0 }, { x: 20, y: deckY, z: 0 },
+      { x: 46, y: deckY * 0.55, z: 0 }, { x: A, y: 0, z: 0 },
+    ],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  for (const s of [-1, 1]) {
+    S('guardrail', s * 62, 9.5, 0);
+    S('lamp_cobra', s * 34, 7.2, 0);
+  }
+  if (rTopo.chance(0.6)) S('barrier_water', rTopo.range(-40, 40), 30, rTopo.range(0, 6.28));
+  return {
+    name: 'causeway',
+    world: {
+      arena: A * 2 + 20, env: 'salt', ground: A + 22,
+      water: { y: -0.8, x0: -60, x1: 60, z0: -70, z1: 70 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Mountain switchback: hairpins climbing a grade, guardrail on the outside.
+// The curvature is the point — this is the overspeed template's home.
+function topoSwitchback(rTopo, rDress, vBase) {
+  const A = 120;
+  const roads = [{
+    w: 8, loop: 0, style: 1,
+    pts: [
+      { x: -A, y: 0, z: -30 }, { x: -55, y: 2.4, z: -34 }, { x: -18, y: 4.6, z: -8 },
+      { x: -34, y: 6.8, z: 26 }, { x: 12, y: 9.0, z: 34 }, { x: 44, y: 11, z: 6 },
+      { x: 26, y: 13, z: -30 }, { x: A, y: 15, z: -40 },
+    ],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  // guardrails ride the outside of each hairpin
+  for (const [x, z] of [[-26, -22], [-40, 12], [4, 42], [50, 18], [34, -34]]) {
+    S('guardrail', x, z, rTopo.range(0, 6.28));
+  }
+  for (let i = 0; i < 5; i++) S('tree_pine', rTopo.range(-A, A), rTopo.range(-60, 60), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.7)) S('rock', rTopo.range(-60, 60), rTopo.range(-40, 40), rTopo.range(0, 6.28));
+  return {
+    name: 'switchback',
+    world: { arena: A * 2 + 30, env: 'proving', ground: A + 30 },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// School zone: a straight street past a school, crossings, parked cars, low
+// speed. Lots of soft targets close to the kerb.
+function topoSchoolZone(rTopo, rDress, vBase) {
+  const A = 130;
+  const roads = [{ w: 8, loop: 0, style: 1 | 2 | 4, pts: [{ x: -A, z: 0 }, { x: 0, z: 0 }, { x: A, z: 0 }] }];
+  const props = [];
+  const S = dress(props, rDress);
+  S('shop', rTopo.range(-24, 24), -26, 0);
+  S('bus_stop', 16, 8.4, Math.PI);
+  S('sign_warn', -22, 7.6, Math.PI / 2);
+  S('sign_speed', 30, 7.6, Math.PI / 2);
+  S('sign_stop', -8, 7.4, 0);
+  for (let i = 0; i < 6; i++) S('bollard', -30 + i * 12, 6.6, 0);
+  for (let i = 0; i < 4; i++) S('tree_oak', -50 + i * 34, -13 - rTopo.range(0, 4), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.8)) S('bench', 24, 8.6, Math.PI);
+  return {
+    name: 'schoolzone',
+    world: { arena: A * 2 + 20, env: 'proving', ground: A + 22 },
+    roads, props, lanes: lanesFrom(roads, rTopo, Math.min(vBase, 9)), crossings: [],
+  };
+}
+
+// Rural tram crossing: a road crossing a tram line at grade. The tram lane
+// and the road lanes genuinely intersect, so this hosts crossing templates.
+function topoTramCrossing(rTopo, rDress, vBase) {
+  const A = 135;
+  const roads = [
+    { w: 8, loop: 0, style: 1, pts: [{ x: -A, z: 0 }, { x: -8, z: 0 }] },
+    { w: 8, loop: 0, style: 1, pts: [{ x: 8, z: 0 }, { x: A, z: 0 }] },
+    { w: 6.5, loop: 0, style: 0, pts: [{ x: 0, z: -A }, { x: 0, z: -8 }] },
+    { w: 6.5, loop: 0, style: 0, pts: [{ x: 0, z: 8 }, { x: 0, z: A }] },
+  ];
+  const props = [];
+  const S = dress(props, rDress);
+  S('asphalt_patch', 0, 0, 0);
+  S('toll_gate', 9.5, 6.5, 0);
+  S('toll_gate', -9.5, -6.5, Math.PI);
+  S('sign_warn', 13, 8.5, Math.PI / 2);
+  for (let i = 0; i < 4; i++) S('tree_pine', rTopo.range(-70, 70), (i % 2 ? 1 : -1) * rTopo.range(20, 46), rTopo.range(0, 6.28));
+  const mkl = (x0, z0, x1, z1, w, road) => {
+    const pts = [];
+    const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2.5);
+    for (let i = 0; i <= n; i++) pts.push(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n);
+    return { pts, len: Math.hypot(x1 - x0, z1 - z0), v: vBase, w, road };
+  };
+  const lanes = [
+    mkl(-A, 2, A, 2, 8, 'ew'), mkl(A, -2, -A, -2, 8, 'ew'),
+    mkl(-1.6, -A, -1.6, A, 6.5, 'ns'), mkl(1.6, A, 1.6, -A, 6.5, 'ns'),
+  ];
+  return {
+    name: 'tramcrossing',
+    world: { arena: A * 2 + 20, env: 'proving', ground: A + 22 },
+    roads, props, lanes,
+    crossings: [[0, 2], [0, 3], [1, 2], [1, 3]],
+  };
+}
+
+// Parking lot: a wide apron with two aisles meeting, everything slow and
+// close together. Fender-benders, not highway wrecks.
+function topoParkingLot(rTopo, rDress, vBase) {
+  const A = 100;
+  const roads = [
+    { w: 7, loop: 0, style: 0, pts: [{ x: -A, z: -10 }, { x: 0, z: -10 }, { x: A, z: -10 }] },
+    { w: 7, loop: 0, style: 0, pts: [{ x: -A, z: 16 }, { x: 0, z: 16 }, { x: A, z: 16 }] },
+  ];
+  const props = [];
+  const S = dress(props, rDress);
+  S('shop', 0, -40, 0);
+  for (let i = 0; i < 9; i++) S('lamp_cobra', -64 + i * 16, 3, 0);
+  for (let i = 0; i < 6; i++) S('planter_stone', -50 + i * 20, 26, 0);
+  for (let i = 0; i < 5; i++) S('bollard', -30 + i * 15, -22, 0);
+  return {
+    name: 'parkinglot',
+    world: { arena: A * 2 + 20, env: 'proving', ground: A + 22 },
+    roads, props, lanes: lanesFrom(roads, rTopo, Math.min(vBase, 8.5)), crossings: [],
+  };
+}
+
+// Roundabout: a ring with four approach stubs. Stubs stop just outside the
+// ring's outer edge — overlapping asphalt z-fights — and a patch hides the
+// seam. Approach lanes cross each other, which is what makes it bettable.
+function topoRoundabout(rTopo, rDress, vBase) {
+  const A = 128, R = 21;
+  const ring = { pts: [], w: 8, loop: 1, style: 0 };
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    ring.pts.push({ x: Math.cos(a) * R, z: Math.sin(a) * R });
+  }
+  const G = R + 4.4; // just clear of the ring's outer edge
+  const roads = [ring,
+    { w: 8, loop: 0, style: 1, pts: [{ x: -A, z: 0 }, { x: -G, z: 0 }] },
+    { w: 8, loop: 0, style: 1, pts: [{ x: G, z: 0 }, { x: A, z: 0 }] },
+    { w: 7, loop: 0, style: 0, pts: [{ x: 0, z: -A }, { x: 0, z: -G }] },
+    { w: 7, loop: 0, style: 0, pts: [{ x: 0, z: G }, { x: 0, z: A }] },
+  ];
+  const props = [];
+  const S = dress(props, rDress);
+  S('asphalt_patch', 0, 0, 0);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    S('sign_yield', Math.cos(a) * (R + 7), Math.sin(a) * (R + 7), a);
+  }
+  S('tree_oak', 0, 0, rTopo.range(0, 6.28)); // the island
+  if (rTopo.chance(0.7)) S('hedge', 6, 4, rTopo.range(0, 6.28));
+  // straight approach lanes across the whole span: entering traffic conflicts
+  const mkl = (x0, z0, x1, z1, w, road) => {
+    const pts = [];
+    const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2.5);
+    for (let i = 0; i <= n; i++) pts.push(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n);
+    return { pts, len: Math.hypot(x1 - x0, z1 - z0), v: vBase, w, road };
+  };
+  const lanes = [
+    mkl(-A, 2, A, 2, 8, 'ew'), mkl(A, -2, -A, -2, 8, 'ew'),
+    mkl(-1.75, -A, -1.75, A, 7, 'ns'), mkl(1.75, A, 1.75, -A, 7, 'ns'),
+  ];
+  return {
+    name: 'roundabout',
+    world: { arena: A * 2 + 20, env: 'city', ground: A + 22 },
+    roads, props, lanes,
+    crossings: [[0, 2], [0, 3], [1, 2], [1, 3]],
+  };
+}
+
 /* ---------------- placement ---------------- */
 // Put a car on `lane` so it reaches arc `sAnchor` at `tick` while cruising at
 // v. If the run-up doesn't fit the lane, v is reduced to make it fit (the
@@ -270,7 +467,7 @@ const cmd = (spec, c) => { spec.drive.cmds.push(c); return spec; };
 const TEMPLATES = {
   // a car simply does not stop for the junction — classic T-bone
   redlight: {
-    topos: ['intersection'],
+    topos: ['intersection', 'tramcrossing', 'roundabout'],
     make(ctx) {
       const { rng, topo, tellK } = ctx;
       const [ia, ib] = rng.pick(topo.crossings);
@@ -295,7 +492,7 @@ const TEMPLATES = {
   },
   // lead car slams the brakes, the queue concertinas
   chain: {
-    topos: ['suburb', 'city', 'highway', 'intersection'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
     minLane: 115,
     make(ctx) {
       const { rng, tellK, lane } = ctx;
@@ -332,7 +529,7 @@ const TEMPLATES = {
   },
   // front tire lets go — the car carves across the road
   blowout: {
-    topos: ['suburb', 'city', 'highway', 'intersection'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout'],
     needsOpp: true, // the carve needs oncoming geometry to be worth watching
     make(ctx) {
       const { rng, tellK, lane, opp, approach } = ctx;
@@ -376,7 +573,7 @@ const TEMPLATES = {
   },
   // slow drift out of lane, then a panicked overcorrection
   drowsy: {
-    topos: ['suburb', 'city', 'highway', 'intersection'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
     needsOpp: true, // ditto — a solo drift into empty grass is a non-scene
     make(ctx) {
       const { rng, tellK, lane, opp, approach } = ctx;
@@ -421,7 +618,7 @@ const TEMPLATES = {
     // city only: suburb loop apexes sit against side streets, so the catcher
     // guard strips them and the 200-sweep's only eventless scenes were all
     // suburb overspeeds. City corners keep their furniture.
-    topos: ['city'],
+    topos: ['city', 'switchback', 'causeway'],
     needsCurve: true,
     minD: 5,
     make(ctx) {
@@ -479,7 +676,7 @@ const TEMPLATES = {
   },
   // parked car noses into traffic without looking
   pullout: {
-    topos: ['suburb', 'city', 'intersection'],
+    topos: ['suburb', 'city', 'intersection', 'schoolzone', 'parkinglot', 'roundabout', 'tramcrossing'],
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
       const sMerge = approach.anchorS;
@@ -529,7 +726,7 @@ const TEMPLATES = {
   },
   // a chase barrels through — the PIT lands around T=0
   police: {
-    topos: ['suburb', 'city', 'highway', 'intersection'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
     minLane: 115,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -567,7 +764,7 @@ const TEMPLATES = {
   },
   // pedals go soft right when the queue appears
   brakefail: {
-    topos: ['suburb', 'city', 'highway', 'intersection'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
     minLane: 115,
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
@@ -638,10 +835,22 @@ export function generateScene(seed, d = 1) {
   const tellK = clamp(1.35 - d * 0.115, 0.2, 1.3); // 1.3 = loud tell, 0.2 = hairline
 
   // topology first (its own stream — reroll-safe)
-  const topoName = rTopo.pick(['intersection', 'suburb', 'city', 'highway']);
-  const vBase = topoName === 'highway' ? 12.5 : topoName === 'suburb' ? 10 : 9;
-  let topo = topoName === 'intersection'
-    ? topoIntersection(rTopo, rDress)
+  const topoName = rTopo.pick([
+    'intersection', 'suburb', 'city', 'highway',
+    'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'parkinglot', 'roundabout',
+  ]);
+  const VB = {
+    highway: 12.5, causeway: 12, switchback: 11, suburb: 10,
+    schoolzone: 8.5, parkinglot: 7.8, tramcrossing: 11, roundabout: 9.5,
+  };
+  const vBase = VB[topoName] || 9;
+  const BESPOKE = {
+    intersection: topoIntersection, causeway: topoCauseway, switchback: topoSwitchback,
+    schoolzone: topoSchoolZone, tramcrossing: topoTramCrossing,
+    parkinglot: topoParkingLot, roundabout: topoRoundabout,
+  };
+  let topo = BESPOKE[topoName]
+    ? BESPOKE[topoName](rTopo, rDress, vBase)
     : topoWorldgen(topoName, rTopo, vBase);
   // degenerate generated layout (no drivable lane)? fall back to the
   // intersection — deterministic, since the branch is itself seed-derived
@@ -804,7 +1013,13 @@ export function generateScene(seed, d = 1) {
         // intended queues are exempt only down to that same floor
         const sep = Math.hypot(A.x - B.x, A.z - B.z);
         if (sep >= 8) continue;
-        if (A._lane === B._lane && isKeep(A) && isKeep(B) && sep >= 6.5) continue;
+        // An intended queue is close in world space AND close along the lane.
+        // A hairpin (G4 switchback) folds back on itself, so two cars can sit
+        // 7 m apart in space while being 100 m apart in arc length, pointing
+        // straight at each other — that is not a queue, and exempting it put
+        // a head-on at tick 25 (topo16). Require both to hold.
+        const sameQueue = A._lane === B._lane && Math.abs((A._s0 || 0) - (B._s0 || 0)) < 14;
+        if (sameQueue && isKeep(A) && isKeep(B) && sep >= 6.5) continue;
         list[isKeep(B) ? (isKeep(A) ? j : i) : j] = null;
       }
     }
