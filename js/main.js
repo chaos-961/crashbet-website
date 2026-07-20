@@ -1024,7 +1024,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick
     round = {
       sim, scene: sc, rec, markets, phase: 'preview', seed, d, exhibition, resumeAt: 0,
-      incidentTick: INCIDENT_TICK, seekTo: null, daily: dailyKey,
+      incidentTick: INCIDENT_TICK, seekTo: null, strip: null, daily: dailyKey,
     };
     targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
     scene.add(sim.root);
@@ -1097,15 +1097,91 @@ function setRing(frac, secs) {
 
 /* ---------------- freeze scrub (G5) ----------------
    Spec beat 3: "study the frozen scene, scrub the last 10 s, then press BET".
-   There is no rewind in a rigid-body world, so a backward seek re-sims from
-   t0 — a rebuild is ~30 ms and replaying is both simpler and bit-exact.
-   Seeks are queued onto `round.seekTo` and applied at most once per frame by
-   roundUpdate: dragging the slider fires `input` far faster than a rebuild,
-   and running one per event would churn GPU memory rebuilding meshes. */
+
+   There is no rewind in a rigid-body world, so a backward seek used to rebuild
+   the world and re-sim from t0 — ~30 ms of mesh rebuild plus up to 600 steps
+   FOR EVERY DRAG FRAME. Correct, but it crawled under the thumb, and the whole
+   value of the scrub is reading the approach frame by frame.
+
+   So the freeze captures the last 10 s of VISUAL state once, up front, and a
+   seek becomes a pure pose: no physics, no rebuild, no allocation. The sim is
+   consequently never rewound at all — it stays parked on the incident tick,
+   which also means resumeRound structurally cannot hand the player a scene the
+   odds were never priced on (the failure the scrub gate exists to catch).
+
+   Captured per tick: chassis pose, steer angle, suspension travel and wheel
+   spin (everything syncVisuals interpolates) plus dynamic props. Debris is not
+   captured because nothing may collide before the incident tick. */
+function buildStrip(sim, endTick) {
+  const n = endTick + 1;
+  const cars = sim.cars.map((c) => ({
+    w: c.susCur.length,
+    p: new Float32Array(n * 3), q: new Float32Array(n * 4), st: new Float32Array(n),
+    sus: new Float32Array(n * c.susCur.length), rot: new Float32Array(n * c.susCur.length),
+  }));
+  const props = [];
+  for (const rec of sim.props) for (const _ of rec.dyn) {
+    props.push({ p: new Float32Array(n * 3), q: new Float32Array(n * 4) });
+  }
+  const grab = (t) => {
+    const i3 = t * 3, i4 = t * 4;
+    for (let i = 0; i < sim.cars.length; i++) {
+      const c = sim.cars[i], s = cars[i];
+      s.p[i3] = c.cur.p.x; s.p[i3 + 1] = c.cur.p.y; s.p[i3 + 2] = c.cur.p.z;
+      s.q[i4] = c.cur.q.x; s.q[i4 + 1] = c.cur.q.y; s.q[i4 + 2] = c.cur.q.z; s.q[i4 + 3] = c.cur.q.w;
+      s.st[t] = c.steerCur;
+      s.sus.set(c.susCur, t * s.w); s.rot.set(c.rotCur, t * s.w);
+    }
+    let k = 0;
+    for (const rec of sim.props) for (const d of rec.dyn) {
+      const s = props[k++];
+      s.p[i3] = d.cur.p.x; s.p[i3 + 1] = d.cur.p.y; s.p[i3 + 2] = d.cur.p.z;
+      s.q[i4] = d.cur.q.x; s.q[i4 + 1] = d.cur.q.y; s.q[i4 + 2] = d.cur.q.z; s.q[i4 + 3] = d.cur.q.w;
+    }
+  };
+  // hooks off for the capture pass, exactly as a seek did: replaying 600 ticks
+  // through them would dump a scene of particles and audio into one frame
+  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onSunk = null;
+  sim.reset();
+  grab(0);
+  while (sim.tick < endTick) { sim.stepOnce(); grab(sim.tick); }
+  return { n, cars, props };
+}
+
+// Pose the scene from the filmstrip. prev is written alongside cur so the
+// alpha lerp in syncVisuals is a no-op while frozen, and so the first stepped
+// frame after resume interpolates from the state actually on screen.
+function poseStrip(sim, strip, t) {
+  const i3 = t * 3, i4 = t * 4;
+  for (let i = 0; i < sim.cars.length; i++) {
+    const c = sim.cars[i], s = strip.cars[i];
+    c.cur.p.set(s.p[i3], s.p[i3 + 1], s.p[i3 + 2]);
+    c.cur.q.set(s.q[i4], s.q[i4 + 1], s.q[i4 + 2], s.q[i4 + 3]);
+    c.prev.p.copy(c.cur.p); c.prev.q.copy(c.cur.q);
+    c.steerCur = c.steerPrev = s.st[t];
+    for (let w = 0; w < s.w; w++) {
+      c.susCur[w] = c.susPrev[w] = s.sus[t * s.w + w];
+      c.rotCur[w] = c.rotPrev[w] = s.rot[t * s.w + w];
+    }
+  }
+  let k = 0;
+  for (const rec of sim.props) for (const d of rec.dyn) {
+    const s = strip.props[k++];
+    d.cur.p.set(s.p[i3], s.p[i3 + 1], s.p[i3 + 2]);
+    d.cur.q.set(s.q[i4], s.q[i4 + 1], s.q[i4 + 2], s.q[i4 + 3]);
+    d.prev.p.copy(d.cur.p); d.prev.q.copy(d.cur.q);
+  }
+  sim.syncVisuals(1);
+  invalidate();
+}
+
 function seekPreview(tick) {
   if (!round) return;
   const sim = round.sim;
   const t = clamp(Math.round(tick), 0, round.incidentTick);
+  if (round.strip) { poseStrip(sim, round.strip, t); return; }
+  // fallback: the pre-filmstrip re-sim path, kept for any seek that happens
+  // before the strip exists (d >= 8 skips the freeze entirely)
   if (t === sim.tick) return;
   if (t < sim.tick) {
     crashFx.reset();
@@ -1128,6 +1204,14 @@ function seekPreview(tick) {
   invalidate();
 }
 
+// The GO button is also the lock, so it carries the stake it is about to
+// place. It re-reads on every touch of the betting layer because the slip can
+// change all the way through the freeze — time restarting is the lock.
+function syncFzGo() {
+  const ss = Bet.slipSummary();
+  $('fzGo').textContent = ss.placed ? 'Go' : (ss.total > 0 ? `Bet $${ss.total}` : 'Bet');
+}
+
 function syncScrub(tick) {
   $('scrubBar').value = String(tick);
   const s = (tick - round.incidentTick) / 60;
@@ -1136,8 +1220,12 @@ function syncScrub(tick) {
 
 $('scrubBar').addEventListener('input', (e) => {
   if (!round || round.phase !== 'freeze') return;
-  round.seekTo = parseInt(e.target.value, 10);
-  syncScrub(round.seekTo); // label is instant; the sim catches up next frame
+  const t = parseInt(e.target.value, 10);
+  syncScrub(t);
+  // With a filmstrip a seek is a mesh pose, so apply it right here — the frame
+  // tracks the thumb. Without one it is a rebuild, so it goes on the queue and
+  // roundUpdate applies at most one per frame (input fires far faster).
+  if (round.strip) seekPreview(t); else round.seekTo = t;
 });
 
 // resume from the freeze — the incident fires and physics runs to rest
@@ -1148,7 +1236,11 @@ function resumeRound() {
   // exactly this tick; resuming from tick 300 would play a different scene
   // from the one the odds were priced on and the one the recorder taped.
   round.seekTo = null;
-  if (round.sim.tick !== round.incidentTick) seekPreview(round.incidentTick);
+  // With a filmstrip the sim never left the incident tick — only the meshes
+  // moved — so all that is owed is a pose back onto the true state.
+  if (round.strip) poseStrip(round.sim, round.strip, round.incidentTick);
+  else if (round.sim.tick !== round.incidentTick) seekPreview(round.incidentTick);
+  round.strip = null;
   round.phase = 'resolve';
   Bet.setPhase('resolve'); // locks betting and rides any drafted slip
   $('freeze').hidden = true;
@@ -1192,11 +1284,18 @@ function roundUpdate(dt, now) {
       if (round.d >= 8) { // no study time at the top difficulties
         resumeRound();
       } else {
-        // the freeze is the last chance to bet — say so on the button
-        const ss = Bet.slipSummary();
-        $('fzGo').innerHTML = (!ss.placed && ss.total > 0)
-          ? `🎫&nbsp; Bet $${ss.total} &amp; go`
-          : '▶&nbsp; Resume';
+        // Capture the 10 s filmstrip before anything else touches the scene:
+        // it rebuilds the world, so fx has to let go of the old car objects
+        // first and the crosshair map has to be rebuilt from the new ones.
+        crashFx.reset();
+        crashFx.detachSim();
+        round.strip = buildStrip(sim, round.incidentTick);
+        targetMap = buildTargetMap(sim);
+        hoverGroup = null;
+        crashFx.attach(sim);
+        hookRoundCinematics(sim);
+        poseStrip(sim, round.strip, round.incidentTick);
+        syncFzGo();
         syncScrub(round.incidentTick); // the scrub always opens at the incident
         $('freeze').hidden = false;
         fitCamera(roundBox(sim), false);
@@ -1573,14 +1672,11 @@ $('newRunBtn').addEventListener('click', () => {
 });
 
 $('fzGo').addEventListener('click', resumeRound);
-addEventListener('pointerdown', (e) => {
-  if (!round || round.phase !== 'freeze') return;
-  // taps inside the betting layer are bets, not "resume" — the freeze is the
-  // last chance to build a slip, so it must survive touching the panel. Same
-  // for the scrub bar: grabbing the slider must not restart time under you.
-  if (e.target && e.target.closest && e.target.closest('#betui, #scrub')) return;
-  resumeRound();
-});
+// There is deliberately NO tap-anywhere-to-resume. It made the freeze hostile
+// to the thing the freeze is for: every tap meant to pick a market, aim the
+// crosshair or swing the camera restarted time instead. The GO button and
+// space are the only ways out.
+$('betui').addEventListener('click', () => { if (round && round.phase === 'freeze') syncFzGo(); });
 
 /* ---------------- keyboard ---------------- */
 addEventListener('keydown', (e) => {

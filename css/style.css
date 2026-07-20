@@ -699,26 +699,46 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 #scenetag b { color: #ffcf8a; }
 #scenetag span { color: rgba(255, 255, 255, 0.6); text-transform: capitalize; }
+/* The freeze layer never covers the scene or eats a click: it is a bare
+   pass-through box whose only real children are the docked scrub bar and the
+   GO button. A dim + centred card used to sit on top of the betting layer,
+   which meant the last chance to bet was also the moment you could not reach
+   the markets, the crosshair or the camera chips. */
 #freeze {
-  position: fixed; z-index: 40; inset: 0; display: grid; place-content: center;
-  justify-items: center; gap: 4px;
-  background: rgba(8, 9, 12, 0.42);
-  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  position: fixed; z-index: 33; inset: 0; pointer-events: none;
 }
 #freeze[hidden] { display: none; }
-.fzlabel {
-  margin: 0 0 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.34em;
-  color: #ff8a5a; text-indent: 0.34em;
-}
-.fzhint { margin: 8px 0 0; font-size: 11px; color: rgba(255, 255, 255, 0.4); }
-/* freeze scrub bar (G5) — rewind the last 10 s while time is stopped */
+#freeze > * { pointer-events: auto; }
+/* freeze scrub bar (G5) — rewind the last 10 s while time is stopped.
+   Docked above the bottom furniture (POV chips left, slip FAB right) so it
+   never lands on top of a control. */
 #scrub {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(140px + env(safe-area-inset-bottom));
   display: flex; align-items: center; gap: 10px;
-  width: min(420px, 78vw); margin: 2px 0 12px;
+  width: min(440px, calc(100vw - 28px));
   padding: 8px 13px; border-radius: 14px;
   background: rgba(18, 20, 25, 0.82); border: 1px solid var(--panel-border);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
+.fztag {
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.16em; color: #ff8a5a;
+  flex: none;
+}
+/* GO button — bottom right, stacked directly above the slip FAB */
+.fzgo {
+  position: fixed; z-index: 33;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  min-width: 58px; height: 48px; padding: 0 18px; border-radius: 15px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--accent-grad); color: #1b1206;
+  border: none; box-shadow: 0 10px 30px rgba(255, 106, 61, 0.4);
+  font-size: 15px; font-weight: 800; letter-spacing: 0.02em;
+  transition: transform 0.14s ease, box-shadow 0.16s ease;
+}
+.fzgo:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(255, 106, 61, 0.52); }
+.fzgo:active { transform: translateY(0) scale(0.97); }
 #scrubT {
   font-size: 12px; font-weight: 800; color: #ffcf8a; flex: none;
   min-width: 46px; text-align: right; font-variant-numeric: tabular-nums;
@@ -746,6 +766,15 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   background: #ffcf8a; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 #scrubBar:focus-visible { outline: 2px solid rgba(255, 207, 138, 0.7); outline-offset: 4px; }
+/* Narrow phones: the tag and the readout are flex:none, so on a 320px screen
+   they and the padding ate 151px of a 292px bar and left the slider — the only
+   thing in here you actually operate — at 139px, about 4 ticks per pixel. The
+   label goes; "0.0s" already reads as the incident because that is where the
+   bar opens and where it snaps back. */
+@media (max-width: 420px) {
+  #scrub { gap: 8px; padding: 8px 11px; }
+  .fztag { display: none; }
+}
 #outcome {
   position: fixed; z-index: 40; left: 50%; transform: translateX(-50%);
   bottom: calc(24px + env(safe-area-inset-bottom));

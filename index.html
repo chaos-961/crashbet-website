@@ -81,15 +81,17 @@
       <span id="ringT">10</span>
     </div>
     <div id="scenetag"><b id="sceneLv">LV 1</b><span id="sceneTopo">—</span></div>
+    <!-- the freeze layer is deliberately NON-blocking: no dim, no centred card.
+         The whole point of the freeze is to study the scene and finish a slip,
+         so it can only ever be a docked scrub bar plus the GO button. -->
     <div id="freeze" hidden>
-      <p class="fzlabel">INCIDENT</p>
       <div id="scrub">
-        <input id="scrubBar" type="range" min="0" max="600" step="6" value="600"
+        <span class="fztag">INCIDENT</span>
+        <input id="scrubBar" type="range" min="0" max="600" step="1" value="600"
                aria-label="Scrub the last ten seconds">
         <span id="scrubT">0.0s</span>
       </div>
-      <button id="fzGo" class="mbtn primary">▶&nbsp; Resume</button>
-      <p class="fzhint">drag to rewind · space / tap to go</p>
+      <button id="fzGo" class="fzgo">Bet</button>
     </div>
     <div id="outcome" hidden></div>
     <div id="povbar" role="group" aria-label="Camera angle"></div>
