@@ -1193,6 +1193,24 @@ export const TEST_SCENARIOS = {
       { seed: '13', type: 'muscle', x: 26, z: 8, heading: Math.PI, speed: 20, throttle: 1, steer: 0.06, delay: 0.4 },
     ],
   },
+  // G4 road elevation: a car drives a humped bridge deck, so this pins the
+  // y-aware sweep AND the pitched parapet colliders (the flat-road path is
+  // deliberately a different branch — see roads.js — and stays pinned by the
+  // `roads` scenario above, which must never move)
+  bridge: {
+    world: { gravity: 9.81, arena: 90, walls: false },
+    roads: [
+      { w: 9, loop: 0, style: 1 | 8, pts: [
+        { x: -40, y: 0, z: 0 }, { x: -14, y: 4.2, z: 0 },
+        { x: 14, y: 4.2, z: 0 }, { x: 40, y: 0, z: 0 },
+      ] },
+    ],
+    props: [],
+    cars: [
+      { seed: '5', type: 'sedan', x: -36, z: -1.8, heading: 0, speed: 26, throttle: 1 },
+      { seed: '21', type: 'van', x: 36, z: 1.8, heading: Math.PI, speed: 18, throttle: 1, delay: 0.3 },
+    ],
+  },
   // crash-quality pass: high-energy wrecks must replay bit-exact too — this
   // scenario is tuned to trigger wheel detachment (debris bodies enter the
   // world mid-run) and glass shatter, so it pins both new systems
