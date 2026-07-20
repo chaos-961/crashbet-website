@@ -28,17 +28,27 @@ export async function loadRapier() {
 /* ---------------- per-category tuning ----------------
    mass scales with footprint relative to `ref` (m²) so a city bus outweighs a
    minibus without hand-tuning 92 archetypes. accel/vmax/grip are arcade values. */
+/* per-category feel: sus = {k stiffness, c compression, r relaxation, tk travel×};
+   crumpleK scales deform softness (trucks/construction are stiff steel);
+   aDamp = angular damping (tall vehicles wallow instead of snap-rolling);
+   wheelTough scales wheel damage resistance (a dozer doesn't shed wheels). */
 const CAT_PHYS = {
-  'Cars':                { mass: 1250, ref: 8.6,  accel: 6.5, vmax: 38, grip: 3.0, rest: 0.2,  comYk: 1.0, ballast: 0.55 },
-  'Racing & Fun':        { mass: 750,  ref: 6.8,  accel: 10,  vmax: 55, grip: 4.2, rest: 0.13, comYk: 0.8, ballast: 0.6 },
-  'Off-Road':            { mass: 2100, ref: 9.6,  accel: 6,   vmax: 30, grip: 2.6, rest: 0.34, comYk: 1.7, ballast: 0.5 },
-  'Vans & Buses':        { mass: 4600, ref: 17,   accel: 3.6, vmax: 25, grip: 2.4, rest: 0.24, comYk: 2.3, ballast: 0.45 },
-  'Trucks':              { mass: 7000, ref: 21.6, accel: 3.2, vmax: 24, grip: 2.4, rest: 0.28, comYk: 1.8, ballast: 0.5 },
-  'Service & Emergency': { mass: 1800, ref: 10,   accel: 6.5, vmax: 36, grip: 2.9, rest: 0.22, comYk: 1.2, ballast: 0.52 },
-  'Construction':        { mass: 9000, ref: 15.6, accel: 2.2, vmax: 9,  grip: 3.5, rest: 0.16, comYk: 1.0, ballast: 0.6 },
-  'Rail':                { mass: 12000, ref: 26,  accel: 2.8, vmax: 16, grip: 3.5, rest: 0.12, comYk: 1.2, ballast: 0.55 },
-  'Special':             { mass: 750,  ref: 5.6,  accel: 4.5, vmax: 18, grip: 2.6, rest: 0.2,  comYk: 1.1, ballast: 0.55 },
+  'Cars':                { mass: 1250, ref: 8.6,  accel: 6.5, vmax: 38, grip: 3.0, rest: 0.2,  comYk: 1.0, ballast: 0.55, sus: { k: 32, c: 2.4, r: 3.2, tk: 1 },    crumpleK: 1.0,  aDamp: 0.35, wheelTough: 1 },
+  'Racing & Fun':        { mass: 750,  ref: 6.8,  accel: 10,  vmax: 55, grip: 4.2, rest: 0.13, comYk: 0.8, ballast: 0.6,  sus: { k: 46, c: 3.2, r: 4.0, tk: 0.9 },  crumpleK: 1.15, aDamp: 0.3,  wheelTough: 0.8 },
+  'Off-Road':            { mass: 2100, ref: 9.6,  accel: 6,   vmax: 30, grip: 2.6, rest: 0.34, comYk: 1.7, ballast: 0.5,  sus: { k: 20, c: 1.8, r: 2.6, tk: 1.35 }, crumpleK: 0.85, aDamp: 0.42, wheelTough: 1.5 },
+  'Vans & Buses':        { mass: 4600, ref: 17,   accel: 3.6, vmax: 25, grip: 2.4, rest: 0.24, comYk: 2.3, ballast: 0.45, sus: { k: 30, c: 2.6, r: 3.4, tk: 1 },    crumpleK: 0.9,  aDamp: 0.5,  wheelTough: 1.6 },
+  'Trucks':              { mass: 7000, ref: 21.6, accel: 3.2, vmax: 24, grip: 2.4, rest: 0.28, comYk: 1.8, ballast: 0.5,  sus: { k: 34, c: 2.8, r: 3.6, tk: 1 },    crumpleK: 0.75, aDamp: 0.5,  wheelTough: 2 },
+  'Service & Emergency': { mass: 1800, ref: 10,   accel: 6.5, vmax: 36, grip: 2.9, rest: 0.22, comYk: 1.2, ballast: 0.52, sus: { k: 32, c: 2.4, r: 3.2, tk: 1 },    crumpleK: 1.0,  aDamp: 0.38, wheelTough: 1.1 },
+  'Construction':        { mass: 9000, ref: 15.6, accel: 2.2, vmax: 9,  grip: 3.5, rest: 0.16, comYk: 1.0, ballast: 0.6,  sus: { k: 40, c: 3.0, r: 3.8, tk: 1 },    crumpleK: 0.55, aDamp: 0.55, wheelTough: 4 },
+  'Rail':                { mass: 12000, ref: 26,  accel: 2.8, vmax: 16, grip: 3.5, rest: 0.12, comYk: 1.2, ballast: 0.55, sus: { k: 44, c: 3.2, r: 4.0, tk: 1 },    crumpleK: 0.6,  aDamp: 0.55, wheelTough: 4 },
+  'Special':             { mass: 750,  ref: 5.6,  accel: 4.5, vmax: 18, grip: 2.6, rest: 0.2,  comYk: 1.1, ballast: 0.55, sus: { k: 26, c: 2.2, r: 3.0, tk: 1.1 },  crumpleK: 1.1,  aDamp: 0.4,  wheelTough: 1.2 },
 };
+
+/* wheel damage model (all thresholds in Δv terms, deterministic):
+   nearby impacts charge a wheel; past BENT it steers crooked with cut grip,
+   past DETACH (or one massive direct hit) it tears off into a real free body. */
+const WHEEL_BENT_AT = 3.2;
+const WHEEL_DETACH_AT = 7.5;
 const CAT_BY_ID = new Map(); // filled lazily from REG entries passed in specs
 
 const MAX_STEER = 0.61; // ~35°
@@ -199,7 +209,7 @@ function buildRig(R, world, spec, entryCat) {
     .setTranslation(spec.x || 0, 0.035, spec.z || 0)
     .setRotation({ x: qYaw.x, y: qYaw.y, z: qYaw.z, w: qYaw.w })
     .setLinvel(fwd.x * v0, 0, fwd.z * v0)
-    .setAngularDamping(0.35)
+    .setAngularDamping(cat.aDamp)
     .setLinearDamping(0.04)
     .setCcdEnabled(true);
   const body = world.createRigidBody(bodyDesc);
@@ -254,14 +264,20 @@ function buildRig(R, world, spec, entryCat) {
     const w = wheels[i];
     // connection sits above the built wheel center; ~35 % static sag returns it there
     veh.addWheel({ x: w.x, y: w.y + rest * 0.65, z: w.z }, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, rest, w.r);
-    veh.setWheelSuspensionStiffness(i, 32);
-    veh.setWheelSuspensionCompression(i, 2.4);
-    veh.setWheelSuspensionRelaxation(i, 3.2);
-    veh.setWheelMaxSuspensionTravel(i, rest * 1.05);
+    veh.setWheelSuspensionStiffness(i, cat.sus.k);
+    veh.setWheelSuspensionCompression(i, cat.sus.c);
+    veh.setWheelSuspensionRelaxation(i, cat.sus.r);
+    veh.setWheelMaxSuspensionTravel(i, rest * 1.05 * cat.sus.tk);
     veh.setWheelMaxSuspensionForce(i, mass * 9.81 * 0.9);
     veh.setWheelFrictionSlip(i, cat.grip * gripK);
     veh.setWheelSideFrictionStiffness(i, 1);
-    wheelMeta.push({ steer: w.x >= steerXCut, conn: { x: w.x, y: w.y + rest * 0.65, z: w.z }, r: w.r });
+    wheelMeta.push({
+      steer: w.x >= steerXCut, conn: { x: w.x, y: w.y + rest * 0.65, z: w.z }, r: w.r,
+      // damage model state — pos is the built wheel center (wrap-local)
+      pos: { x: w.x, y: w.y, z: w.z }, w: (w.members[0] && w.members[0].w) || w.r * 0.55,
+      side: w.side, hasVisual: w.members.length > 0,
+      dmg: 0, bent: 0, detached: false,
+    });
   }
   const nDrive = wheels.length || 1;
   const engineF = (mass * cat.accel) / nDrive;
@@ -279,11 +295,21 @@ function buildRig(R, world, spec, entryCat) {
     vis.push({ obj: vw.obj, phys: best, z: vw.z, restY: vw.y });
   }
 
+  // dominant paint color for fx debris chips (first sizable non-glass slab)
+  let paintHex = '#9aa0a7';
+  wrap.traverse((o) => {
+    if (paintHex !== '#9aa0a7') return;
+    if (o.isMesh && o.userData.pt && o.material && !o.material.userData.glass && o.material.color) {
+      paintHex = '#' + o.material.color.getHexString();
+    }
+  });
+
   return {
     spec, built, wrap, body, colliders, veh, wheelMeta, vis, mass, cat, engineF, virtual,
+    size, paintHex, damage: 0, frontDmg: 0,
     delayTicks, rolling, brakeTick: (spec.brake || 0) > 0 ? Math.round(spec.brake * 60) : Infinity,
     launchV: spec.speed || 0, launchFwd: { x: fwd.x, z: fwd.z },
-    deform: makeDeformState(wrap, size, clamp(spec.crumple || 1, 0.2, 3)),
+    deform: makeDeformState(wrap, size, clamp(spec.crumple || 1, 0.2, 3) * cat.crumpleK),
     prev: { p: new THREE.Vector3(0, 0.035, 0), q: qYaw.clone() },
     cur: { p: new THREE.Vector3(spec.x || 0, 0.035, spec.z || 0), q: qYaw.clone() },
     susPrev: new Float32Array(wheels.length), susCur: new Float32Array(wheels.length),
@@ -312,7 +338,10 @@ export class CrashSim {
     this.accum = 0;
     this.speed = 1; // slow-mo factor (0.25/0.5/1)
     this.playing = false;
-    this.onImpact = null; // (car, ev) hook — deformation pass
+    this.onImpact = null;  // (car, ev {point,dir,dv}) — big hit landed (deform already applied)
+    this.onScrape = null;  // (car, ev {point,speed,dyn}) — metal grinding at speed (visual only)
+    this.onGlass = null;   // (car, ev {type,point,r}) — pane cracked / shattered
+    this.onDetach = null;  // (car, ev {point,r,speed}) — wheel tore off
     this.build();
   }
 
@@ -347,6 +376,7 @@ export class CrashSim {
     this.cars = [];
     this.colToCar = new Map();
     for (const spec of this.scenario.cars) this._addCarRig(spec);
+    this.debris = []; // torn-off wheels: { car, body, node, r, prev, cur }
     this.tick = 0;
     this.accum = 0;
     this.syncVisuals(1);
@@ -448,10 +478,16 @@ export class CrashSim {
         car.body.setLinvel({ x: car.launchFwd.x * car.launchV, y: 0, z: car.launchFwd.z * car.launchV }, true);
       }
       if (this.tick >= car.brakeTick) { th = 0; brake = 1; }
+      car.brakingNow = brake > 0.5; // render-side state for the fx layer
+      car.throttleNow = th;         // (never read back into the sim)
       for (let i = 0; i < car.wheelMeta.length; i++) {
+        const m = car.wheelMeta[i];
+        if (m.detached) { car.veh.setWheelEngineForce(i, 0); car.veh.setWheelBrake(i, 0); continue; }
         car.veh.setWheelEngineForce(i, th * car.engineF);
         car.veh.setWheelBrake(i, brake * car.mass * 0.02);
-        if (car.wheelMeta[i].steer) car.veh.setWheelSteering(i, inp.steer);
+        // bent wheels track crooked — misalignment adds onto driver steering
+        if (m.steer) car.veh.setWheelSteering(i, inp.steer + m.bent);
+        else if (m.bent !== 0) car.veh.setWheelSteering(i, m.bent);
       }
       car.veh.updateVehicle(STEP);
     }
@@ -476,17 +512,29 @@ export class CrashSim {
         d.cur.p.set(t.x, t.y, t.z); d.cur.q.set(q.x, q.y, q.z, q.w);
       }
     }
+    for (const d of this.debris) {
+      d.prev.p.copy(d.cur.p); d.prev.q.copy(d.cur.q);
+      const t = d.body.translation(), q = d.body.rotation();
+      d.cur.p.set(t.x, t.y, t.z); d.cur.q.set(q.x, q.y, q.z, q.w);
+    }
     this.events.drainCollisionEvents(() => {});
     this.processImpacts();
   }
 
   // crumple pass: read contact manifolds for every car, displace vertices
   // scaled by Δv (impulse / mass). Purely contact-driven ⇒ deterministic.
+  // Also charges the wheel damage model, detects scraping (visual hook only),
+  // and drains glass crack/shatter events out of the deform state.
   processImpacts() {
     const DV_MIN = 0.9; // below this it's resting/scraping contact, not a hit
+    const _lp = new THREE.Vector3(), _iq = new THREE.Quaternion();
     for (const car of this.cars) {
       const bodyPos = car.body.translation(), bodyQuat = car.body.rotation();
+      _iq.set(bodyQuat.x, bodyQuat.y, bodyQuat.z, bodyQuat.w).invert();
+      const lv = car.body.linvel();
+      const speed = Math.sqrt(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z);
       let hit = false;
+      let scrape = null;
       for (const col of car.colliders) {
         this.world.narrowPhase.contactPairsWith(col.handle, (otherCol) => {
           const other = otherCol.handle !== undefined ? otherCol.handle : otherCol;
@@ -499,19 +547,133 @@ export class CrashSim {
               if (imp > maxImp) maxImp = imp;
             }
             const dv = maxImp / car.mass;
-            if (dv < DV_MIN) return;
+            if (dv < DV_MIN) {
+              // touching-while-moving = grinding metal (sparks/dust, no deform)
+              if (!scrape && dv > 0.012 && speed > 3.5) {
+                const pt = manifold.solverContactPoint(0);
+                scrape = { point: { x: pt.x, y: pt.y, z: pt.z }, speed, dyn: this.colToCar.has(other) };
+              }
+              return;
+            }
             const pt = manifold.solverContactPoint(0);
             const n = manifold.normal(); // points collider1 → collider2
             const s = flipped ? 1 : -1;  // push INTO our car
             const ev = { point: pt, dir: { x: n.x * s, y: n.y * s, z: n.z * s }, dv };
             applyImpact(car.deform, ev, bodyPos, bodyQuat);
             hit = true;
+            // damage bookkeeping (wrap-local impact point)
+            _lp.set(pt.x - bodyPos.x, pt.y - bodyPos.y, pt.z - bodyPos.z).applyQuaternion(_iq);
+            car.damage += dv;
+            if (_lp.x > car.size.x * 0.18) car.frontDmg += dv;
+            // charge nearby wheels — a corner hit wrecks that corner's wheel
+            // (contact points live on the chassis hulls, so "near" reaches
+            // from the bumper face back to the wheel arch)
+            for (const m of car.wheelMeta) {
+              if (m.detached || !m.hasVisual) continue;
+              const dx = _lp.x - m.pos.x, dy = _lp.y - m.pos.y, dz = _lp.z - m.pos.z;
+              const reach = m.r * 1.6 + 0.9;
+              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (dist >= reach) continue;
+              const prox = 1 - dist / reach;
+              m.dmg += (dv * prox * 1.35) / car.cat.wheelTough;
+            }
             if (this.onImpact) this.onImpact(car, ev);
           });
         });
       }
-      if (hit) flushDeform(car.deform);
+      if (hit) {
+        flushDeform(car.deform);
+        // wheel damage consequences (outside the manifold iteration — this
+        // mutates the world). Order: wheel index order ⇒ deterministic.
+        for (let i = 0; i < car.wheelMeta.length; i++) {
+          const m = car.wheelMeta[i];
+          if (m.detached) continue;
+          if (m.dmg > WHEEL_DETACH_AT && m.hasVisual && !car.virtual) this._detachWheel(car, i);
+          else if (m.dmg > WHEEL_BENT_AT && m.bent === 0 && m.hasVisual) {
+            m.bent = (m.side >= 0 ? 1 : -1) * clamp(0.04 + (m.dmg - WHEEL_BENT_AT) * 0.02, 0.04, 0.15);
+            car.veh.setWheelFrictionSlip(i, car.cat.grip * clamp(car.spec.grip || 1, 0.2, 4) * 0.55);
+          }
+        }
+      }
+      // glass events out of the deform state → world space → fx hook
+      const gev = car.deform.events;
+      if (gev.length) {
+        const fq = new THREE.Quaternion(bodyQuat.x, bodyQuat.y, bodyQuat.z, bodyQuat.w);
+        for (const e of gev) {
+          _lp.set(e.local.x, e.local.y, e.local.z).applyQuaternion(fq);
+          _lp.x += bodyPos.x; _lp.y += bodyPos.y; _lp.z += bodyPos.z;
+          if (this.onGlass) this.onGlass(car, { type: e.type, point: { x: _lp.x, y: _lp.y, z: _lp.z }, r: e.r });
+        }
+        gev.length = 0;
+      }
+      if (scrape && this.onScrape) this.onScrape(car, scrape);
     }
+  }
+
+  // tear wheel i off `car`: kill its suspension, hand the visual wheel meshes
+  // to a fresh dynamic body that inherits the car's velocity at that point.
+  _detachWheel(car, i) {
+    const m = car.wheelMeta[i];
+    m.detached = true;
+    m.bent = 0;
+    car.veh.setWheelMaxSuspensionForce(i, 0);
+    car.veh.setWheelFrictionSlip(i, 0);
+    car.veh.setWheelSteering(i, 0);
+    car.veh.setWheelEngineForce(i, 0);
+    const bp = car.body.translation(), bq = car.body.rotation();
+    const q = new THREE.Quaternion(bq.x, bq.y, bq.z, bq.w);
+    // wheel center world = body ∘ (conn dropped by current suspension length)
+    const local = new THREE.Vector3(m.conn.x, m.conn.y - (car.susCur[i] || car.cat.rest), m.conn.z);
+    const wp = local.clone().applyQuaternion(q).add(new THREE.Vector3(bp.x, bp.y, bp.z));
+    // velocity of that material point: v + ω × r, plus axle spin for rollout
+    const lv = car.body.linvel(), av = car.body.angvel();
+    const rel = wp.clone().sub(new THREE.Vector3(bp.x, bp.y, bp.z));
+    const vel = new THREE.Vector3(
+      lv.x + av.y * rel.z - av.z * rel.y,
+      lv.y + av.z * rel.x - av.x * rel.z,
+      lv.z + av.x * rel.y - av.y * rel.x,
+    );
+    const axle = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const spin = (lv.x * fwd.x + lv.y * fwd.y + lv.z * fwd.z) / Math.max(0.12, m.r);
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(wp.x, Math.max(wp.y, m.r * 0.6), wp.z)
+        .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+        .setLinvel(vel.x, vel.y + 0.6, vel.z)
+        .setAngvel({ x: av.x - axle.x * spin, y: av.y - axle.y * spin, z: av.z - axle.z * spin })
+        .setLinearDamping(0.08).setAngularDamping(0.6)
+        .setCcdEnabled(true),
+    );
+    // cylinder collider axis is local y — rotate it onto the wheel axle (local z)
+    const cols = [];
+    cols.push(this.world.createCollider(
+      RAPIER.ColliderDesc.cylinder(m.w / 2, m.r)
+        .setRotation({ x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 })
+        .setFriction(1.1).setRestitution(0.4).setDensity(1),
+      body,
+    ));
+    const m0 = body.mass();
+    const target = clamp(18 + m.r * m.r * m.w * 480, 15, 160);
+    if (m0 > 1e-6) for (const c of cols) c.setDensity(target / m0);
+    // visual wheels of this cluster leave the car and follow the debris body
+    const node = new THREE.Group();
+    this.root.add(node);
+    node.position.copy(wp);
+    node.quaternion.copy(q);
+    node.updateMatrixWorld(true);
+    for (let vi = car.vis.length - 1; vi >= 0; vi--) {
+      if (car.vis[vi].phys === i) {
+        node.attach(car.vis[vi].obj);
+        car.vis.splice(vi, 1);
+      }
+    }
+    this.debris.push({
+      car, body, node, r: m.r,
+      prev: { p: wp.clone(), q: q.clone() },
+      cur: { p: wp.clone(), q: q.clone() },
+    });
+    if (this.onDetach) this.onDetach(car, { point: { x: wp.x, y: wp.y, z: wp.z }, r: m.r, speed: vel.length() });
   }
 
   // wall-clock update with accumulator; render-rate independent
@@ -526,8 +688,8 @@ export class CrashSim {
 
   syncVisuals(alphaArg) {
     const alpha = alphaArg !== undefined ? alphaArg : clamp(this.accum / STEP, 0, 1);
-    const qz = new THREE.Quaternion(), qy = new THREE.Quaternion();
-    const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
+    const qz = new THREE.Quaternion(), qy = new THREE.Quaternion(), qx = new THREE.Quaternion();
+    const Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0), X = new THREE.Vector3(1, 0, 0);
     for (const car of this.cars) {
       car.wrap.position.lerpVectors(car.prev.p, car.cur.p, alpha);
       car.wrap.quaternion.slerpQuaternions(car.prev.q, car.cur.q, alpha);
@@ -538,9 +700,13 @@ export class CrashSim {
         const len = car.susPrev[i] + (car.susCur[i] - car.susPrev[i]) * alpha;
         const rot = car.rotPrev[i] + (car.rotCur[i] - car.rotPrev[i]) * alpha;
         v.obj.position.set(m.conn.x, m.conn.y - len, v.z);
-        qy.setFromAxisAngle(Y, m.steer ? steer : 0);
+        qy.setFromAxisAngle(Y, (m.steer ? steer : 0) + m.bent);
         qz.setFromAxisAngle(Z, -rot);
         v.obj.quaternion.copy(qy).multiply(qz);
+        if (m.bent !== 0) { // visible camber lean on a bent wheel
+          qx.setFromAxisAngle(X, m.bent * 1.5);
+          v.obj.quaternion.premultiply(qx);
+        }
       }
     }
     for (const prop of this.props) {
@@ -548,6 +714,10 @@ export class CrashSim {
         d.node.position.lerpVectors(d.prev.p, d.cur.p, alpha);
         d.node.quaternion.slerpQuaternions(d.prev.q, d.cur.q, alpha);
       }
+    }
+    for (const d of this.debris) {
+      d.node.position.lerpVectors(d.prev.p, d.cur.p, alpha);
+      d.node.quaternion.slerpQuaternions(d.prev.q, d.cur.q, alpha);
     }
   }
 
@@ -567,6 +737,11 @@ export class CrashSim {
         for (let i = 0; i < 7; i++) { h ^= u[i]; h = Math.imul(h, 16777619) >>> 0; }
       }
     }
+    for (const d of this.debris) { // torn-off wheels are sim state too
+      const t = d.body.translation(), q = d.body.rotation();
+      f[0] = t.x; f[1] = t.y; f[2] = t.z; f[3] = q.x; f[4] = q.y; f[5] = q.z; f[6] = q.w;
+      for (let i = 0; i < 7; i++) { h ^= u[i]; h = Math.imul(h, 16777619) >>> 0; }
+    }
     return h >>> 0;
   }
 
@@ -579,6 +754,7 @@ export class CrashSim {
   replaceCar(i) {
     const old = this.cars[i];
     if (!old) return null;
+    this._dropDebrisOf(old);
     for (const c of old.colliders) this.colToCar.delete(c.handle);
     old.veh.free();
     this.world.removeRigidBody(old.body);
@@ -603,12 +779,24 @@ export class CrashSim {
   removeCarAt(i) {
     const old = this.cars[i];
     if (!old) return;
+    this._dropDebrisOf(old);
     for (const c of old.colliders) this.colToCar.delete(c.handle);
     old.veh.free();
     this.world.removeRigidBody(old.body);
     this.root.remove(old.wrap);
     disposeGroup(old.wrap);
     this.cars.splice(i, 1);
+  }
+
+  _dropDebrisOf(car) {
+    for (let i = this.debris.length - 1; i >= 0; i--) {
+      const d = this.debris[i];
+      if (d.car !== car) continue;
+      this.world.removeRigidBody(d.body);
+      this.root.remove(d.node);
+      disposeGroup(d.node);
+      this.debris.splice(i, 1);
+    }
   }
 
   // paused pose edit: move body + visuals together so Step stays sane
@@ -713,11 +901,16 @@ export class CrashSim {
       this.root.remove(rec.group);
       disposeGroup(rec.group);
     }
+    for (const d of this.debris) {
+      this.root.remove(d.node);
+      disposeGroup(d.node);
+    }
     this.events.free();
-    this.world.free(); // frees every body/collider, prop and road bodies included
+    this.world.free(); // frees every body/collider, prop/road/debris bodies included
     this.cars = [];
     this.props = [];
     this.roads = [];
+    this.debris = [];
   }
 
   dispose() { this.disposeSim(); }
@@ -781,6 +974,21 @@ export const TEST_SCENARIOS = {
     cars: [
       { seed: '9', type: 'sedan', x: -30, z: -14, heading: 0.35, speed: 24, throttle: 1, steer: -0.04 },
       { seed: '13', type: 'muscle', x: 26, z: 8, heading: Math.PI, speed: 20, throttle: 1, steer: 0.06, delay: 0.4 },
+    ],
+  },
+  // crash-quality pass: high-energy wrecks must replay bit-exact too — this
+  // scenario is tuned to trigger wheel detachment (debris bodies enter the
+  // world mid-run) and glass shatter, so it pins both new systems
+  carnage: {
+    world: { gravity: 9.81, arena: 70, walls: true },
+    props: [
+      { kind: 'pole', x: 6, z: 0, heading: 0 },
+      { kind: 'barrier', x: -6, z: 6, heading: 0.8 },
+    ],
+    cars: [
+      { seed: '3', type: 'muscle', x: -26, z: 0, heading: 0, speed: 30, throttle: 1, steer: 0 },
+      { seed: '8', type: 'sedan', x: 26, z: 0.5, heading: Math.PI, speed: 28, throttle: 1, steer: 0 },
+      { seed: '21', type: 'suv', x: 0, z: -24, heading: Math.PI / 2, speed: 26, throttle: 1, steer: 0.12 },
     ],
   },
   // world-building P3: a full generated suburb must replay bit-exact — this

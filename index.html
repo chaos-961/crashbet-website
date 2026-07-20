@@ -29,6 +29,7 @@
     <h1 class="menutitle">CRASH <span>BET</span></h1>
     <p class="menutag" id="menutag">deterministic low-poly sandbox</p>
     <button id="startBtn" class="mbtn primary big">▶&nbsp; Start Game</button>
+    <button id="crashBtn" class="mbtn big">💥&nbsp; Crash Test</button>
     <p class="menufoot">drag to orbit · pinch / scroll to zoom</p>
   </div>
 </div>
@@ -41,6 +42,14 @@
   <button id="camBtn" class="hambtn cambtn" aria-label="Toggle freecam" title="Freecam (C)">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h9A1.5 1.5 0 0 1 14 10v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 15.5V10a1.5 1.5 0 0 1 1.5-1.5zM14 11.5l6-3v9l-6-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
   </button>
+  <!-- crash-test controls (visible only in crash mode) -->
+  <div id="crashui" hidden>
+    <button id="cReplay" class="hambtn crashbtn" aria-label="Replay crash" title="Replay (R)">⟳</button>
+    <button id="cNext" class="hambtn crashbtn" aria-label="Next crash scene" title="Next scene (N)">⏭</button>
+    <button id="cSlow" class="hambtn crashbtn" aria-label="Toggle slow motion" title="Slow-mo (T)">🐢</button>
+    <button id="cMute" class="hambtn crashbtn" aria-label="Toggle sound" title="Sound">🔊</button>
+    <div id="dmgHud" aria-live="off">💥 0</div>
+  </div>
 </div>
 
 <!-- ============ freecam touch controls ============ -->

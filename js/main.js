@@ -9,8 +9,9 @@ import { RoomEnvironment } from '../libs/RoomEnvironment.js';
 import { buildVehicle, REG } from './vehicles.js';
 import { PROPS, SCENERY, buildProp } from './props.js';
 import { buildRoad } from './roads.js';
-import { disposeGroup, clamp } from './lib.js';
+import { disposeGroup, clamp, makeRng } from './lib.js';
 import { initEnv, ENVS } from './env.js';
+import { initFX } from './fx.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -188,6 +189,7 @@ async function startGame(wantFullscreen = true) {
     try { await screen.orientation.lock('landscape'); } catch {}
   }
   buildShowroom();
+  showroom.visible = true; // may have been hidden by crash mode
   setCamMode('orbit'); // the entry tween needs OrbitControls in charge
   inGame = true;
   document.body.classList.add('ingame');
@@ -203,7 +205,9 @@ async function startGame(wantFullscreen = true) {
 function leaveGame() {
   setCamMode('orbit');
   inGame = false;
-  document.body.classList.remove('ingame');
+  if (crash) destroyCrashSim();
+  document.body.classList.remove('ingame', 'crashmode');
+  $('crashui').hidden = true;
   $('pause').hidden = true;
   $('hud').hidden = true;
   $('menu').hidden = false;
@@ -447,11 +451,340 @@ function flyUpdate(dt) {
   return true;
 }
 
+/* ---------------- crash test mode ----------------
+   The reason the game exists: deterministic wrecks with the full effects
+   stack. Physics (Rapier, 2.2 MB) loads lazily on first entry; scenes are
+   seeded per (scene, run) so Replay repeats the exact crash and Next both
+   advances the scene and rerolls the cast. */
+let crash = null;          // { sim, mod }
+let crashFx = null;        // effects layer (created once, reused)
+let crashLoading = false;
+let crashSceneIdx = 0, crashRun = 0;
+let crashUserSlow = false, crashMuted = false;
+let crashSlowT = 0, crashSlowLast = 0; // auto slow-mo window (wall clock)
+let crashPushed = false; // one camera push-in per run, on the first big hit
+let crashIdleT = 0, dmgT = 0;
+const _crashC = new THREE.Vector3();
+const catOfId = (id) => (REG.find((e) => e.id === id) || {}).cat || 'Cars';
+
+const FAST = ['muscle', 'sedan', 'sports', 'hothatch', 'coupe', 'taxi', 'police', 'rally', 'stockcar', 'gtcoupe'];
+const CIVIC = ['sedan', 'hatch', 'wagon', 'suv', 'minivan', 'pickup', 'coupe', 'micro', 'lowrider'];
+const HEAVY = ['citybus', 'schoolbus', 'boxtruck', 'flatbed', 'garbage', 'firetruck', 'semibox', 'tanker'];
+const seedOf = (rng) => String(rng.int(1, 9999));
+
+const CRASH_SCENES = [
+  {
+    label: 'Head-On', make(rng) {
+      const v = () => 26 + rng.int(0, 6);
+      return {
+        cars: [
+          { seed: seedOf(rng), type: rng.pick(FAST), x: -27, z: 0, heading: 0, speed: v(), throttle: 1, steer: 0, brake: 2.8 },
+          { seed: seedOf(rng), type: rng.pick(rng.chance(0.3) ? HEAVY : FAST), x: 27, z: 0.5, heading: Math.PI, speed: v(), throttle: 1, steer: 0, brake: 2.8 },
+        ],
+      };
+    },
+  },
+  {
+    label: 'T-Bone', make(rng) {
+      return {
+        cars: [
+          { seed: seedOf(rng), type: rng.pick(CIVIC), x: -27, z: 0, heading: 0, speed: 25, throttle: 1, steer: 0, brake: 2.6 },
+          { seed: seedOf(rng), type: rng.pick(FAST), x: 1, z: -27, heading: -Math.PI / 2, speed: 26, throttle: 1, steer: 0, brake: 2.8 },
+        ],
+      };
+    },
+  },
+  {
+    label: 'Pileup', make(rng) {
+      const cars = [{ seed: seedOf(rng), type: rng.pick(HEAVY), x: 14, z: 0, heading: 0, speed: 0, throttle: 0, steer: 0 }];
+      for (let i = 0; i < 5; i++) {
+        cars.push({
+          seed: seedOf(rng), type: rng.pick(i ? CIVIC : FAST), x: -16 - i * 11, z: rng.range(-0.9, 0.9),
+          heading: 0, speed: 24 + i * 2, throttle: 1, steer: 0, delay: i * 0.22, brake: 3.2 + i * 0.2,
+        });
+      }
+      return { cars };
+    },
+  },
+  {
+    label: 'Ramp Jump', make(rng) {
+      return {
+        props: [
+          { kind: 'ramp', x: 0, z: 0, heading: 0 },
+          { kind: 'boxes', x: 13, z: 0.5, heading: 0.25 },
+        ],
+        cars: [
+          { seed: seedOf(rng), type: rng.pick(FAST), x: -32, z: 0, heading: 0, speed: 30 + rng.int(0, 4), throttle: 1, steer: 0, brake: 4 },
+          { seed: seedOf(rng), type: rng.pick(CIVIC), x: 20, z: 0.3, heading: 0, speed: 0, throttle: 0, steer: 0 },
+        ],
+      };
+    },
+  },
+  {
+    label: 'Pole & Hydrant', make(rng) {
+      return {
+        props: [
+          { kind: 'pole', x: 8, z: 0.1, heading: 0 },
+          { kind: 'hydrant', x: 11, z: -1.4, heading: 0, seed: seedOf(rng) },
+          { kind: 'sign_stop', x: 13.5, z: 1.3, heading: 0.4, seed: seedOf(rng) },
+          { kind: 'cone', x: 5.5, z: 1.1, heading: 0, seed: seedOf(rng) },
+          { kind: 'cone', x: 6.5, z: -1.2, heading: 0.7, seed: seedOf(rng) },
+        ],
+        cars: [
+          { seed: seedOf(rng), type: rng.pick(FAST), x: -28, z: 0, heading: 0, speed: 29 + rng.int(0, 4), throttle: 1, steer: 0, brake: 2.2 },
+        ],
+      };
+    },
+  },
+  {
+    label: 'Wall Slam', make(rng) {
+      return {
+        world: { arena: 56, walls: true },
+        cars: [
+          { seed: seedOf(rng), type: rng.pick(FAST), x: -18, z: -4, heading: 0.28, speed: 32, throttle: 1, steer: 0, brake: 2.5 },
+          { seed: seedOf(rng), type: rng.pick(CIVIC), x: 16, z: 8, heading: Math.PI - 0.35, speed: 27, throttle: 1, steer: 0.05, delay: 0.35, brake: 3 },
+        ],
+      };
+    },
+  },
+  {
+    label: 'Intersection Chaos', make(rng) {
+      const T = [rng.pick(FAST), rng.pick(CIVIC), rng.pick(CIVIC), rng.pick(rng.chance(0.4) ? HEAVY : FAST)];
+      return {
+        cars: [
+          { seed: seedOf(rng), type: T[0], x: -27, z: 0.3, heading: 0, speed: 25, throttle: 1, steer: 0, brake: 2.6 },
+          { seed: seedOf(rng), type: T[1], x: 27, z: -0.8, heading: Math.PI, speed: 23, throttle: 1, steer: 0, delay: 0.1, brake: 2.8 },
+          { seed: seedOf(rng), type: T[2], x: 0.8, z: -27, heading: -Math.PI / 2, speed: 26, throttle: 1, steer: 0, delay: 0.05, brake: 2.6 },
+          { seed: seedOf(rng), type: T[3], x: -0.5, z: 27, heading: Math.PI / 2, speed: 22, throttle: 1, steer: 0, delay: 0.2, brake: 3 },
+        ],
+      };
+    },
+  },
+  {
+    label: 'Suburb Rampage', async make(rng) {
+      const W = await import('./worldgen.js');
+      const g = W.generateWorld('suburb', seedOf(rng), {
+        maxProps: smallScreen ? 18 : 40, maxRoads: smallScreen ? 3 : 6,
+      });
+      return {
+        world: { arena: g.world.arena, walls: true },
+        roads: g.roads,
+        props: g.props,
+        cars: [
+          { seed: seedOf(rng), type: rng.pick(['pickup', 'monster', 'muscle', 'semibox']), x: 0, z: 0, heading: 0.5, speed: 24, throttle: 1, steer: 0.03, brake: 9 },
+          { seed: seedOf(rng), type: rng.pick(CIVIC), x: -14, z: -10, heading: 0.2, speed: 20, throttle: 1, steer: -0.02, delay: 0.8, brake: 8 },
+        ],
+      };
+    },
+  },
+];
+
+async function buildCrashScenario(idx, run) {
+  const rng = makeRng('crash:' + idx + ':' + run);
+  return await CRASH_SCENES[idx].make(rng);
+}
+
+// fx owns the sim hooks; main chains cinematics (auto slow-mo) onto impact
+function hookCrashSim(sim) {
+  crashFx.attach(sim);
+  const fxImpact = sim.onImpact;
+  sim.onImpact = (car, ev) => {
+    fxImpact(car, ev);
+    const now = performance.now();
+    if (ev.dv > 6.5 && !crashUserSlow && now > crashSlowLast + 5000) {
+      sim.speed = 0.28; // wall-clock pacing only — sim steps stay identical
+      crashSlowT = now + 1200;
+      crashSlowLast = now;
+    }
+    // cinematic push-in: the establishing shot frames the whole approach, so
+    // the first real hit tweens the camera down to wreck scale (orbit only —
+    // never yank a freecam user)
+    if (ev.dv > 5 && !crashPushed) {
+      crashPushed = true;
+      if (!fly.on) {
+        fitCamera(new THREE.Box3(
+          new THREE.Vector3(ev.point.x - 9, 0, ev.point.z - 9),
+          new THREE.Vector3(ev.point.x + 9, 4.5, ev.point.z + 9),
+        ), false);
+      }
+    }
+  };
+}
+
+function crashBox() {
+  const bb = new THREE.Box3();
+  for (const car of crash.sim.cars) bb.expandByPoint(car.wrap.position);
+  bb.expandByScalar(13);
+  bb.min.y = 0;
+  bb.max.y = Math.max(bb.max.y, 6);
+  return bb;
+}
+
+function destroyCrashSim() {
+  if (!crash) return;
+  crashFx.reset();
+  crashFx.detachSim();
+  scene.remove(crash.sim.root);
+  crash.sim.dispose();
+  crash = null;
+}
+
+function spawnCrash(sim, mod, instant) {
+  crash = { sim, mod };
+  scene.add(sim.root);
+  hookCrashSim(sim);
+  sim.speed = crashUserSlow ? 0.3 : 1;
+  sim.playing = true;
+  crashIdleT = 0;
+  crashPushed = false;
+  crashSlowT = 0;
+  camera.position.set(controls.target.x + 20, 13, controls.target.z + 24);
+  fitCamera(crashBox(), instant);
+  $('dmgHud').textContent = '💥 0';
+  toast(`💥 ${CRASH_SCENES[crashSceneIdx].label} — ${crashSceneIdx + 1}/${CRASH_SCENES.length}`);
+  invalidate();
+}
+
+async function startCrash(wantFullscreen = true) {
+  if (crashLoading) return;
+  crashLoading = true;
+  try {
+    if (wantFullscreen && !document.fullscreenElement) {
+      try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch {}
+      try { await screen.orientation.lock('landscape'); } catch {}
+    }
+    const mod = await import('./physics.js');
+    const R = await mod.loadRapier();
+    if (!crashFx) crashFx = initFX(scene, { small: smallScreen });
+    crashFx.unlockAudio();
+    // ?crash=N boots without a user gesture, so the context starts suspended —
+    // the first tap/click anywhere unlocks it
+    addEventListener('pointerdown', () => crashFx && crashFx.unlockAudio(), { once: true });
+    crashFx.sfx.mute(crashMuted);
+    const scenario = await buildCrashScenario(crashSceneIdx, crashRun);
+    destroyCrashSim();
+    setCamMode('orbit');
+    inGame = true;
+    document.body.classList.add('ingame', 'crashmode');
+    $('menu').hidden = true;
+    $('hud').hidden = false;
+    $('pause').hidden = true;
+    $('crashui').hidden = false;
+    if (showroom) showroom.visible = false;
+    spawnCrash(new mod.CrashSim(R, scenario, catOfId), mod, true);
+  } catch (e) {
+    console.error('crash mode failed', e);
+    toast('Crash mode failed to load');
+  } finally {
+    crashLoading = false;
+  }
+}
+
+async function nextCrash(step) {
+  if (!crash || crashLoading) return;
+  crashLoading = true;
+  try {
+    crashSceneIdx = (crashSceneIdx + step + CRASH_SCENES.length) % CRASH_SCENES.length;
+    crashRun++;
+    const scenario = await buildCrashScenario(crashSceneIdx, crashRun);
+    const mod = crash.mod;
+    destroyCrashSim();
+    const R = await mod.loadRapier(); // cached
+    spawnCrash(new mod.CrashSim(R, scenario, catOfId), mod, false);
+  } finally {
+    crashLoading = false;
+  }
+}
+
+function replayCrash() {
+  if (!crash || crashLoading) return;
+  crashFx.reset();
+  crash.sim.reset(); // perfect reset — same scenario, bit-identical rerun
+  hookCrashSim(crash.sim);
+  crash.sim.speed = crashUserSlow ? 0.3 : 1; // drop any leftover auto slow-mo
+  crash.sim.playing = true;
+  crashIdleT = 0;
+  crashPushed = false;
+  crashSlowT = 0;
+  fitCamera(crashBox(), false);
+  $('dmgHud').textContent = '💥 0';
+  toast('⟳ Replay');
+  invalidate();
+}
+
+function toggleCrashSlow() {
+  if (!crash) return;
+  crashUserSlow = !crashUserSlow;
+  crashSlowT = 0;
+  crash.sim.speed = crashUserSlow ? 0.3 : 1;
+  $('cSlow').classList.toggle('on', crashUserSlow);
+  toast(crashUserSlow ? '🐢 Slow motion' : 'Full speed');
+}
+
+$('crashBtn').addEventListener('click', () => startCrash(true));
+$('cReplay').addEventListener('click', replayCrash);
+$('cNext').addEventListener('click', () => nextCrash(1));
+$('cSlow').addEventListener('click', toggleCrashSlow);
+$('cMute').addEventListener('click', () => {
+  crashMuted = !crashMuted;
+  if (crashFx) crashFx.sfx.mute(crashMuted);
+  $('cMute').textContent = crashMuted ? '🔇' : '🔊';
+  $('cMute').classList.toggle('off', crashMuted);
+});
+
+// per-frame crash update — called from animate()
+function crashUpdate(dt, now) {
+  if (!crash || !inGame) return false;
+  if (crashSlowT && now > crashSlowT) {
+    crash.sim.speed = crashUserSlow ? 0.3 : 1;
+    crashSlowT = 0;
+  }
+  if (!$('pause').hidden) return false; // paused: freeze sim + fx
+  let busy = false;
+  crash.sim.update(dt);
+  crash.sim.syncVisuals();
+  if (crashFx.update(dt, camera)) busy = true;
+  if (crash.sim.playing) {
+    busy = true;
+    // gentle auto-follow keeps the wreck centered (orbit mode only)
+    if (!fly.on && crash.sim.cars.length) {
+      _crashC.set(0, 0, 0);
+      for (const car of crash.sim.cars) _crashC.add(car.wrap.position);
+      _crashC.divideScalar(crash.sim.cars.length);
+      _crashC.y = Math.min(_crashC.y + 0.6, 3);
+      controls.target.lerp(_crashC, 1 - Math.pow(0.25, dt));
+    }
+    // damage ticker + auto-sleep once everything (debris included) settles
+    if (now - dmgT > 250) {
+      dmgT = now;
+      let total = 0, vmax = 0;
+      for (const car of crash.sim.cars) {
+        total += car.damage;
+        const lv = car.body.linvel();
+        vmax = Math.max(vmax, Math.abs(lv.x), Math.abs(lv.y), Math.abs(lv.z));
+      }
+      for (const d of crash.sim.debris) {
+        const lv = d.body.linvel();
+        vmax = Math.max(vmax, Math.abs(lv.x), Math.abs(lv.y), Math.abs(lv.z));
+      }
+      $('dmgHud').textContent = `💥 ${Math.round(total * 10)}`;
+      crashIdleT = vmax < 0.06 ? crashIdleT + 0.25 : 0;
+      if (crashIdleT > 2.5) crash.sim.playing = false; // render-on-demand sleeps again
+    }
+  }
+  return busy;
+}
+
 /* ---------------- keyboard ---------------- */
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'Escape' && inGame) showPause($('pause').hidden);
   if ((e.key === 'c' || e.key === 'C') && inGame) { setCamMode(fly.on ? 'orbit' : 'fly'); return; }
+  if (crash && inGame && $('pause').hidden) {
+    if (e.key === 'r' || e.key === 'R') { replayCrash(); return; }
+    if (e.key === 'n' || e.key === 'N') { nextCrash(1); return; }
+    if (e.key === 't' || e.key === 'T') { toggleCrashSlow(); return; }
+  }
   if (fly.on && inGame) {
     fly.keys.add(e.code);
     if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
@@ -474,6 +807,11 @@ resize();
 let last = performance.now();
 function animate(now) {
   requestAnimationFrame(animate);
+  frame(now);
+}
+// one real frame of the app loop — exposed as __app.pump so headless checks can
+// drive tweens/sim/fx/render even when the embedded pane suspends rAF
+function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   let animating = false;
@@ -485,12 +823,17 @@ function animate(now) {
     animating = true;
   }
   if (flyUpdate(dt)) animating = true;
+  if (crashUpdate(dt, now)) animating = true;
   // OrbitControls.update() re-aims the camera at its target even when the
   // handlers are disabled — never run it while the freecam owns the camera
   const moved = fly.on ? false : controls.update();
   env.syncSky(camera.position);
   if (animating || moved || needsRender > 0) {
+    // camera shake is applied for the render only, then undone — orbit and
+    // freecam state never see the jitter
+    if (crashFx) crashFx.applyShake(camera);
     renderer.render(scene, camera);
+    if (crashFx) crashFx.undoShake(camera);
     if (needsRender > 0) needsRender--;
   }
 }
@@ -579,10 +922,16 @@ if (q0.has('simtest')) {
 }
 
 if (q0.has('sheet')) contactSheet();
-else if (q0.has('play')) startGame(false); // headless/dev: skip menu, no fullscreen
+else if (q0.has('crash')) { // dev: straight into crash mode (?crash=N picks the scene)
+  const n = parseInt(q0.get('crash'), 10);
+  if (n >= 1 && n <= CRASH_SCENES.length) crashSceneIdx = n - 1;
+  startCrash(false);
+} else if (q0.has('play')) startGame(false); // headless/dev: skip menu, no fullscreen
 
 // debug hook for automated visual verification
 window.__app = {
   renderer, scene, camera, controls, REG, env, fitCamera, invalidate,
   startGame, leaveGame, setCamMode, fly, flyUpdate, get showroom() { return showroom; },
+  startCrash, nextCrash, replayCrash, get crash() { return crash; }, get crashFx() { return crashFx; },
+  pump: (now) => frame(now),
 };

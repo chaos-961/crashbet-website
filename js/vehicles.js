@@ -706,7 +706,7 @@ function caravanTrailer(r, M) {
   const body = slab(M(hex, { rough: 0.55 }), { x0: -1.6, x1: 1.6, y0: 0.55, y1: 2.0, w: 1.95, wT: 1.7, nose: 0.42, tail: 0.42 });
   g.add(body);
   const pt = body.userData.pt;
-  const glass = M('#20303e', { rough: 0.16, metal: 0.08, env: 1.7 });
+  const glass = M('#20303e', { rough: 0.16, metal: 0.08, env: 1.7, glass: true });
   for (const s of ['left', 'right']) {
     g.add(panesOnQuad(faceQuad(pt, s), glass, { cols: 2, f0: 0.12, f1: s === 'right' ? 0.6 : 0.88, v0: 0.45, v1: 0.78 }));
   }
@@ -772,7 +772,7 @@ function boatTrailer(r, M) {
   const cockpit = box(deck, 1.6, 0.06, 1.1);
   cockpit.position.set(-0.6, 1.18, 0);
   g.add(cockpit);
-  const ws = slab(M('#1b2836', { rough: 0.3, metal: 0.05, env: 0.9 }), { x0: 0.32, x1: 0.48, y0: 1.2, y1: 1.5, w: 1.1, wT: 0.95, nose: 0.3 });
+  const ws = slab(M('#1b2836', { rough: 0.3, metal: 0.05, env: 0.9, glass: true }), { x0: 0.32, x1: 0.48, y0: 1.2, y1: 1.5, w: 1.1, wT: 0.95, nose: 0.3 });
   g.add(ws);
   for (const s of [-1, 1]) { // bench seats
     const seat = box(M('#f2ead9', { rough: 0.7 }), 0.5, 0.16, 0.42);

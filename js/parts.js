@@ -115,7 +115,7 @@ export function checkerBand(g, M, o) { // taxi side checkers, awning-style slats
 }
 export function sunroof(g, M, o) {
   const { x, y, len = 0.55, w = 0.6 } = o;
-  const p = box(M('#1b2836', { rough: 0.3, metal: 0.05, env: 0.9 }), len, 0.018, w);
+  const p = box(M('#1b2836', { rough: 0.3, metal: 0.05, env: 0.9, glass: true }), len, 0.018, w);
   p.position.set(x, y + 0.012, 0);
   g.add(p);
 }

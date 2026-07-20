@@ -74,15 +74,16 @@ export function jitterColor(r, hex, h = 0.008, s = 0.06, l = 0.04) {
 export function matFactory() {
   const cache = new Map();
   const M = (color, opt = {}) => {
-    const { rough = 0.58, metal = 0, env = 0.5, emissive = null, emInt = 0.55, flat = true } = opt;
+    const { rough = 0.58, metal = 0, env = 0.5, emissive = null, emInt = 0.55, flat = true, glass = false } = opt;
     const hex = color instanceof THREE.Color ? '#' + color.getHexString() : color;
-    const key = [hex, rough, metal, env, emissive, emInt, flat].join('|');
+    const key = [hex, rough, metal, env, emissive, emInt, flat, glass].join('|');
     if (!cache.has(key)) {
       const m = new THREE.MeshStandardMaterial({
         color: hex, roughness: rough, metalness: metal, flatShading: flat,
         envMapIntensity: env,
       });
       if (emissive) { m.emissive = new THREE.Color(emissive); m.emissiveIntensity = emInt; }
+      if (glass) m.userData.glass = true; // deform.js: this pane can crack & shatter
       cache.set(key, m);
     }
     return cache.get(key);

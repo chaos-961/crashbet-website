@@ -547,3 +547,32 @@ input[type="range"]::-moz-range-thumb {
   .pausecard h2 { margin-bottom: 8px; }
   .mbtn { padding: 10px 16px; margin-top: 7px; }
 }
+
+/* crash-test HUD (visible only in crash mode) */
+#crashui[hidden] { display: none; }
+.crashbtn {
+  left: auto; font-size: 21px; line-height: 1;
+}
+#cReplay { right: calc(12px + env(safe-area-inset-right)); }
+#cNext { right: calc(12px + 56px + env(safe-area-inset-right)); }
+#cSlow { right: calc(12px + 112px + env(safe-area-inset-right)); }
+#cMute { right: calc(12px + 168px + env(safe-area-inset-right)); }
+#cSlow.on { border-color: rgba(255, 176, 58, 0.65); color: #ffcf8a; box-shadow: 0 0 16px rgba(255, 176, 58, 0.25); }
+#cMute.off { opacity: 0.55; }
+#dmgHud {
+  position: fixed; z-index: 30; left: 50%; transform: translateX(-50%);
+  top: calc(14px + env(safe-area-inset-top));
+  padding: 8px 16px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  color: #ffcf8a; font-size: 15px; font-weight: 800; letter-spacing: 0.04em;
+  pointer-events: none; font-variant-numeric: tabular-nums;
+}
+@media (max-width: 560px) {
+  .crashbtn { width: 40px; height: 40px; font-size: 18px; }
+  #cNext { right: calc(12px + 48px + env(safe-area-inset-right)); }
+  #cSlow { right: calc(12px + 96px + env(safe-area-inset-right)); }
+  #cMute { right: calc(12px + 144px + env(safe-area-inset-right)); }
+  /* the centered pill collides with the button row at phone widths — drop it below */
+  #dmgHud { font-size: 13px; padding: 6px 12px; top: calc(58px + env(safe-area-inset-top)); }
+}

@@ -4,8 +4,9 @@
     {
       "name": "garage",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "http-server", "-p", "5183", "-c-1", "."],
-      "port": 5183
+      "runtimeArgs": ["-y", "http-server", "-c-1", "."],
+      "port": 5183,
+      "autoPort": true
     }
   ]
 }
