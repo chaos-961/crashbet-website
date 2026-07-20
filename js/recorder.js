@@ -125,6 +125,27 @@ export async function recordScene(R, scenario, catOf, opts = {}) {
 
   const closePairs = new Set();
   let restRun = 0, restTick = -1;
+  // Rest is measured by DISPLACEMENT, not instantaneous velocity. Three
+  // steady-state artifacts read as motion forever while the body sits still:
+  // raycast suspension holds a constant +lv.y (~0.73), G4 buoyancy holds one
+  // too (a wreck parked on the basin bed), and a stuck car under driver
+  // control keeps yawing in place (av.y ~0.6). The old vmax test never
+  // converged on any of them — 48 % of G4 scenes ran to the 2400-tick cap.
+  // Position is immune: if nothing has MOVED for a sustained window and no
+  // event has fired, the scene is genuinely over. Sampling aliasing is a
+  // non-issue — jitter oscillates without displacing, which is the point.
+  const restRef = new Map(); // body handle -> {x,y,z} reference position
+  // The bar is derived, not tuned: 0.6 m of drift across the 75-tick (1.25 s)
+  // window caps a body at <0.5 m/s, so no two bodies under it can close hard
+  // enough to log a contact at all (TOUCH_DV is 1.4 m/s, and 0.5+0.5 < 1.4).
+  // Below this speed the scene provably cannot produce another event.
+  // It has to be this generous because cars decay asymptotically: an
+  // `end:'coast'` car that reached the end of its path never fully stops,
+  // it just creeps at 0.2–0.4 m/s forever, and a queue of them bunched at
+  // the road end held ~25 % of G4 scenes open to the cap. Drift is summed
+  // per-axis (Manhattan), which over-reads a diagonal, so the effective
+  // speed bound is stricter than 0.5 — erring the safe way.
+  const REST_EPS = 0.6;
 
   for (let tick = 0; tick < maxTicks; tick++) {
     sim.stepOnce();
@@ -172,7 +193,10 @@ export async function recordScene(R, scenario, catOf, opts = {}) {
           const dx = a.x - b.x, dz = a.z - b.z;
           if (dx * dx + dz * dz < 3.1 * 3.1) {
             const va = sim.cars[i].body.linvel(), vb = sim.cars[j].body.linvel();
-            if (Math.hypot(va.x, va.z) > 3 || Math.hypot(vb.x, vb.z) > 3) {
+            // squared compare, never Math.hypot: this feeds the event log and
+            // therefore the hash, and hypot's last bits are not guaranteed
+            // equal across JS engines (the same rule the water code follows)
+            if (va.x * va.x + va.z * va.z > 9 || vb.x * vb.x + vb.z * vb.z > 9) {
               closePairs.add(key);
               events.push({ k: 'close', t: sim.tick, car: i, oi: j });
             }
@@ -207,43 +231,44 @@ export async function recordScene(R, scenario, catOf, opts = {}) {
         }
       }
     }
-    // Rest = the INCIDENT has finished playing out, not "the world is
-    // motionless": an untouched ambient car cruising off down its lane would
-    // otherwise hold every scene open to the hard cap. Only cars that have
-    // actually been in contact, torn-off debris, and disturbed props count.
+    // Rest = every CAR and every piece of debris has stopped moving. Cars are
+    // all that can still generate a settleable event, so gating on all of
+    // them (not just the touched ones) is strictly safer than the old rule,
+    // which ignored free traffic entirely and could cut a scene whose first
+    // hit lands late — measured as late as T+1151 on switchback/overspeed.
+    // Disturbed props are deliberately NOT gated: their markets latch on
+    // first move, and a knocked cone or a tumbleweed rolls essentially
+    // forever, which alone held whole rounds open to the 2400-tick cap.
     if (sim.tick > INCIDENT_TICK + 120 && sim.tick % 5 === 0) {
-      let vmax = 0;
+      let moved = 0;
+      // drift of each body from its reference pose; the largest wins
       const scan = (body) => {
-        const lv = body.linvel(), av = body.angvel();
-        const m = Math.max(Math.abs(lv.x), Math.abs(lv.y), Math.abs(lv.z), Math.abs(av.x) * 0.5, Math.abs(av.y) * 0.5, Math.abs(av.z) * 0.5);
-        if (m > vmax) vmax = m;
+        const t = body.translation();
+        const ref = restRef.get(body.handle);
+        if (!ref) { restRef.set(body.handle, { x: t.x, y: t.y, z: t.z }); return; }
+        const m = Math.abs(t.x - ref.x) + Math.abs(t.y - ref.y) + Math.abs(t.z - ref.z);
+        if (m > moved) moved = m;
       };
-      let involved = 0;
-      for (let i = 0; i < nCars; i++) if (per[i].touched) { involved++; scan(sim.cars[i].body); }
-      for (const d of sim.debris) { involved++; scan(d.body); }
-      for (let pi = 0; pi < sim.props.length; pi++) {
-        if (propState[pi].movedAt < 0) continue;
-        involved++;
-        for (const d of sim.props[pi].dyn) scan(d.body);
-      }
-      // still-moving traffic keeps a quiet scene open: cars can be seconds
-      // from a late collision, and cutting at a fixed delay after T=0 threw
-      // away real crashes (a pullout that landed at T+646).
-      let vFree = 0;
       for (let i = 0; i < nCars; i++) {
-        if (per[i].touched) continue;
-        const lv = sim.cars[i].body.linvel();
-        const s = Math.abs(lv.x) + Math.abs(lv.z);
-        if (s > vFree) vFree = s;
+        // A car the sim has declared SUNK is resolved: by its own test it is
+        // past 0.9 m under and below 1.2 m/s, its markets have latched, and
+        // it cannot reach anything else. Buoyancy is deliberately sub-neutral
+        // so a wreck keeps settling toward the bed for a long time — gating
+        // on that drift ran every causeway round to the 2400-tick cap.
+        if (per[i].sunkAt >= 0) continue;
+        scan(sim.cars[i].body);
       }
+      for (const d of sim.debris) scan(d.body);
       const lastEv = events.length ? events[events.length - 1].t : 0;
-      // 0.25 tolerates a wreck still rocking on its roof / a wheel trickling;
-      // tighter thresholds never converge and every scene ran to the cap
-      const settled = involved > 0 && vmax < 0.25 && sim.tick - lastEv > 90;
-      if (settled || (involved === 0 && vFree < 1.2)) {
+      if (moved < REST_EPS && sim.tick - lastEv > 90) {
         restRun += 5;
         if (restRun >= 75) { restTick = sim.tick; break; }
-      } else restRun = 0;
+      } else {
+        // something moved: re-baseline every body so the window measures
+        // drift over the LAST 75 ticks, not since the scene began
+        restRun = 0;
+        restRef.clear();
+      }
     }
     if (chunk > 0 && tick % chunk === chunk - 1) {
       if (opts.onProgress) opts.onProgress(tick / maxTicks);

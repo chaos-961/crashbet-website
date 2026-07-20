@@ -141,6 +141,12 @@ function lanesOfRoad(spec, rng, vBase) {
   const u0 = spec.loop ? rng() : 0;
   const span = spec.loop ? 0.85 : 1;
   const fwd = [], rev = [];
+  // Per-sample deck height, kept in a SEPARATE array so `pts` stays a flat
+  // [x,z,…] pair list. The stride is load-bearing: arcPos/laneLen/slicePts/
+  // crossOf all walk it two at a time, and physics reads the very same array
+  // as `drive.pts`. Widening it to triples would ripple into the driver and
+  // move every pinned hash. y rides alongside instead.
+  const fy = [], ry = [];
   for (let i = 0; i <= n; i++) {
     const u = spec.loop ? (u0 + (span * i) / n) % 1 : i / n;
     const p = curve.getPointAt(u);
@@ -149,14 +155,56 @@ function lanesOfRoad(spec, rng, vBase) {
     const nx = t.z / l, nz = -t.x / l; // left normal
     fwd.push(p.x - nx * off, p.z - nz * off); // right side, travelling forward
     rev.push(p.x + nx * off, p.z + nz * off); // right side of the reverse run
+    fy.push(p.y); ry.push(p.y);
   }
   rev.reverse(); // flat [x,z] pairs: reverse pairwise
   for (let i = 0; i < rev.length; i += 2) { const t = rev[i]; rev[i] = rev[i + 1]; rev[i + 1] = t; }
+  ry.reverse(); // one y per sample, so a plain reverse matches the pair swap
   const lanes = [];
-  for (const pts of [fwd, rev]) {
+  for (const [pts, ys] of [[fwd, fy], [rev, ry]]) {
     const len = laneLen(pts);
-    if (len > 55) lanes.push({ pts, len, v: vBase, w: spec.w, road: spec });
+    if (len > 55) lanes.push({ pts, ys, len, v: vBase, w: spec.w, road: spec });
   }
+  return lanes;
+}
+
+/* Deck height at arc distance s along a lane. Returns exactly 0 for a flat
+   road (every y sample is 0, so the lerp is 0 + (0−0)·k), which is what lets
+   the placement helpers hand physics a `y` unconditionally without moving a
+   single pre-existing hash. Mirrors arcPos's walk so the two never disagree
+   about which segment `s` falls in. */
+function arcY(lane, s) {
+  const ys = lane && lane.ys;
+  if (!ys) return 0;
+  const pts = lane.pts;
+  let acc = 0;
+  for (let i = 0; i < pts.length - 2; i += 2) {
+    const dx = pts[i + 2] - pts[i], dz = pts[i + 3] - pts[i + 1];
+    const el = Math.hypot(dx, dz);
+    if (acc + el >= s || i === pts.length - 4) {
+      const k = el > 1e-9 ? clamp((s - acc) / el, 0, 1) : 0;
+      const a = ys[i >> 1], b = ys[(i >> 1) + 1];
+      return a + (b - a) * k;
+    }
+    acc += el;
+  }
+  return ys[0];
+}
+
+/* Order lanes longest-first for the placement solver. The quantisation is
+   load-bearing, not tidiness: the two directions of a straight symmetric road
+   have the SAME length up to float noise, and a raw `b.len - a.len` let that
+   noise pick the winner. Arc length accumulates through sqrt, whose last bits
+   are not guaranteed equal across JS engines, so node and the browser sorted
+   a causeway's two lanes oppositely and generated MIRRORED scenes from one
+   seed (cars at x=+69 heading -pi in node, x=-69 heading 0 in the browser).
+   That breaks the game's core promise — the headless pre-sim the bets settle
+   against has to be the scene the player watches. Rounding to cm puts genuine
+   length differences on one side and noise on the other; the build-order tie
+   break is exact integer maths, so the result is engine-independent. */
+function sortLanes(lanes) {
+  lanes.forEach((l, i) => { if (l._ord === undefined) l._ord = i; });
+  lanes.sort((a, b) => (Math.round(b.len * 100) - Math.round(a.len * 100)) || (a._ord - b._ord));
   return lanes;
 }
 
@@ -167,7 +215,7 @@ function topoWorldgen(preset, rTopo, vBase) {
   const g = generateWorld(preset, String(rTopo.int(1, 99999)), { maxProps: 40, maxRoads: 6 });
   const lanes = [];
   for (const spec of g.roads) for (const l of lanesOfRoad(spec, rTopo, vBase)) lanes.push(l);
-  lanes.sort((a, b) => b.len - a.len);
+  sortLanes(lanes);
   // big topos (the 290 m highway) need the visual ground disc to keep up;
   // setGroundRadius clamps to its 90 m floor so small arenas are unaffected
   const world = { ...g.world, ground: (g.world.arena || 140) / 2 + 22 };
@@ -236,7 +284,7 @@ const dress = (props, rDress) => (kind, x, z, heading) =>
 function lanesFrom(roads, rng, vBase) {
   const lanes = [];
   for (const spec of roads) for (const l of lanesOfRoad(spec, rng, vBase)) lanes.push(l);
-  lanes.sort((a, b) => b.len - a.len);
+  sortLanes(lanes);
   return lanes;
 }
 
@@ -273,21 +321,35 @@ function topoCauseway(rTopo, rDress, vBase) {
 // The curvature is the point — this is the overspeed template's home.
 function topoSwitchback(rTopo, rDress, vBase) {
   const A = 120;
+  /* A mountain VIADUCT, not a road cut into a hillside — there is no terrain
+     system, so an elevated non-bridge road renders as a ribbon floating in
+     the sky with its guardrails stranded on the ground 15 m below. Style bit
+     3 gives it a deck underside and full-height parapets, so it reads as a
+     structure and the barriers actually contain a car (RAIL_H 0.92 against
+     the old 0.13 kerb, which a wreck simply hopped).
+
+     Geometry is tuned to a MINIMUM TURN RADIUS of ~22 m, measured, not
+     guessed. The old shape folded at 12.3 m, and the pure-pursuit driver
+     (lookahead 0.55·v + 2.5, up to 13 m) cannot track a radius near its own
+     lookahead — it cut up to 2.06 m off the lane, which on a 4 m lane
+     separation is a head-on, and made every car cover arc length faster than
+     `place()` budgeted, so victims arrived before the incident tick. Every
+     topology the sweep certifies clean sits at 19–48 m (roundabout 19.3,
+     suburb 19.8, city 20.4, highway 47.5); this now sits just inside that
+     band while staying the curviest thing in the game. Widened 8 → 10 m as
+     well, which buys another metre of separation between opposing lanes. */
   const roads = [{
-    w: 8, loop: 0, style: 1,
+    w: 10, loop: 0, style: 1 | 8,
     pts: [
-      { x: -A, y: 0, z: -30 }, { x: -55, y: 2.4, z: -34 }, { x: -18, y: 4.6, z: -8 },
-      { x: -34, y: 6.8, z: 26 }, { x: 12, y: 9.0, z: 34 }, { x: 44, y: 11, z: 6 },
-      { x: 26, y: 13, z: -30 }, { x: A, y: 15, z: -40 },
+      { x: -A, y: 0, z: -52 }, { x: -74, y: 1.6, z: -40 }, { x: -30, y: 3.4, z: 10 },
+      { x: 14, y: 5.2, z: 46 }, { x: 58, y: 7.0, z: 12 }, { x: 88, y: 8.4, z: -34 },
+      { x: A, y: 9.4, z: -52 },
     ],
   }];
   const props = [];
   const S = dress(props, rDress);
-  // guardrails ride the outside of each hairpin
-  for (const [x, z] of [[-26, -22], [-40, 12], [4, 42], [50, 18], [34, -34]]) {
-    S('guardrail', x, z, rTopo.range(0, 6.28));
-  }
-  for (let i = 0; i < 5; i++) S('tree_pine', rTopo.range(-A, A), rTopo.range(-60, 60), rTopo.range(0, 6.28));
+  // valley floor below the viaduct — the parapets are the guardrail now
+  for (let i = 0; i < 5; i++) S('tree_pine', rTopo.range(-A, A), rTopo.range(-70, 70), rTopo.range(0, 6.28));
   if (rTopo.chance(0.7)) S('rock', rTopo.range(-60, 60), rTopo.range(-40, 40), rTopo.range(0, 6.28));
   return {
     name: 'switchback',
@@ -427,11 +489,21 @@ function topoRoundabout(rTopo, rDress, vBase) {
 function place(lane, sAnchor, v, tick = INCIDENT_TICK, end = 'coast') {
   const need = (tick / 60) * v;
   let vv = v;
-  if (need > sAnchor - 3) vv = Math.max(MIN_V, (sAnchor - 3) / (tick / 60));
+  // If the run-up doesn't fit, slow the car down so it still arrives EXACTLY
+  // at `tick`. The old MIN_V floor here silently broke that promise: once the
+  // floor bound, s0 clamped to the lane start and the car arrived early — a
+  // pullout victim reached the parked car at tick 599 and rear-ended it
+  // before the incident, violating the nothing-collides-before-600 invariant.
+  // Lanes are pre-filtered by solveApproach for a 600-tick run, but templates
+  // that aim PAST T=0 (pullout budgets T+42 and up) need more road than that
+  // check guarantees, so on-time arrival has to outrank the speed floor.
+  // In practice this only gives up ~0.5 m/s: a lane that clears solveApproach
+  // holds ≥75 m, so the worst case lands near 7 m/s, not a crawl.
+  if (need > sAnchor - 3) vv = Math.max(2, (sAnchor - 3) / (tick / 60));
   const s0 = Math.max(0.5, sAnchor - (tick / 60) * vv);
   const p = arcPos(lane.pts, s0);
   return {
-    x: p.x, z: p.z, heading: p.heading, speed: vv,
+    x: p.x, y: arcY(lane, s0), z: p.z, heading: p.heading, speed: vv,
     drive: { pts: slicePts(lane.pts, s0), v: vv, end, cmds: [] },
     _lane: lane, _s0: s0, _v: vv, _anchor: sAnchor,
   };
@@ -444,7 +516,7 @@ function placeAt(lane, s0, v, end = 'coast') {
   if (s0 < 1) return null;
   const p = arcPos(lane.pts, s0);
   return {
-    x: p.x, z: p.z, heading: p.heading, speed: v,
+    x: p.x, y: arcY(lane, s0), z: p.z, heading: p.heading, speed: v,
     drive: { pts: slicePts(lane.pts, s0), v, end, cmds: [] },
     _lane: lane, _s0: s0, _v: v, _anchor: s0 + 10 * v,
   };
@@ -453,7 +525,7 @@ function placeAt(lane, s0, v, end = 'coast') {
 function placeParked(lane, s, end = 'stop') {
   const p = arcPos(lane.pts, s);
   return {
-    x: p.x, z: p.z, heading: p.heading, speed: 0,
+    x: p.x, y: arcY(lane, s), z: p.z, heading: p.heading, speed: 0,
     drive: { pts: slicePts(lane.pts, s), v: 0, end, cmds: [] },
     _lane: lane, _s0: s, _v: 0, _anchor: s,
   };
@@ -832,7 +904,7 @@ const TEMPLATES = {
         const p = arcPos(lane.pts, sDrop + i * 2.6);
         props.push({
           kind: rng.pick(['cone', 'bin_wheelie', 'planter_stone']),
-          x: p.x + rng.range(-1.4, 1.4), z: p.z + rng.range(-1.4, 1.4),
+          x: p.x + rng.range(-1.4, 1.4), y: arcY(lane, sDrop + i * 2.6), z: p.z + rng.range(-1.4, 1.4),
           heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)),
         });
       }
@@ -923,7 +995,7 @@ const TEMPLATES = {
       const props = [];
       if (rng.chance(0.6)) {
         const p = arcPos(lane.pts, sDead + 5);
-        props.push({ kind: 'cone', x: p.x, z: p.z, heading: 0, seed: String(rng.int(1, 9999)) });
+        props.push({ kind: 'cone', x: p.x, y: arcY(lane, sDead + 5), z: p.z, heading: 0, seed: String(rng.int(1, 9999)) });
       }
       return { cars, props, aggressor: 0, victim: 1, label: 'Stalled Car', tell: 'that one has not moved all preview' };
     },
@@ -996,7 +1068,7 @@ const TEMPLATES = {
       cmd(carA, { t: INCIDENT_TICK + 20, bias: -side * 0.26, off: true }); // overcorrect
       const props = [];
       const p = arcPos(lane.pts, approach.anchorS + 7);
-      props.push({ kind: rng.pick(['rock', 'bin_wheelie', 'cone']), x: p.x, z: p.z, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)) });
+      props.push({ kind: rng.pick(['rock', 'bin_wheelie', 'cone']), x: p.x, y: arcY(lane, approach.anchorS + 7), z: p.z, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)) });
       const cars = [carA];
       const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
       if (behind) cars.push(behind);
@@ -1036,10 +1108,10 @@ const TEMPLATES = {
       const v = Math.min(approach.v + 6, laneMaxV(lane, sRamp));
       const carA = place(lane, sRamp - 5, v);
       const p = arcPos(lane.pts, sRamp);
-      const props = [{ kind: 'ramp', x: p.x, z: p.z, heading: p.heading, seed: String(rng.int(1, 9999)) }];
+      const props = [{ kind: 'ramp', x: p.x, y: arcY(lane, sRamp), z: p.z, heading: p.heading, seed: String(rng.int(1, 9999)) }];
       // a landing zone worth betting on
       const q = arcPos(lane.pts, sRamp + 11);
-      props.push({ kind: rng.pick(['boxes', 'cone', 'barrier_water']), x: q.x, z: q.z, heading: q.heading, seed: String(rng.int(1, 9999)) });
+      props.push({ kind: rng.pick(['boxes', 'cone', 'barrier_water']), x: q.x, y: arcY(lane, sRamp + 11), z: q.z, heading: q.heading, seed: String(rng.int(1, 9999)) });
       return { cars: [carA], props, aggressor: 0, victim: -1, label: 'Ramp Jump', tell: 'that is a lot of speed at a ramp' };
     },
   },
@@ -1075,7 +1147,9 @@ function scrubConflicts(cars, keep) {
         if (C._s0 - back < 1) { cars[idx] = null; moved = true; continue; }
         C._s0 -= back;
         const p = arcPos(C._lane.pts, C._s0);
-        C.x = p.x; C.z = p.z; C.heading = p.heading;
+        // y must follow the push-back: the new spot is somewhere else on the
+        // grade, and leaving the old height drops the car through the deck
+        C.x = p.x; C.y = arcY(C._lane, C._s0); C.z = p.z; C.heading = p.heading;
         C.drive.pts = slicePts(C._lane.pts, C._s0);
         moved = true;
       }
@@ -1174,10 +1248,19 @@ export function generateScene(seed, d = 1) {
   const opp = lane ? oppOf(lane) : null;
   let curveS = 0;
   if (T.needsCurve && lane) {
+    // Pick the bend by LATERAL DEMAND (v²·κ), not by raw curvature. laneMaxV
+    // is a run-up constraint, not a grip one: a corner near the lane start
+    // leaves no road to accelerate over, so the sharpest bend on a lane is
+    // frequently the one the car can only reach at walking pace. Choosing on
+    // curvature alone dealt hairpins taken at 3 m/s — the car simply steered
+    // round them and the round logged no events at all (suburb/rollover).
+    // v²·κ is what actually tips a tall vehicle, so it is what to maximise.
     let best = 0;
     for (let s = 30; s < lane.len - 25; s += 6) {
       const c = curvatureAt(lane.pts, s);
-      if (c > best) { best = c; curveS = s; }
+      const v = Math.min(laneMaxV(lane, s), lane.v + 4);
+      const demand = v * v * c;
+      if (demand > best) { best = demand; curveS = s; }
     }
   }
   const ctx = { rng: rInc, d, tellK, topo, lane, opp, curveS, approach: lane ? solveApproach(lane) : null };
@@ -1191,9 +1274,28 @@ export function generateScene(seed, d = 1) {
   if (d >= 5 && rInc.chance(0.2) && made.victim >= 0) {
     nearMiss = true;
     const V = made.cars[made.victim];
-    V._s0 = Math.min(V._lane ? V._lane.len - 6 : V._s0 + 12, V._s0 + 9 + rInc.range(0, 6));
+    // Shifting the victim UP its lane also makes it arrive EARLIER — it has
+    // less road left to cover. Unbounded, that silently undoes the template's
+    // arrival budget: a pullout victim budgeted to reach the merge point at
+    // T+42 shifted 15 m up a lane at 11 m/s arrives ~80 ticks sooner, i.e.
+    // BEFORE the incident, and rear-ended the still-parked car at tick 599 —
+    // breaking the nothing-collides-before-600 invariant. The same overshoot
+    // in the other direction sails the victim past the pocket entirely and
+    // the round logs nothing at all. So cap the shift by the distance the
+    // victim can give up and still reach its anchor after T=0 (+20 ticks of
+    // margin). The spawn-overlap net cannot catch this: the cars do not
+    // overlap at spawn, they converge early.
+    const room = V._anchor !== undefined && V._v > 0
+      ? (V._anchor - V._s0) - V._v * ((INCIDENT_TICK + 20) / 60)
+      : 0;
+    const want = 9 + rInc.range(0, 6);
+    const shift = Math.max(0, Math.min(want, room));
+    V._s0 = Math.min(V._lane ? V._lane.len - 6 : V._s0 + shift, V._s0 + shift);
     const p = V._lane ? arcPos(V._lane.pts, V._s0) : null;
-    if (p) { V.x = p.x; V.z = p.z; V.heading = p.heading; V.drive.pts = slicePts(V._lane.pts, V._s0); }
+    if (p) {
+      V.x = p.x; V.y = arcY(V._lane, V._s0); V.z = p.z; V.heading = p.heading;
+      V.drive.pts = slicePts(V._lane.pts, V._s0);
+    }
   }
 
   // decoy (d ≥ 6): a drifter elsewhere who recovers cleanly before T = 0
@@ -1342,7 +1444,15 @@ export function generateScene(seed, d = 1) {
   });
 
   return {
-    world: { gravity: 9.81, arena: topo.world.arena || 100, walls: false, env: topo.world.env, ground: topo.world.ground },
+    // Spread the topology's world through instead of re-listing its keys. The
+    // enumerated version dropped every key it did not name — including
+    // `water`, so the causeway (a deck over open water, the one topology that
+    // exists to show off G4 elevation) generated a bridge over dry land and
+    // the buoyancy / splash / sunk path never ran in a single real round. It
+    // stayed green only because the `water` simtest scenario hand-writes
+    // world.water rather than going through the director. Defaults stay in
+    // front so a topology can still override gravity or walls deliberately.
+    world: { gravity: 9.81, walls: false, ...topo.world, arena: topo.world.arena || 100 },
     roads: topo.roads,
     props,
     cars,

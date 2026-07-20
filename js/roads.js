@@ -208,5 +208,36 @@ export function buildRoad(spec) {
     }
   }
 
+  /* DRIVING SURFACE — elevated runs only.
+     A flat road never needed one: the world's 220 m ground slab holds the car
+     up and the asphalt is paint on top of it. An elevated run has nothing
+     underneath, so without this the deck is decoration — a car placed
+     mid-span falls straight through to the ground. That is exactly how G4
+     shipped: the sweep swept y, the parapets were pinned, and the `bridge`
+     scenario's cars enter at x=±36 where the deck y IS 0, so they drive up
+     the ramp and nothing ever stood on an elevated span. The causeway then
+     ran its whole cast along the ground UNDER the bridge and into the water
+     basin, and the switchback ran its cast across open ground up to 15 m
+     below the road, uncontained (the guardrails are up on the deck).
+     Opt-in on `elev`, so a flat road emits the identical shape list it always
+     has and every pre-existing hash stays bit-identical. */
+  if (elev) {
+    const T = deck ? DECK_T : 0.5; // slab hangs below the asphalt surface
+    for (let i = 0; i < nSeg; i++) {
+      const f = frameAt(curve, (i + 0.5) / nSeg);
+      shapes.push({
+        kind: 'box',
+        // Longitudinal overlap is deliberately much smaller than the curbs'
+        // 0.12: consecutive slabs are pitched to their own tangent, so on a
+        // grade a generous overlap leaves the next slab's leading edge
+        // standing proud — a lip that trips a wheel at speed. Nothing drives
+        // on a curb, so its overlap can be sloppy; this one cannot.
+        he: [segLen / 2 + 0.03, T / 2, hw + 0.02],
+        pos: [f.x, f.y + Y_ASPHALT - T / 2, f.z],
+        rot: basisQuat(f),
+      });
+    }
+  }
+
   return { group: g, shapes };
 }

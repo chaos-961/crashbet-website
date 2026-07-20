@@ -199,5 +199,95 @@ console.log('— integration: real scene → markets → settlement —');
   ok(results.every((r, i) => r === results2[i]), 'settlement bit-identical across re-recordings');
 }
 
+/* ================= G5: daily seed + achievements ================= */
+const A = await load('js/achievements.js');
+
+console.log('— daily seed —');
+{
+  ok(E.dailySeed('2026-07-20') === E.dailySeed('2026-07-20'), 'same date → same seed');
+  ok(E.dailySeed('2026-07-20') !== E.dailySeed('2026-07-21'), 'different date → different seed');
+  ok(/^[0-9a-z]{8}$/.test(E.dailySeed('2026-07-20')), 'daily seed is 8-char base36');
+  // the whole point: it is date-derived, so two profiles share the scene
+  const p1 = E.newProfile('d1'), p2 = E.newProfile('d2');
+  ok(E.dailyInfo(p1, '2026-07-20').seed === E.dailyInfo(p2, '2026-07-20').seed,
+    'daily seed is identical across profiles');
+
+  const p = E.newProfile('daily-a');
+  const key = '2026-07-20';
+  ok(!E.dailyInfo(p, key).played, 'daily starts unplayed');
+  E.dailyRound(p, key);
+  ok(p.round.seed === E.dailySeed(key) && p.round.exhibition === false, 'daily round is a money round');
+  E.placeSlip(p, { legs: [{ id: 'a', stake: 5 }], parlay: null }, fakeMarkets);
+  E.settleRound(p, fakeMarkets, fakeRec);
+  ok(E.dailyInfo(p, key).played, 'daily marked played after settlement');
+  ok(p.daily.streak === 1 && p.daily.plays === 1, 'first daily sets streak 1');
+
+  // a second attempt at the same seed must not pay again (ledger rule)
+  E.dailyRound(p, key);
+  E.placeSlip(p, { legs: [{ id: 'a', stake: 5 }], parlay: null }, fakeMarkets);
+  const bank = p.bankroll;
+  const r2 = E.settleRound(p, fakeMarkets, fakeRec);
+  ok(r2.forMoney === false && p.bankroll === bank, 'replaying the daily pays nothing');
+
+  // consecutive days advance the streak; a gap resets it
+  const q = E.newProfile('daily-b');
+  E.noteDaily(q, '2026-07-18');
+  E.noteDaily(q, '2026-07-19');
+  E.noteDaily(q, '2026-07-20');
+  ok(q.daily.streak === 3, 'consecutive days build the streak');
+  E.noteDaily(q, '2026-07-25');
+  ok(q.daily.streak === 1 && q.daily.best === 3, 'a gap resets the streak but keeps best');
+  // month/year boundaries must not be treated as gaps
+  const b = E.newProfile('daily-c');
+  E.noteDaily(b, '2026-01-31');
+  E.noteDaily(b, '2026-02-01');
+  ok(b.daily.streak === 2, 'streak survives a month boundary');
+  const yb = E.newProfile('daily-d');
+  E.noteDaily(yb, '2025-12-31');
+  E.noteDaily(yb, '2026-01-01');
+  ok(yb.daily.streak === 2, 'streak survives a year boundary');
+}
+
+console.log('— achievements —');
+{
+  const mk = (over) => ({
+    report: { legs: [], parlay: null, staked: 0, payout: 0, net: 0, forMoney: true, busted: false, ...over },
+    rec: fakeRec, markets: fakeMarkets, d: 3,
+  });
+  const p = E.newProfile('ach-a');
+  p.stats.rounds = 1;
+  const first = A.evaluate(p, mk({}));
+  ok(first.includes('first-blood'), 'first-blood unlocks on a settled round');
+  ok(A.evaluate(p, mk({})).length === 0, 'already-held achievements do not re-fire');
+
+  const q = E.newProfile('ach-b');
+  ok(A.evaluate(q, { ...mk({}), report: { ...mk({}).report, forMoney: false } }).length === 0,
+    'exhibition rounds unlock nothing');
+
+  const r = E.newProfile('ach-c');
+  r.stats.rounds = 1;
+  r.bankroll = 1200; // achievements read the POST-settlement profile, not the report
+  const got = A.evaluate(r, mk({
+    legs: [{ id: 'a', stake: 100, oddsH: 1200, win: true, payout: 1200 }], net: 1100,
+  }));
+  ok(got.includes('high-roller'), 'high-roller on a $100 stake');
+  ok(got.includes('long-shot'), 'long-shot on a ×12 winner');
+  ok(got.includes('big-score'), 'big-score on +$500');
+  ok(got.includes('centurion'), 'centurion once the bankroll clears $1,000');
+
+  // a throwing test must not take settlement down with it
+  const bad = { id: '_boom', icon: '?', name: 'x', desc: 'x', test: () => { throw new Error('nope'); } };
+  A.ACHIEVEMENTS.push(bad);
+  const s = E.newProfile('ach-d');
+  let threw = false;
+  try { A.evaluate(s, mk({})); } catch { threw = true; }
+  ok(!threw, 'a throwing achievement test is swallowed');
+  A.ACHIEVEMENTS.pop();
+
+  ok(A.ACHIEVEMENTS.every((a) => a.id && a.icon && a.name && a.desc && typeof a.test === 'function'),
+    'every achievement is well-formed');
+  ok(new Set(A.ACHIEVEMENTS.map((a) => a.id)).size === A.ACHIEVEMENTS.length, 'achievement ids unique');
+}
+
 console.log(`\nECONOMY SUITE: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

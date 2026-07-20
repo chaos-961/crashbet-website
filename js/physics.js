@@ -207,7 +207,13 @@ function buildRig(R, world, spec, entryCat) {
   const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
   const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(qYaw);
   const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-    .setTranslation(spec.x || 0, 0.035, spec.z || 0)
+    // Spawn height rides the ROAD SURFACE, not the world floor. `spec.y` is
+    // the deck height the director placed this car at; it is opt-in and
+    // absent on every flat scenario, where `(undefined || 0) + 0.035` is
+    // bit-identically the old hardcoded 0.035 — which is what keeps the
+    // pinned hashes frozen. Without it a car placed on a bridge span
+    // materialised on the ground underneath and drove off under the deck.
+    .setTranslation(spec.x || 0, (spec.y || 0) + 0.035, spec.z || 0)
     .setRotation({ x: qYaw.x, y: qYaw.y, z: qYaw.z, w: qYaw.w })
     .setLinvel(fwd.x * v0, 0, fwd.z * v0)
     .setAngularDamping(cat.aDamp)
@@ -311,7 +317,13 @@ function buildRig(R, world, spec, entryCat) {
     delayTicks, rolling, brakeTick: (spec.brake || 0) > 0 ? Math.round(spec.brake * 60) : Infinity,
     launchV: spec.speed || 0, launchFwd: { x: fwd.x, z: fwd.z },
     deform: makeDeformState(wrap, size, clamp(spec.crumple || 1, 0.2, 3) * cat.crumpleK),
-    prev: { p: new THREE.Vector3(0, 0.035, 0), q: qYaw.clone() },
+    // prev MUST start equal to cur: at spawn there is no previous state, and
+    // syncVisuals lerps prev→cur by alpha. Seeding prev at the origin meant any
+    // alpha-0 sync at tick 0 (i.e. accum 0, i.e. a sim sitting still) teleported
+    // every car's MESH to 0,0 while its body stayed put. Nothing hit it until
+    // the G5 freeze scrub made tick 0 a state you can park on and look at.
+    // Visual only — hashState reads body transforms, so no pin can move.
+    prev: { p: new THREE.Vector3(spec.x || 0, 0.035, spec.z || 0), q: qYaw.clone() },
     cur: { p: new THREE.Vector3(spec.x || 0, 0.035, spec.z || 0), q: qYaw.clone() },
     susPrev: new Float32Array(wheels.length), susCur: new Float32Array(wheels.length),
     rotPrev: new Float32Array(wheels.length), rotCur: new Float32Array(wheels.length),
@@ -653,7 +665,10 @@ export class CrashSim {
     if (!built) return null;
     const yaw = spec.heading || 0;
     const qProp = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-    built.group.position.set(spec.x || 0, 0, spec.z || 0);
+    // spec.y: deck height for a prop sitting on an elevated road (cones, a
+    // spilled load, a jump ramp). Opt-in like the car spawn — absent on every
+    // flat scenario, where `|| 0` is the old hardcoded 0.
+    built.group.position.set(spec.x || 0, spec.y || 0, spec.z || 0);
     built.group.rotation.y = yaw;
     this.root.add(built.group);
     built.group.updateMatrixWorld(true);
@@ -667,7 +682,7 @@ export class CrashSim {
       else _p.copy(bd.node.position);
       _p.y += bd.y || 0;
       _p.applyQuaternion(qProp);
-      _p.x += spec.x || 0; _p.z += spec.z || 0;
+      _p.x += spec.x || 0; _p.y += spec.y || 0; _p.z += spec.z || 0;
       _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw + (isRoot ? 0 : bd.node.rotation.y));
       const desc = (bd.fixed ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic().setCcdEnabled(true))
         .setTranslation(_p.x, _p.y, _p.z)
@@ -1097,15 +1112,16 @@ export class CrashSim {
   }
 
   // paused pose edit: move body + visuals together so Step stays sane
-  setCarPose(i, x, z, heading) {
+  setCarPose(i, x, z, heading, y = 0) {
     const car = this.cars[i];
     if (!car) return;
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading);
-    car.body.setTranslation({ x, y: 0.035, z }, true);
+    const sy = y + 0.035; // matches the spawn convention above (y=0 ⇒ 0.035)
+    car.body.setTranslation({ x, y: sy, z }, true);
     car.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     car.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     car.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    car.prev.p.set(x, 0.035, z); car.cur.p.set(x, 0.035, z);
+    car.prev.p.set(x, sy, z); car.cur.p.set(x, sy, z);
     car.prev.q.copy(q); car.cur.q.copy(q);
     car.wrap.position.set(x, car.wrap.position.y, z);
     car.wrap.quaternion.copy(q);
@@ -1275,6 +1291,35 @@ export const TEST_SCENARIOS = {
       { seed: '13', type: 'muscle', x: 26, z: 8, heading: Math.PI, speed: 20, throttle: 1, steer: 0.06, delay: 0.4 },
     ],
   },
+  /* G5: a car placed ON an elevated span, driving its length.
+     This is the case that had NO coverage, and its absence is why road
+     elevation shipped in G4 with no drivable surface at all. `bridge` below
+     enters from the ramp foot, where the deck y IS 0 — so a car at the world
+     floor is coincidentally on the road, and the scenario stayed green while
+     a car placed anywhere else on the span fell straight through to the
+     ground. Every director-placed car on a causeway or switchback did exactly
+     that: the whole cast drove along underneath the road.
+     So this scenario spawns mid-span via spec.y and pins the deck surface
+     collider. If the driving surface ever disappears again, these two cars
+     land on the floor 5 m below and the hash moves loudly. */
+  deck: {
+    world: { gravity: 9.81, arena: 120, walls: false },
+    roads: [
+      { w: 9, loop: 0, style: 1 | 8, pts: [
+        { x: -50, y: 0, z: 0 }, { x: -18, y: 5.0, z: 0 },
+        { x: 18, y: 5.0, z: 0 }, { x: 50, y: 0, z: 0 },
+      ] },
+    ],
+    props: [],
+    // deck surface: 5.546 at x=∓8, 5.381 at x=12 (roadCurve, +1 cm to land on).
+    // Same lane offset on purpose — they meet head-on ~40 ticks in, mid-span,
+    // so the pin covers a real collision WITH deform happening on the elevated
+    // surface, not just two cars coasting past each other on it.
+    cars: [
+      { seed: '11', type: 'sedan', x: -8, y: 5.56, z: -2.0, heading: 0, speed: 18, throttle: 1 },
+      { seed: '3', type: 'pickup', x: 12, y: 5.39, z: -2.0, heading: Math.PI, speed: 12, throttle: 1 },
+    ],
+  },
   // G4 road elevation: a car drives a humped bridge deck, so this pins the
   // y-aware sweep AND the pitched parapet colliders (the flat-road path is
   // deliberately a different branch — see roads.js — and stays pinned by the
@@ -1288,9 +1333,14 @@ export const TEST_SCENARIOS = {
       ] },
     ],
     props: [],
+    // y = the deck surface at x=±36 (0.689 by roadCurve, rounded up a cm so
+    // the car drops the last few mm onto the slab rather than starting inside
+    // it). Before the deck had a collider these cars sat at the world floor
+    // and drove UNDER the span — which is precisely why this scenario passed
+    // while road elevation had no drivable surface at all.
     cars: [
-      { seed: '5', type: 'sedan', x: -36, z: -1.8, heading: 0, speed: 26, throttle: 1 },
-      { seed: '21', type: 'van', x: 36, z: 1.8, heading: Math.PI, speed: 18, throttle: 1, delay: 0.3 },
+      { seed: '5', type: 'sedan', x: -36, y: 0.7, z: -1.8, heading: 0, speed: 26, throttle: 1 },
+      { seed: '21', type: 'van', x: 36, y: 0.7, z: 1.8, heading: Math.PI, speed: 18, throttle: 1, delay: 0.3 },
     ],
   },
   // G4 water: a car leaves a bridge deck, breaks the surface and sinks to the
@@ -1308,8 +1358,9 @@ export const TEST_SCENARIOS = {
       ] },
     ],
     props: [],
+    // deck surface at x=−52 is 1.018; start on it, not 1 m under it
     cars: [
-      { seed: '7', type: 'sedan', x: -52, z: -3.4, heading: 0.11, speed: 30, throttle: 1 },
+      { seed: '7', type: 'sedan', x: -52, y: 1.03, z: -3.4, heading: 0.11, speed: 30, throttle: 1 },
     ],
   },
   // crash-quality pass: high-energy wrecks must replay bit-exact too — this

@@ -30,18 +30,45 @@ const bump = (kind, tpl, cal, hit) => {
   G.n++; if (hit) G.h++;
 };
 
+/* Calibration DIAGNOSTIC (not a table): observed/expected per difficulty band,
+   over the OFFERED markets. With the Monte Carlo's to-win-$100 staking the
+   realized edge is exactly 1 − (1 − margin)·(O/E) on the markets actually bet,
+   so this is the number that gate is really testing — and reading it here is
+   far more diagnostic than staring at edge percentages afterwards. An O/E near
+   1.00 in every band means CALIB is pricing the world correctly.
+   This is deliberately a READOUT and not a correction table; see the "no
+   difficulty axis" note in markets.js for why the correction was removed. */
+const dBand = (d) => (d >= 8 ? 2 : d >= 5 ? 1 : 0);
+const BAND_LABEL = ['d1-4', 'd5-7', 'd8-10'];
+const oeAgg = {};
+const bumpOE = (kind, d, pred, hit) => {
+  const K = (oeAgg[kind] = oeAgg[kind] || {});
+  const C = (K[dBand(d)] = K[dBand(d)] || { pred: 0, act: 0, n: 0 });
+  C.pred += pred; C.act += hit ? 1 : 0; C.n++;
+};
+
 const t0 = Date.now();
 for (let i = 0; i < N; i++) {
   const seed = 'cal' + i;
   const d = 1 + (i % 10);
   const scene = D.generateScene(seed, d);
-  const markets = M.generateMarkets(scene);
+  // `all` bypasses the offering filters. Offering depends on CALIB, so
+  // measuring only the offered set feeds a truncated sample back in as the
+  // full-population prior — a loop that oscillated the house edge from
+  // +14.6 % to -42.2 % across two regenerations instead of converging.
+  const markets = M.generateMarkets(scene, { all: true });
   const rec = await Rec.recordScene(R, scene, catOf);
   for (const m of markets) {
     // complements are priced as 1−p of their pair — aggregating both sides
     // of the same coin under one kind reads exactly 0.5 forever
     if (m.id === 'h.nocrash' || m.id === 's.under') continue;
     bump(m.kind, scene.meta.template, m.cal || '_', M.settleMarket(m, rec));
+  }
+  // second pass on the OFFERED set for the O/E difficulty ratio. Generation is
+  // pure and cheap; recordScene above is the expensive part and is shared.
+  for (const m of M.generateMarkets(scene)) {
+    if (m.id === 'h.nocrash' || m.id === 's.under') continue;
+    bumpOE(m.kind, d, m.p, M.settleMarket(m, rec));
   }
   if (i % 50 === 49) console.error(`  …${i + 1}/${N} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
 }
@@ -69,6 +96,36 @@ for (const kind of Object.keys(agg).sort()) {
 }
 console.log('// empirical CALIB from', N, 'scenes —', new Date().toISOString().slice(0, 10));
 console.log('export const CALIB = ' + JSON.stringify(out, null, 2).replace(/"([a-zA-Z_$][\w$]*)":/g, '$1:') + ';');
+
+/* ---- CALIB_D: per-(kind, difficulty bucket) multipliers ----
+   Each bucket's smoothed rate divided by the kind's overall rate, i.e. "how
+   much more often does this happen at this difficulty than the d-averaged
+   table claims". Smoothed toward the kind mean with a heavier prior than
+   CALIB uses (K=25 vs 6): these cells decide a systematic pricing shift
+   across a whole difficulty band, so they should move only on real signal. */
+console.error('\nO/E per kind × difficulty band (n : observed/expected):');
+for (const kind of Object.keys(oeAgg).sort()) {
+  const parts = [];
+  for (let b = 0; b < 3; b++) {
+    const c = oeAgg[kind][b] || { pred: 0, act: 0, n: 0 };
+    parts.push(`${c.n}:${c.pred > 0 ? (c.act / c.pred).toFixed(2) : '—'}`);
+  }
+  console.error(`  ${kind.padEnd(10)} ${parts.join('  ')}`);
+}
+// the single number the Monte Carlo gate is really testing, per band
+console.error('\noverall O/E by band (target 1.00 — edge ≈ 1 − (1−margin)·O/E):');
+for (let b = 0; b < 3; b++) {
+  let pred = 0, act = 0;
+  for (const kind of Object.keys(oeAgg)) {
+    const c = oeAgg[kind][b];
+    if (c) { pred += c.pred; act += c.act; }
+  }
+  const se = 1 / Math.sqrt(Math.max(1, pred));
+  console.error(`  ${BAND_LABEL[b].padEnd(6)} O/E ${(act / pred).toFixed(3)} ±${(1.96 * se).toFixed(3)}` +
+    `  (expected ${pred.toFixed(0)}, observed ${act})`);
+}
+console.error('\nNote: the ± is the 95 % interval on this sample. If it is wider than the\n' +
+  'effect you are chasing, the sample is too small to act on — enlarge it first.');
 
 // sample-size report so thin cells are visible
 console.error('\ncell sample sizes (n < 20 marked thin):');

@@ -50,12 +50,14 @@ export function newProfile(entropy) {
     key: String(entropy),
     bankroll: START_BANKROLL,
     campaign: { n: 0 },
-    round: null, // { seed, d, exhibition, phase: 'open'|'locked', slip }
+    round: null, // { seed, d, exhibition, daily?, phase: 'open'|'locked', slip }
     ledger: [],  // settled seeds, ring buffer of LEDGER_CAP
     stats: {
       rounds: 0, byKind: {}, biggestWin: 0, streak: 0, bestStreak: 0, busts: 0,
       staked: 0, returned: 0,
     },
+    achievements: [], // unlocked ids — see achievements.js
+    daily: null,      // { last: 'YYYY-MM-DD', streak, best, plays }
     settings: {},
   };
 }
@@ -98,6 +100,59 @@ export function currentRound(profile) {
 export function exhibitionRound(profile, seed) {
   profile.round = { seed: String(seed), exhibition: true, phase: 'open', slip: null };
   return profile.round;
+}
+
+/* ---------------- the daily seed (G5) ----------------
+   One scene a day, the same one for everybody, playable once. It is a normal
+   MONEY round with a fixed seed rather than a special case: the settled-seed
+   ledger already enforces "once per profile", so a second attempt naturally
+   falls through to Exhibition via the same rule that governs a replayed
+   campaign seed. profile.daily only exists to drive the streak + the UI. */
+
+// local calendar date — the daily rolls over at the player's own midnight
+export function dailyKey(date = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
+}
+
+// derived from the DATE ALONE (no profile key) so every player shares the scene
+export function dailySeed(key = dailyKey()) {
+  const r = makeRng('daily:' + key);
+  let s = '';
+  for (let i = 0; i < 8; i++) s += r.int(0, 35).toString(36);
+  return s;
+}
+
+export function dailyInfo(profile, key = dailyKey()) {
+  const d = profile.daily || {};
+  const seed = dailySeed(key);
+  return {
+    key, seed,
+    // "used up" = the seed is in the ledger; profile.daily.last alone would be
+    // fooled by a wiped-but-not-reset profile, and the ledger is the same
+    // authority settleRound() consults
+    played: seedSettled(profile, seed) || d.last === key,
+    streak: d.streak || 0, best: d.best || 0, plays: d.plays || 0,
+  };
+}
+
+export function dailyRound(profile, key = dailyKey()) {
+  const seed = dailySeed(key);
+  profile.round = { seed, exhibition: false, daily: key, phase: 'open', slip: null };
+  return profile.round;
+}
+
+// called at settlement: advances the streak if yesterday's daily was played
+export function noteDaily(profile, key) {
+  const d = (profile.daily = profile.daily || { last: null, streak: 0, best: 0, plays: 0 });
+  if (d.last === key) return d;
+  const y = new Date(key + 'T12:00:00'); // midday avoids any DST edge on ±1 day
+  y.setDate(y.getDate() - 1);
+  d.streak = d.last === dailyKey(y) ? d.streak + 1 : 1;
+  if (d.streak > d.best) d.best = d.streak;
+  d.last = key;
+  d.plays = (d.plays || 0) + 1;
+  return d;
 }
 
 /* ---------------- the slip ---------------- */
@@ -208,6 +263,7 @@ export function settleRound(profile, markets, rec) {
     profile.ledger.push(round.seed);
     if (profile.ledger.length > LEDGER_CAP) profile.ledger.splice(0, profile.ledger.length - LEDGER_CAP);
     if (round.seed === campaignSeed(profile)) profile.campaign.n++;
+    if (round.daily) noteDaily(profile, round.daily);
     // ROCK BOTTOM: bust is recorded, the campaign restarts at $100
     if (profile.bankroll <= 0) {
       profile.bankroll = START_BANKROLL;
@@ -216,7 +272,13 @@ export function settleRound(profile, markets, rec) {
     }
   }
   round.phase = 'settled';
-  const report = { legs, parlay, staked, payout, net: payout - staked, forMoney, busted, bankroll: profile.bankroll };
+  // seed/daily ride along so the summary card can offer a share link without
+  // main.js having to hold onto round state past settlement
+  const report = {
+    legs, parlay, staked, payout, net: payout - staked, forMoney, busted,
+    bankroll: profile.bankroll, seed: round.seed, daily: round.daily || null,
+    exhibition: !!round.exhibition,
+  };
   profile.round = null;
   return report;
 }

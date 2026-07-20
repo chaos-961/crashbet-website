@@ -38,12 +38,17 @@ const S = {
   onNext: null,        // () => void — deal the next round
   stakeSel: 5,         // current quick-stake amount
   open: false,
+  // (kind) => void — procedural UI audio, owned by fx.js. Injected rather than
+  // imported so this module keeps its "no engine dependencies" property and
+  // stays mountable in a test harness with no AudioContext.
+  sfx: () => {},
 };
 
 /* ---------------- mount (once) ---------------- */
-export function mountBetUI({ onLock, onNext }) {
+export function mountBetUI({ onLock, onNext, sfx }) {
   S.onLock = onLock;
   S.onNext = onNext;
+  if (sfx) S.sfx = sfx;
 
   $('betToggle').addEventListener('click', () => setOpen(!S.open));
   $('bpClose').addEventListener('click', () => setOpen(false));
@@ -153,6 +158,7 @@ function toggleLeg(id) {
   const stake = Math.max(1, Math.min(S.stakeSel, Math.max(1, bankroll() - slipTotal())));
   if (bankroll() - slipTotal() < 1) { flashSlip('Bankroll is fully staked'); return; }
   S.slip.legs.push({ id, stake });
+  S.sfx('pick');
   saveDraft();
   syncMarketRows(); renderSlip();
   if (!S.open) setOpen(true);
@@ -160,6 +166,7 @@ function toggleLeg(id) {
 
 function removeLeg(id) {
   if (S.placed) return;
+  S.sfx('drop');
   S.slip.legs = S.slip.legs.filter((l) => l.id !== id);
   if (S.slip.parlay) {
     S.slip.parlay.ids = S.slip.parlay.ids.filter((x) => x !== id);
@@ -191,6 +198,7 @@ function toggleParlay(id) {
 
 function bumpStake(id, dir) {
   if (S.placed) return;
+  S.sfx('tick');
   const step = S.stakeSel >= 25 ? 25 : S.stakeSel >= 5 ? 5 : 1;
   if (id === '_parlay') {
     if (!S.slip.parlay) return;
@@ -230,6 +238,7 @@ function place() {
   if (S.placed || !hasStakes()) return;
   const v = Econ.placeSlip(S.profile, S.slip, S.markets);
   if (!v.ok) { flashSlip(v.errors[0] || 'Slip rejected'); return; }
+  S.sfx('place');
   S.placed = true;
   Econ.saveProfile(S.store, S.profile);
   syncBank(-v.total);
@@ -522,8 +531,10 @@ export function settle(report, rec) {
   for (const m of S.markets) S._final[m.id] = settleMarket(m, rec);
   renderSlip();
 
-  const won = report.payout;
   const net = report.net;
+  // the payout sting: only where money actually moved. A round with no bets
+  // placed settles silently rather than congratulating you on breaking even.
+  if (report.forMoney && report.staked > 0) S.sfx(net > 0 ? 'win' : 'lose');
   countUp(net);
 
   // scene summary card
@@ -595,6 +606,14 @@ function countUp(net) {
   const target = bankroll();
   const from = bankShown;
   if (from === target) { syncBank(0); return; }
+  // reduced motion: land on the number instead of animating to it. main.js
+  // mirrors both the OS preference and the Motion setting onto this class.
+  if (document.body.classList.contains('reduced-motion')) {
+    $('bkamt').textContent = money(target);
+    bankShown = target;
+    syncBank(net);
+    return;
+  }
   const t0 = performance.now();
   const dur = 900;
   const step = (now) => {
@@ -614,6 +633,7 @@ function pulse(el) {
   el.classList.add('pulse');
 }
 function flashSlip(msg) {
+  S.sfx('deny');
   const el = $('slipMsg');
   el.textContent = msg;
   el.classList.remove('show');

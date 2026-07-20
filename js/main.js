@@ -13,13 +13,19 @@ import { disposeGroup, clamp, makeRng } from './lib.js';
 import { initEnv, ENVS } from './env.js';
 import { initFX } from './fx.js';
 import * as Econ from './economy.js';
+import * as Ach from './achievements.js';
 import { generateMarkets } from './markets.js';
 import * as Bet from './betui.js';
 import { buildLoadout, drivePov, POV_META } from './povcam.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Reduced motion is a live setting, not a boot constant: the OS preference
+// seeds it, and the in-game Motion toggle can turn it on for a player whose OS
+// says nothing. The OS asking for reduced motion always wins — the toggle can
+// enable it but never overrides an explicit system preference back to "full".
+const osReduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let reduceMotion = osReduceMotion;
 
 /* ---------------- renderer / scene ---------------- */
 // small screens get a lighter renderer: DPR cap 1.5 + 1024 shadow map
@@ -291,6 +297,47 @@ $('set_quality').querySelectorAll('.mchip').forEach((b) => {
   b.addEventListener('click', () => applyQuality(b.dataset.q));
 });
 applyQuality(quality);
+
+/* ---------------- volume + motion settings (G5) ----------------
+   Both persist in profile.settings, so they survive a reload but are wiped by
+   "New run" along with everything else. Volume reaches the audio graph through
+   fx's master gain — there is no second mixer. */
+function saveSetting(k, v) {
+  if (!profile) return;
+  profile.settings[k] = v;
+  Econ.saveProfile(store, profile);
+}
+
+function applyVolume(pct, persist) {
+  const v = clamp(Math.round(pct), 0, 100);
+  $('set_vol').value = String(v);
+  $('set_volN').textContent = v + '%';
+  if (crashFx) crashFx.sfx.setVolume(v / 100);
+  if (persist) saveSetting('volume', v);
+}
+$('set_vol').addEventListener('input', (e) => {
+  applyVolume(parseInt(e.target.value, 10), true);
+  if (crashFx) crashFx.sfx.ui('tick'); // audible feedback while dragging
+});
+
+function applyMotion(mode, persist) {
+  // the OS preference is a floor, not a default the toggle can undo
+  reduceMotion = osReduceMotion || mode === 'reduced';
+  document.body.classList.toggle('reduced-motion', reduceMotion);
+  $('set_motion').querySelectorAll('.mchip')
+    .forEach((c) => c.classList.toggle('sel', c.dataset.motion === (reduceMotion ? 'reduced' : 'full')));
+  if (persist) saveSetting('motion', mode);
+}
+$('set_motion').querySelectorAll('.mchip').forEach((b) => {
+  b.addEventListener('click', () => applyMotion(b.dataset.motion, true));
+});
+
+// restore both from the profile once it exists (initProfile runs further down)
+function applySavedSettings() {
+  const s = (profile && profile.settings) || {};
+  applyVolume(s.volume === undefined ? 50 : s.volume, false);
+  applyMotion(s.motion || (osReduceMotion ? 'reduced' : 'full'), false);
+}
 
 /* ---------------- freecam ----------------
    Orbit is the default; freecam is a true fly camera. Desktop: pointer-lock
@@ -791,10 +838,27 @@ function crashUpdate(dt, now) {
 let engine = null; // { mod, R } once physics is ready
 let preloaded = false;
 
-function bootStep(pct, msg) {
-  $('bootfill').style.width = Math.round(pct * 100) + '%';
-  $('bootmsg').textContent = msg;
+/* ONE progress component, three uses (spec G5): the boot preload, the
+   per-round pre-sim beat, and scene loading. They differ in where they mount,
+   never in what they are — see .pbar/.pfill in the stylesheet. */
+function makeProgress({ root, fill, label, sub }) {
+  const elFill = $(fill);
+  const elLabel = label ? $(label) : null;
+  const elSub = sub ? $(sub) : null;
+  const elRoot = root ? $(root) : null;
+  return {
+    show(on) { if (elRoot) elRoot.hidden = !on; },
+    set(pct, labelTxt, subTxt) {
+      if (pct !== undefined) elFill.style.width = Math.round(clamp(pct, 0, 1) * 100) + '%';
+      if (labelTxt !== undefined && elLabel) elLabel.textContent = labelTxt;
+      if (subTxt !== undefined && elSub) elSub.textContent = subTxt;
+    },
+  };
 }
+const bootProgress = makeProgress({ fill: 'bootfill', label: 'bootmsg' });
+const roundProgress = makeProgress({ root: 'loading', fill: 'loadfill', label: 'loadlabel', sub: 'loadsub' });
+
+const bootStep = (pct, msg) => bootProgress.set(pct, msg);
 
 async function preload() {
   try {
@@ -805,13 +869,14 @@ async function preload() {
     engine = { mod, R };
     bootStep(0.62, 'warming effects…');
     if (!crashFx) crashFx = initFX(scene, { small: smallScreen });
+    applySavedSettings(); // the audio graph exists now — push the saved volume in
     await new Promise((r) => setTimeout(r, 0)); // let the frame breathe
     bootStep(0.78, 'building the yard…');
     buildShowroom();
     bootStep(1, 'ready');
     preloaded = true;
     $('boot').classList.add('done');
-    for (const id of ['startBtn', 'seedBtn', 'garageBtn', 'crashBtn']) $(id).disabled = false;
+    for (const id of ['startBtn', 'seedBtn', 'garageBtn', 'crashBtn', 'dailyBtn', 'statsBtn']) $(id).disabled = false;
     $('menutag').textContent = 'bet on the physics';
     syncMenu();
   } catch (e) {
@@ -862,12 +927,9 @@ const LOAD_LINES = [
 ];
 
 function roundLoad(show, pct, label, sub) {
-  const el = $('loading');
-  if (!show) { el.hidden = true; return; }
-  el.hidden = false;
-  if (label !== undefined) $('loadlabel').textContent = label;
-  if (pct !== undefined) $('loadfill').style.width = Math.round(pct * 100) + '%';
-  if (sub !== undefined) $('loadsub').textContent = sub;
+  if (!show) { roundProgress.show(false); return; }
+  roundProgress.show(true);
+  roundProgress.set(pct, label, sub);
 }
 
 function destroyRound() {
@@ -895,7 +957,7 @@ function roundBox(sim) {
 }
 
 // deal a scene: generate → pre-sim headlessly behind the loading beat → play
-async function startScene(seedArg, dArg, wantFullscreen = true) {
+async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
   if (roundLoading || !preloaded) return;
   roundLoading = true;
   try {
@@ -911,8 +973,18 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
     // explicit seed — custom, shared link, replay — is Exhibition and never
     // moves the bankroll, and so is a campaign seed that already paid out.
     if (!profile) initProfile();
-    let seed, exhibition;
-    if (seedArg != null) {
+    let seed, exhibition, dailyKey = null;
+    if (mode === 'daily') {
+      // one attempt a day. A second visit is not blocked — it re-deals the
+      // same scene as Exhibition, which is exactly what the ledger would do
+      // to any already-settled seed anyway.
+      const key = Econ.dailyKey();
+      const info = Econ.dailyInfo(profile, key);
+      seed = info.seed;
+      exhibition = info.played;
+      if (exhibition) Econ.exhibitionRound(profile, seed);
+      else { Econ.dailyRound(profile, key); dailyKey = key; }
+    } else if (seedArg != null) {
       seed = String(seedArg);
       exhibition = true;
       Econ.exhibitionRound(profile, seed);
@@ -921,6 +993,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
       seed = r.seed;
       exhibition = r.exhibition || Econ.seedSettled(profile, seed);
       r.exhibition = exhibition;
+      dailyKey = r.daily || null; // a resumed daily is still the daily
     }
     Econ.saveProfile(store, profile);
     const d = dArg != null ? clamp(dArg, 1, 10) : drawDifficulty(makeRng('d:' + seed));
@@ -949,7 +1022,10 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
 
     const sim = new engine.mod.CrashSim(engine.R, sc, catOfId);
     sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick
-    round = { sim, scene: sc, rec, markets, phase: 'preview', seed, d, exhibition, resumeAt: 0 };
+    round = {
+      sim, scene: sc, rec, markets, phase: 'preview', seed, d, exhibition, resumeAt: 0,
+      incidentTick: INCIDENT_TICK, seekTo: null, daily: dailyKey,
+    };
     targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
     scene.add(sim.root);
     povRig = buildLoadout(sc, seed, d, povFocus());
@@ -1019,9 +1095,60 @@ function setRing(frac, secs) {
   $('ring').classList.toggle('hot', secs <= 3);
 }
 
+/* ---------------- freeze scrub (G5) ----------------
+   Spec beat 3: "study the frozen scene, scrub the last 10 s, then press BET".
+   There is no rewind in a rigid-body world, so a backward seek re-sims from
+   t0 — a rebuild is ~30 ms and replaying is both simpler and bit-exact.
+   Seeks are queued onto `round.seekTo` and applied at most once per frame by
+   roundUpdate: dragging the slider fires `input` far faster than a rebuild,
+   and running one per event would churn GPU memory rebuilding meshes. */
+function seekPreview(tick) {
+  if (!round) return;
+  const sim = round.sim;
+  const t = clamp(Math.round(tick), 0, round.incidentTick);
+  if (t === sim.tick) return;
+  if (t < sim.tick) {
+    crashFx.reset();
+    crashFx.detachSim();
+    sim.reset();
+    // reset() builds FRESH meshes, so every Object3D the crosshair knows
+    // about is now detached garbage — the map has to be rebuilt with it.
+    targetMap = buildTargetMap(sim);
+    hoverGroup = null;
+  }
+  // Step silently. The six sim hooks are render-side (particles, audio, the
+  // cinematic push-in) and replaying up to 600 ticks through them would dump
+  // a whole scene's worth of effects and sound into a single frame.
+  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onSunk = null;
+  while (sim.tick < t) sim.stepOnce();
+  sim.syncVisuals(1);
+  // re-key fx to the (possibly rebuilt) cars, then re-wrap for cinematics
+  crashFx.attach(sim);
+  hookRoundCinematics(sim);
+  invalidate();
+}
+
+function syncScrub(tick) {
+  $('scrubBar').value = String(tick);
+  const s = (tick - round.incidentTick) / 60;
+  $('scrubT').textContent = (s < -0.05 ? '−' : '') + Math.abs(s).toFixed(1) + 's';
+}
+
+$('scrubBar').addEventListener('input', (e) => {
+  if (!round || round.phase !== 'freeze') return;
+  round.seekTo = parseInt(e.target.value, 10);
+  syncScrub(round.seekTo); // label is instant; the sim catches up next frame
+});
+
 // resume from the freeze — the incident fires and physics runs to rest
 function resumeRound() {
   if (!round || round.phase !== 'freeze') return;
+  // A scrubbed-back sim MUST be returned to the incident tick before time
+  // restarts. The slip settles against a recording whose incident begins at
+  // exactly this tick; resuming from tick 300 would play a different scene
+  // from the one the odds were priced on and the one the recorder taped.
+  round.seekTo = null;
+  if (round.sim.tick !== round.incidentTick) seekPreview(round.incidentTick);
   round.phase = 'resolve';
   Bet.setPhase('resolve'); // locks betting and rides any drafted slip
   $('freeze').hidden = true;
@@ -1043,6 +1170,13 @@ function roundUpdate(dt, now) {
   if (!$('pause').hidden) return false;
   let busy = false;
   const sim = round.sim;
+  // a queued scrub seek is applied here, at most one per frame (see seekPreview)
+  if (round.seekTo != null && round.phase === 'freeze') {
+    const t = round.seekTo;
+    round.seekTo = null;
+    seekPreview(t);
+    busy = true;
+  }
   sim.update(dt);
   sim.syncVisuals();
   if (crashFx.update(dt, camera)) busy = true;
@@ -1063,6 +1197,7 @@ function roundUpdate(dt, now) {
         $('fzGo').innerHTML = (!ss.placed && ss.total > 0)
           ? `🎫&nbsp; Bet $${ss.total} &amp; go`
           : '▶&nbsp; Resume';
+        syncScrub(round.incidentTick); // the scrub always opens at the incident
         $('freeze').hidden = false;
         fitCamera(roundBox(sim), false);
       }
@@ -1087,13 +1222,29 @@ function roundUpdate(dt, now) {
       // rounds compute the same report but mutate nothing), then the card
       // renders from that authoritative report
       const report = Econ.settleRound(profile, round.markets, round.rec);
+      // achievements read the POST-settlement profile (bankroll, streak, busts
+      // are all already applied) — evaluate before the profile is written back
+      const unlocked = Ach.evaluate(profile, {
+        report, rec: round.rec, markets: round.markets, scene: round.scene, d: round.d,
+      });
       Econ.saveProfile(store, profile);
       Bet.settle(report, round.rec);
+      showUnlocks(unlocked);
       renderPovBar(); // every angle unlocks once the scene has settled
       fitCamera(roundBox(sim), false);
     }
   }
   return busy;
+}
+
+/* ---------------- audio facade (G5) ----------------
+   betui.js owns no engine dependencies, so it gets audio injected rather than
+   importing fx. crashFx does not exist until the preloader has run, hence the
+   lazy lookup on every call instead of a captured reference. */
+function uiSfx(kind) {
+  if (!crashFx) return;
+  if (kind === 'win' || kind === 'lose') crashFx.sfx.sting(kind === 'win');
+  else crashFx.sfx.ui(kind);
 }
 
 // betting layer: mounted once, driven by the round lifecycle above
@@ -1102,8 +1253,10 @@ Bet.mountBetUI({
   // NEXT on the summary card deals the following campaign round (already
   // in-game, so never re-request fullscreen)
   onNext: () => startScene(null, null, false),
+  sfx: uiSfx,
 });
 initProfile();
+applySavedSettings(); // profile exists now; volume re-applies once fx is warm
 
 /* ---------------- POV picker (G3) ----------------
    A scene ships a camera rig (povcam.js); difficulty prunes how much of it
@@ -1257,14 +1410,95 @@ function syncMenu() {
   $('startBtn').innerHTML = unfinished ? '▶&nbsp; Resume round' : '▶&nbsp; Continue';
   // "New run" only means something once there is progress to throw away
   $('newRunBtn').hidden = !(profile.campaign.n > 0 || profile.bankroll !== Econ.START_BANKROLL || unfinished);
+  // the daily advertises its own state: unplayed today, or the streak so far
+  const dly = Econ.dailyInfo(profile);
+  $('dailyBtn').innerHTML = dly.played
+    ? `📅&nbsp; Daily <b class="mbadge">done${dly.streak > 1 ? ` · ${dly.streak}🔥` : ''}</b>`
+    : '📅&nbsp; Daily <b class="mbadge new">new</b>';
+  $('statsBtn').innerHTML = `📊&nbsp; Stats <b class="mbadge">${Ach.unlockedCount(profile)}/${Ach.ACHIEVEMENTS.length}</b>`;
 }
 
+const MODAL_TITLE = { how: 'How to play', seed: 'Custom seed', stats: 'Your record' };
 function openModal(which) {
-  $('modalTitle').textContent = which === 'how' ? 'How to play' : 'Custom seed';
+  $('modalTitle').textContent = MODAL_TITLE[which] || 'Custom seed';
   $('modalSeed').hidden = which !== 'seed';
   $('modalHow').hidden = which !== 'how';
+  $('modalStats').hidden = which !== 'stats';
+  if (which === 'stats') renderStats();
   $('modal').hidden = false;
   if (which === 'seed') setTimeout(() => $('seedInput').focus(), 30);
+}
+
+/* ---------------- stats + achievements (G5) ----------------
+   Everything here is derived from the profile economy.js already keeps —
+   this screen adds no new bookkeeping, it just reads the ledger. */
+const MONEY = (n) => (n < 0 ? '−$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+
+function renderStats() {
+  if (!profile) return;
+  const s = profile.stats;
+  $('stRounds').textContent = String(s.rounds);
+  $('stBank').textContent = MONEY(profile.bankroll);
+  $('stBest').textContent = MONEY(s.biggestWin);
+  $('stStreak').textContent = String(s.bestStreak);
+  $('stBusts').textContent = String(s.busts);
+  // return = what came back per dollar staked. Undefined until money moves,
+  // and shown as a ratio rather than a % so a 0.94 reads as "the house edge".
+  $('stRoi').textContent = s.staked > 0 ? '×' + (s.returned / s.staked).toFixed(2) : '—';
+
+  // hit rate per market kind — the one stat that actually measures scene-reading
+  const kinds = Object.entries(s.byKind).filter(([, k]) => k.bets > 0)
+    .sort((a, b) => b[1].bets - a[1].bets);
+  $('stKinds').innerHTML = kinds.length
+    ? kinds.map(([name, k]) => {
+      const pct = Math.round((k.wins / k.bets) * 100);
+      return `<div class="stkind"><span class="skname">${esc(name)}</span>` +
+        `<span class="skbar"><i style="width:${pct}%"></i></span>` +
+        `<span class="sknum">${k.wins}/${k.bets}</span></div>`;
+    }).join('')
+    : '<p class="stempty">No settled bets yet — place one and come back.</p>';
+
+  const got = new Set(profile.achievements || []);
+  $('stAchN').textContent = `${got.size}/${Ach.ACHIEVEMENTS.length}`;
+  $('stAch').innerHTML = Ach.ACHIEVEMENTS.map((a) => {
+    const on = got.has(a.id);
+    return `<div class="ach${on ? ' got' : ''}"><span class="achicon">${a.icon}</span>` +
+      `<span class="achtxt"><b class="achname">${esc(a.name)}</b>` +
+      `<span class="achdesc">${esc(a.desc)}</span></span></div>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/* ---------------- share links (G5) ----------------
+   A shared scene always re-deals as Exhibition (startScene forces it for any
+   explicit seed), so a link can be handed around freely — the recipient plays
+   the identical scene and cannot mine it for bankroll. */
+function shareUrl(seed, d) {
+  const base = location.origin + location.pathname;
+  return `${base}?scene=${encodeURIComponent(seed)}~${d}`;
+}
+
+async function copyText(txt) {
+  try {
+    await navigator.clipboard.writeText(txt);
+    return true;
+  } catch {
+    // clipboard API needs a secure context; fall back to the old trick so
+    // sharing still works off a plain-http LAN address
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch { return false; }
+  }
 }
 // first run: the rules card comes up BEFORE the first deal, never over a
 // live preview — the 10 s clock would tick away while the player read it
@@ -1286,6 +1520,30 @@ $('startBtn').addEventListener('click', () => {
 });
 $('seedBtn').addEventListener('click', () => openModal('seed'));
 $('howBtn').addEventListener('click', () => openModal('how'));
+$('statsBtn').addEventListener('click', () => openModal('stats'));
+$('dailyBtn').addEventListener('click', () => startScene(null, null, true, 'daily'));
+
+// unlocked badges land on the summary card next to the payout
+function showUnlocks(ids) {
+  const el = $('sumAch');
+  if (!ids || !ids.length) { el.hidden = true; el.innerHTML = ''; return; }
+  el.innerHTML = ids.map((id) => {
+    const a = Ach.byId(id);
+    return a ? `<span class="achpill"><i>${a.icon}</i>${esc(a.name)}</span>` : '';
+  }).join('');
+  el.hidden = false;
+}
+
+// share the scene that just settled — always replays as Exhibition
+$('sumShare').addEventListener('click', async () => {
+  if (!round) return;
+  const url = shareUrl(round.seed, round.d);
+  const s = round.rec.summary;
+  const head = round.daily ? `Crash Bet daily ${round.daily} · LV ${round.d}` : `Crash Bet · LV ${round.d}`;
+  const line = s.crashed ? `${s.crashed} wrecked` : 'nobody crashed';
+  const ok = await copyText(`${head}\n${line}${s.propsMoved ? ` · ${s.propsMoved} objects hit` : ''}\n${url}`);
+  toast(ok ? '🔗 Result copied to clipboard' : 'Could not copy — clipboard blocked');
+});
 $('modalClose').addEventListener('click', closeModal);
 $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeModal(); });
 
@@ -1318,8 +1576,9 @@ $('fzGo').addEventListener('click', resumeRound);
 addEventListener('pointerdown', (e) => {
   if (!round || round.phase !== 'freeze') return;
   // taps inside the betting layer are bets, not "resume" — the freeze is the
-  // last chance to build a slip, so it must survive touching the panel
-  if (e.target && e.target.closest && e.target.closest('#betui')) return;
+  // last chance to build a slip, so it must survive touching the panel. Same
+  // for the scrub bar: grabbing the slider must not restart time under you.
+  if (e.target && e.target.closest && e.target.closest('#betui, #scrub')) return;
   resumeRound();
 });
 
@@ -1502,6 +1761,6 @@ window.__app = {
   renderer, scene, camera, controls, REG, env, fitCamera, invalidate,
   startGame, leaveGame, setCamMode, fly, flyUpdate, get showroom() { return showroom; },
   startCrash, nextCrash, replayCrash, get crash() { return crash; }, get crashFx() { return crashFx; },
-  startScene, resumeRound, get round() { return round; }, get preloaded() { return preloaded; },
+  startScene, resumeRound, seekPreview, get round() { return round; }, get preloaded() { return preloaded; },
   pump: (now) => frame(now),
 };

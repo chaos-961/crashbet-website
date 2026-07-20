@@ -243,7 +243,12 @@ class Decals {
 
 /* ---------------- procedural audio (no assets) ---------------- */
 class Sfx {
-  constructor() { this.ctx = null; this.master = null; this.noise = null; this.scrapeGain = null; this.oneshots = 0; this.oneshotT = 0; }
+  constructor() {
+    this.ctx = null; this.master = null; this.noise = null; this.scrapeGain = null;
+    this.oneshots = 0; this.oneshotT = 0;
+    this.volume = 0.5; this.muted = false;
+    this.engGain = null; this.engOsc = null; // G5 engine bed
+  }
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     try {
@@ -251,7 +256,7 @@ class Sfx {
     } catch { return; }
     const ctx = this.ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = this.muted ? 0 : this.volume;
     this.master.connect(ctx.destination);
     const len = ctx.sampleRate;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -266,6 +271,38 @@ class Sfx {
     this.scrapeGain.gain.value = 0;
     src.connect(bp); bp.connect(this.scrapeGain); this.scrapeGain.connect(this.master);
     src.start();
+
+    /* G5 engine bed — the one other persistent voice. The note above says a
+       second sustained voice muddies pileups, and it would if it shared the
+       scrape's band: this sits at 55–190 Hz under a 340 Hz lowpass while the
+       scrape is a 1050 Hz bandpass, so they never fight for the same spectrum.
+       Two detuned saws give it a beat frequency so it reads as engines rather
+       than a test tone. Silent until setEngine() feeds it. */
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'sawtooth';
+    o1.frequency.value = 58; o2.frequency.value = 58 * 1.006;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 340; lp.Q.value = 0.6;
+    this.engGain = ctx.createGain();
+    this.engGain.gain.value = 0;
+    o1.connect(lp); o2.connect(lp); lp.connect(this.engGain); this.engGain.connect(this.master);
+    o1.start(); o2.start();
+    this.engOsc = [o1, o2];
+  }
+  // a clean tone that does NOT consume a crash one-shot slot — UI feedback
+  // must never be dropped because six cars hit each other in the same frame
+  _ping(freq, vol, dur, type = 'triangle', delay = 0) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime + delay;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008); // tiny attack kills clicks
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
   }
   _slot() { // cap one-shots so a pileup doesn't clip into mush
     if (!this.ctx) return false;
@@ -311,13 +348,69 @@ class Sfx {
     if (big) this._burst(0.2, 2600, 'bandpass', 0.22, 2.2);
   }
   detach() { this._thump(0.5, 95, 0.3); this._burst(0.3, 700, 'bandpass', 0.25, 1.2); }
+  // G4 water: a body breaking the surface — broadband hiss plus a low gulp
+  // that scales with how hard it went in
+  splash(speed) {
+    if (!this.ctx) return;
+    const k = clamp(speed / 14, 0.15, 1);
+    this._burst(0.42 * k, 1500, 'bandpass', 0.34 + 0.2 * k, 0.6);
+    this._thump(0.3 * k, 130, 0.26);
+  }
+  // G4 electrical: a severed pole arcing — short, bright, band-passed ticks
+  arc() { this._burst(0.26, 3200, 'bandpass', 0.09, 3.2); }
+  // G4 hydrant: the sustained column is a filtered rush, re-triggered by the
+  // geyser emitter rather than held open as a loop (the scrape loop is the
+  // only persistent voice by design — a second one muddies every pileup)
+  gush() { this._burst(0.14, 900, 'bandpass', 0.4, 0.8); }
   setScrape(level) {
     if (!this.scrapeGain) return;
     const t = this.ctx.currentTime;
     this.scrapeGain.gain.cancelScheduledValues(t);
     this.scrapeGain.gain.setTargetAtTime(clamp(level, 0, 0.22), t, level > this.scrapeGain.gain.value ? 0.02 : 0.18);
   }
-  mute(on) { if (this.master) this.master.gain.value = on ? 0 : 0.5; }
+
+  /* ---------------- G5: engine bed, UI, stings ---------------- */
+  // level 0..1 (how much traffic is moving), speed in m/s (sets the pitch)
+  setEngine(level, speed) {
+    if (!this.engGain) return;
+    const t = this.ctx.currentTime;
+    const f = 55 + clamp(speed, 0, 45) * 3;
+    // glide, never jump: a stepped pitch reads as a synth arpeggio, not engines
+    for (const o of this.engOsc) {
+      o.frequency.cancelScheduledValues(t);
+      o.frequency.setTargetAtTime(o === this.engOsc[1] ? f * 1.006 : f, t, 0.25);
+    }
+    this.engGain.gain.cancelScheduledValues(t);
+    this.engGain.gain.setTargetAtTime(clamp(level, 0, 1) * 0.055, t, 0.3);
+  }
+  // UI feedback — deliberately quiet and short; these fire on every tap
+  ui(kind) {
+    if (!this.ctx) return;
+    if (kind === 'tick') this._ping(880, 0.05, 0.05, 'square');
+    else if (kind === 'pick') this._ping(1180, 0.07, 0.07);
+    else if (kind === 'drop') this._ping(560, 0.055, 0.07);
+    else if (kind === 'place') { this._ping(660, 0.09, 0.1); this._ping(990, 0.08, 0.12, 'triangle', 0.06); }
+    else if (kind === 'deny') this._ping(180, 0.09, 0.14, 'square');
+  }
+  // payout sting: a rising major triad on a win, a flat minor drop on a loss
+  sting(win) {
+    if (!this.ctx) return;
+    if (win) {
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+      notes.forEach((f, i) => this._ping(f, 0.11, 0.34, 'triangle', i * 0.075));
+    } else {
+      this._ping(300, 0.1, 0.24, 'triangle');
+      this._ping(224, 0.09, 0.34, 'triangle', 0.1);
+    }
+  }
+  setVolume(v) {
+    this.volume = clamp(v, 0, 1);
+    if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
+  }
+  mute(on) {
+    this.muted = !!on;
+    if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
+  }
 }
 
 /* ---------------- the fx manager ---------------- */
@@ -333,7 +426,22 @@ const COL = {
   fire: [new THREE.Color('#ffdf8a'), new THREE.Color('#ff9c3a'), new THREE.Color('#ff5a26')],
   glassTint: new THREE.Color('#bcd8ea'),
   skid: new THREE.Color('#141518'), leak: new THREE.Color('#17130d'), scrapeMark: new THREE.Color('#3a3d42'),
+  // G4 escalation
+  water: new THREE.Color('#cfe6f2'), foam: new THREE.Color('#ffffff'),
+  arc: [new THREE.Color('#dff1ff'), new THREE.Color('#9fd2ff'), new THREE.Color('#6fa8ff')],
+  // the impact flash is shared, so its colour has to be set per trigger:
+  // a warm sodium pool under a shorting power line reads as fire, not volts
+  flashWarm: new THREE.Color('#ffd9a0'), flashArc: new THREE.Color('#bfe0ff'),
 };
+
+/* G4 prop reactions — which scenery kinds get a special effect when struck.
+   Matched on the spec kind the sim already carries (props[i].spec.kind), so
+   nothing here needs the scenery registry imported. */
+const GEYSER_KINDS = new Set(['hydrant']);
+const ARC_KINDS = new Set([
+  'lamp_cobra', 'lamp_classic', 'traffic_light', 'traffic_light_ped',
+  'utility_pole', 'utility_box', 'cell_tower', 'street_clock',
+]);
 
 export function initFX(scene, opts = {}) {
   const small = !!opts.small;
@@ -343,6 +451,10 @@ export function initFX(scene, opts = {}) {
   const sparks = new Cloud(scene, Math.round(700 * K), THREE.AdditiveBlending, '0.10', { g: 16, drag: 0.965, grow: 0 });
   const puffs = new Cloud(scene, Math.round(560 * K), THREE.NormalBlending, '0.02', { g: -0.85, drag: 0.985, grow: 1.9, fade: 'linear' });
   const blaze = new Cloud(scene, Math.round(220 * K), THREE.AdditiveBlending, '0.05', { g: -2.6, drag: 0.97, grow: 0.8, fade: 'linear' });
+  // G4 water spray: droplets, so real gravity and almost no drag — they arc
+  // and fall rather than billowing. Normal blending keeps foam white instead
+  // of blowing out to a glare the way additive does over a bright surface.
+  const spray = new Cloud(scene, Math.round(520 * K), THREE.NormalBlending, '0.08', { g: 9.2, drag: 0.995, grow: 0.35, fade: 'linear' });
   const shardGeo = new THREE.PlaneGeometry(0.085, 0.065);
   const shardMat = new THREE.MeshStandardMaterial({
     color: '#a8cee6', metalness: 0.35, roughness: 0.12, envMapIntensity: 2.2,
@@ -363,6 +475,12 @@ export function initFX(scene, opts = {}) {
   let scrapeLevel = 0;
   const perCar = new Map(); // rig → { lastWheel: [xz…], steamT, leakT, fireT }
   const shakeOff = new THREE.Vector3();
+  // G4 escalation state — all render-side. A sheared hydrant keeps gushing
+  // and a downed pole keeps arcing long after the impact that caused them,
+  // so both are standing emitters with their own clocks, not one-shots.
+  const geysers = [];  // { x, y, z, t, emitT }
+  const arcs = [];     // { x, y, z, t, emitT }
+  const burning = new Map(); // car → burn-in time; render-only fire spread
 
   function carState(car) {
     let s = perCar.get(car);
@@ -397,10 +515,68 @@ export function initFX(scene, opts = {}) {
     }
     if (dv > 4) {
       flash.position.set(p.x, p.y + 0.4, p.z);
+      flash.color.copy(COL.flashWarm);
       flash.intensity = Math.min(60, dv * 3.5);
     }
     shake = Math.min(0.6, shake + clamp(dv * 0.022, 0.03, 0.4));
     sfx.impact(dv);
+    propReaction(ev);
+  }
+
+  /* ---- G4: a struck prop can start a standing effect ---- */
+  function propReaction(ev) {
+    const o = ev.other;
+    if (!sim || !o || o.kind !== 'prop' || o.i < 0) return;
+    const rec = sim.props[o.i];
+    const kind = rec && rec.spec && rec.spec.kind;
+    if (!kind || ev.dv < 2.2) return; // a nudge doesn't shear a hydrant
+    // anchor to the SPEC position, not the group: these props are dynamic, so
+    // the body tumbles away on impact while the thing that actually gushes or
+    // arcs — the sheared main, the pole base — stays where it was planted
+    const px = rec.spec.x || 0, pz = rec.spec.z || 0;
+    if (GEYSER_KINDS.has(kind) && !geysers.some((q) => q.rec === rec)) {
+      geysers.push({ rec, x: px, y: 0.42, z: pz, t: 9 + rng() * 4, emitT: 0, sfxT: 0 });
+      shake = Math.min(0.6, shake + 0.12);
+    } else if (ARC_KINDS.has(kind) && !arcs.some((q) => q.rec === rec)) {
+      // arcing is brief and stutters — a severed line, not a firework
+      arcs.push({ rec, x: px, y: 0.9 + rng() * 1.6, z: pz, t: 2.2 + rng() * 1.8, emitT: 0 });
+    }
+  }
+
+  /* ---- G4 water hooks (sim fires these; fx never writes back) ---- */
+  function onSplash(car, ev) {
+    const p = ev.point;
+    const k = clamp(ev.speed / 12, 0.2, 1.6);
+    const n = Math.round(26 + 54 * k);
+    for (let i = 0; i < n; i++) {
+      // a crown: mostly outward and up, a few straight up from the cavity
+      const a = rng() * Math.PI * 2;
+      const out = 0.35 + rng() * (2.6 + 3.4 * k);
+      const up = 2.4 + rng() * (3.6 + 5 * k);
+      spray.spawn(p.x + Math.cos(a) * rng() * 1.1, p.y + 0.05, p.z + Math.sin(a) * rng() * 1.1,
+        Math.cos(a) * out, up, Math.sin(a) * out,
+        0.55 + rng() * 0.8, 0.075 + rng() * 0.12,
+        rng() < 0.72 ? COL.foam : COL.water, 0.7);
+    }
+    // low mist that lingers over the entry point
+    for (let i = 0; i < Math.round(4 + 7 * k); i++) {
+      puffs.spawn(p.x + (rng() - 0.5) * 1.6, p.y + 0.25 + rng() * 0.5, p.z + (rng() - 0.5) * 1.6,
+        (rng() - 0.5) * 0.7, 0.35 + rng() * 0.6, (rng() - 0.5) * 0.7,
+        1.1 + rng() * 1.1, 0.45 + rng() * 0.5, COL.steam, 0.3);
+    }
+    shake = Math.min(0.6, shake + clamp(k * 0.18, 0.04, 0.3));
+    sfx.splash(ev.speed);
+  }
+
+  function onSunk(car, ev) {
+    const p = ev.point;
+    // the last of the cabin air letting go — slow, small, rising
+    for (let i = 0; i < 16; i++) {
+      spray.spawn(p.x + (rng() - 0.5) * 1.3, p.y + rng() * 0.4, p.z + (rng() - 0.5) * 1.3,
+        (rng() - 0.5) * 0.35, 0.9 + rng() * 0.9, (rng() - 0.5) * 0.35,
+        1.3 + rng() * 1.2, 0.05 + rng() * 0.07, COL.foam, 0.42);
+    }
+    sfx.gush();
   }
 
   function onScrape(car, ev) {
@@ -445,6 +621,107 @@ export function initFX(scene, opts = {}) {
     puffs.spawn(p.x, p.y, p.z, 0, 1.2, 0, 0.9, 0.5, COL.dust, 0.4);
     shake = Math.min(0.6, shake + 0.22);
     sfx.detach();
+  }
+
+  /* ---- G4 standing emitters: geysers, arcing poles, fire spread ---- */
+  function hazardEmitters(dt) {
+    let busy = false;
+    for (let i = geysers.length - 1; i >= 0; i--) {
+      const q = geysers[i];
+      q.t -= dt;
+      if (q.t <= 0) { geysers.splice(i, 1); continue; }
+      busy = true;
+      // the column weakens as the main drains, so pressure tracks remaining t
+      const press = clamp(q.t / 7, 0.25, 1);
+      q.emitT -= dt;
+      if (q.emitT <= 0) {
+        q.emitT = 0.018;
+        // a sheared main is a COLUMN, not a trickle: emit a dense core with a
+        // slower, wider skirt so the plume has a silhouette instead of reading
+        // as a handful of stray droplets
+        for (let k = 0; k < 7; k++) {
+          const core = k < 4;
+          const a = rng() * Math.PI * 2;
+          const spread = core ? 0.25 + rng() * 0.55 : 1.3 + rng() * 2.1;
+          const up = core ? (8.6 + rng() * 4.4) * press : (4.2 + rng() * 3.4) * press;
+          spray.spawn(q.x + (rng() - 0.5) * 0.22, q.y, q.z + (rng() - 0.5) * 0.22,
+            Math.cos(a) * spread, up, Math.sin(a) * spread,
+            0.9 + rng() * 0.8, (core ? 0.085 : 0.06) + rng() * 0.1,
+            rng() < 0.6 ? COL.foam : COL.water, core ? 0.7 : 0.5);
+        }
+        if (rng() < 0.25) {
+          puffs.spawn(q.x + (rng() - 0.5) * 0.7, q.y + 1.5 + rng(), q.z + (rng() - 0.5) * 0.7,
+            (rng() - 0.5) * 0.5, 0.5 + rng() * 0.5, (rng() - 0.5) * 0.5,
+            1.2 + rng(), 0.4 + rng() * 0.4, COL.steam, 0.22);
+        }
+      }
+      q.sfxT -= dt;
+      if (q.sfxT <= 0) { q.sfxT = 0.35; sfx.gush(); }
+    }
+    for (let i = arcs.length - 1; i >= 0; i--) {
+      const q = arcs[i];
+      q.t -= dt;
+      if (q.t <= 0) { arcs.splice(i, 1); continue; }
+      busy = true;
+      q.emitT -= dt;
+      if (q.emitT > 0) continue;
+      // stutter: long dead gaps between bursts read as a shorting line
+      q.emitT = 0.06 + rng() * 0.45;
+      const n = 8 + ((rng() * 16) | 0);
+      for (let k = 0; k < n; k++) {
+        _v1.set(rng() - 0.5, rng() * 0.85, rng() - 0.5).normalize().multiplyScalar(2.5 + rng() * 7);
+        sparks.spawn(q.x, q.y, q.z, _v1.x, _v1.y + 1.2, _v1.z,
+          0.2 + rng() * 0.34, 0.045 + rng() * 0.06, COL.arc[(rng() * 3) | 0], 1);
+      }
+      flash.position.set(q.x, q.y + 0.3, q.z);
+      flash.color.copy(COL.flashArc);
+      flash.intensity = Math.max(flash.intensity, 14 + rng() * 10);
+      sfx.arc();
+    }
+    return busy;
+  }
+
+  /* Fire spread is RENDER-ONLY. The sim owns frontDmg and fx must never write
+     it, so ignition of a neighbour is tracked here instead: a wreck sitting
+     close to a well-alight one catches after a short burn-in, and burns as a
+     pool fire under its own body rather than out of its (undamaged) nose. */
+  function fireSpread(dt) {
+    if (!sim) return false;
+    let busy = false;
+    const lit = [];
+    for (const car of sim.cars) if (car.frontDmg > 26) lit.push(car);
+    for (const [car, v] of burning) if (v.on) lit.push(car);
+    for (const car of sim.cars) {
+      if (car.frontDmg > 26) continue; // already burning on its own
+      let near = false;
+      for (const src of lit) {
+        if (src === car) continue;
+        const dx = src.wrap.position.x - car.wrap.position.x;
+        const dz = src.wrap.position.z - car.wrap.position.z;
+        if (dx * dx + dz * dz < 30) { near = true; break; } // ~5.5 m
+      }
+      // only a damaged shell catches — an untouched car parked beside a
+      // burning one should not spontaneously ignite
+      if (!near || car.damage < 9) { burning.delete(car); continue; }
+      let st = burning.get(car);
+      if (!st) { st = { t: 2.4 + rng() * 2.6, on: false, emitT: 0 }; burning.set(car, st); }
+      st.t -= dt;
+      busy = true;
+      if (st.t > 0) continue;
+      st.on = true;
+      st.emitT -= dt;
+      if (st.emitT > 0) continue;
+      st.emitT = 0.05;
+      _v1.copy(car.wrap.position);
+      blaze.spawn(_v1.x + (rng() - 0.5) * car.size.x * 0.7, _v1.y + 0.2, _v1.z + (rng() - 0.5) * car.size.z * 0.8,
+        (rng() - 0.5) * 0.5, 1.5 + rng() * 1.2, (rng() - 0.5) * 0.5,
+        0.35 + rng() * 0.35, 0.32 + rng() * 0.3, COL.fire[(rng() * 3) | 0], 0.8);
+      if (rng() < 0.45) {
+        puffs.spawn(_v1.x, _v1.y + 0.9, _v1.z, (rng() - 0.5) * 0.6, 1.5 + rng() * 0.8, (rng() - 0.5) * 0.6,
+          1.7 + rng() * 1.2, 0.5 + rng() * 0.5, COL.smokeDark, 0.5);
+      }
+    }
+    return busy;
   }
 
   /* ---- per-frame emitters from rig damage state ---- */
@@ -523,10 +800,13 @@ export function initFX(scene, opts = {}) {
     attach(newSim) {
       sim = newSim;
       perCar.clear();
+      geysers.length = 0; arcs.length = 0; burning.clear();
       sim.onImpact = onImpact;
       sim.onScrape = onScrape;
       sim.onGlass = onGlass;
       sim.onDetach = onDetach;
+      sim.onSplash = onSplash;
+      sim.onSunk = onSunk;
     },
     detachSim() { sim = null; },
     unlockAudio() { sfx.unlock(); },
@@ -536,13 +816,17 @@ export function initFX(scene, opts = {}) {
       sparks.mat.uniforms.uScale.value = h;
       puffs.mat.uniforms.uScale.value = h;
       blaze.mat.uniforms.uScale.value = h;
+      spray.mat.uniforms.uScale.value = h;
       let busy = false;
       if (sparks.update(dt)) busy = true;
       if (puffs.update(dt)) busy = true;
       if (blaze.update(dt)) busy = true;
+      if (spray.update(dt)) busy = true;
       if (shards.update(dt)) busy = true;
       if (chips.update(dt)) busy = true;
       if (carEmitters(dt)) busy = true;
+      if (hazardEmitters(dt)) busy = true;
+      if (fireSpread(dt)) busy = true;
       decals.flush();
       if (flash.intensity > 0.01) { flash.intensity *= Math.pow(0.0001, dt); busy = true; }
       else flash.intensity = 0;
@@ -550,6 +834,18 @@ export function initFX(scene, opts = {}) {
       else shake = 0;
       scrapeLevel = Math.max(0, scrapeLevel - dt * 3.2);
       sfx.setScrape(scrapeLevel * 0.22);
+      // G5 engine bed: a render-side READ of sim state (never a write), so the
+      // ambient drone rises with the traffic and falls away at the freeze
+      if (sim && sim.cars && sim.cars.length && sim.playing) {
+        let sum = 0, moving = 0;
+        for (const car of sim.cars) {
+          const lv = car.body.linvel();
+          const sp = Math.sqrt(lv.x * lv.x + lv.z * lv.z);
+          sum += sp;
+          if (sp > 1) moving++;
+        }
+        sfx.setEngine(Math.min(1, (moving / sim.cars.length) * 1.3), sum / sim.cars.length);
+      } else sfx.setEngine(0, 0);
       return busy;
     },
     applyShake(camera) {
@@ -562,15 +858,16 @@ export function initFX(scene, opts = {}) {
       shakeOff.set(0, 0, 0);
     },
     reset() {
-      sparks.clear(); puffs.clear(); blaze.clear(); shards.clear(); chips.clear(); decals.clear();
+      sparks.clear(); puffs.clear(); blaze.clear(); spray.clear(); shards.clear(); chips.clear(); decals.clear();
       flash.intensity = 0;
       shake = 0; scrapeLevel = 0;
       sfx.setScrape(0);
       perCar.clear();
+      geysers.length = 0; arcs.length = 0; burning.clear();
     },
     dispose() {
       this.reset();
-      for (const s of [sparks, puffs, blaze]) { scene.remove(s.mesh); s.geo.dispose(); s.mat.dispose(); }
+      for (const s of [sparks, puffs, blaze, spray]) { scene.remove(s.mesh); s.geo.dispose(); s.mat.dispose(); }
       for (const b of [shards, chips]) { scene.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh.material.dispose(); b.mesh.dispose(); }
       scene.remove(decals.mesh); decals.geo.dispose(); decals.mesh.material.dispose();
       scene.remove(flash);

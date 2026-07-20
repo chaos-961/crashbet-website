@@ -414,9 +414,14 @@ input[type="range"]::-moz-range-thumb {
   .panel { padding: 8px; gap: 6px; }
   .ibtn, .primary { height: 40px; }
 }
+/* The OS preference and the in-game Motion setting are the same switch: main.js
+   mirrors the media query onto body.reduced-motion at boot, so the setting can
+   also turn it ON for a player whose OS says nothing. Never invert it — a user
+   who asked their OS for reduced motion keeps it regardless of the toggle. */
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+body.reduced-motion * { animation: none !important; transition: none !important; }
 
 /* ================================================================
    Game shell: main menu · HUD · pause menu · rotate hint
@@ -426,6 +431,9 @@ input[type="range"]::-moz-range-thumb {
 #menu {
   position: fixed; inset: 0; z-index: 40;
   display: flex; align-items: center; justify-content: center;
+  /* the card grew a row in G5; a 390 px-tall landscape phone runs out of
+     room, so the menu scrolls rather than clipping "New run" off the bottom */
+  overflow-y: auto;
   background:
     radial-gradient(ellipse at 50% 30%, rgba(255, 122, 61, 0.10), transparent 55%),
     radial-gradient(ellipse at 50% 110%, rgba(10, 11, 14, 0.75), transparent 70%),
@@ -519,6 +527,30 @@ input[type="range"]::-moz-range-thumb {
   font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text-dim); font-weight: 700; margin: 14px 4px 6px; text-align: left;
 }
+/* small counter/state badge inside a menu button (G5) */
+.mbadge {
+  display: inline-block; margin-left: 6px; padding: 2px 7px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em; vertical-align: middle;
+  background: rgba(255, 255, 255, 0.1); color: var(--text-dim);
+}
+.mbadge.new { background: rgba(255, 176, 58, 0.22); color: #ffcf8a; }
+
+/* settings slider (G5) */
+.setval { color: #ffcf8a; font-weight: 800; letter-spacing: 0; }
+.setrange {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 30px;
+  background: transparent; margin: 0 0 4px; cursor: pointer;
+}
+.setrange::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); }
+.setrange::-moz-range-track { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); }
+.setrange::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -6.5px;
+  border-radius: 50%; background: #ffcf8a; border: 2px solid rgba(20, 22, 26, 0.9);
+}
+.setrange::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; background: #ffcf8a; border: 2px solid rgba(20, 22, 26, 0.9);
+}
+
 .mchips { display: flex; flex-wrap: wrap; gap: 7px; }
 .mchip {
   padding: 9px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600;
@@ -540,12 +572,29 @@ input[type="range"]::-moz-range-thumb {
   body.ingame #rotate { display: flex; }
 }
 
-@media (max-height: 460px) { /* short landscape phones */
-  .menulogo { width: 70px; }
-  .mbtn.big { margin-top: 14px; padding: 12px 18px; }
+/* Short landscape phones. The menu gained a Daily/Stats row in G5 and a
+   844×390 phone ran out of vertical room — "New run" fell below the fold.
+   Height, not width, is the binding constraint here, so the title's 8vw clamp
+   also has to come down: at 844 px wide it resolves to the full 52 px. */
+@media (max-height: 460px) {
+  .menulogo { width: 54px; }
+  .menutitle { font-size: 30px; letter-spacing: 0.12em; margin-top: 2px; }
+  .menutag { font-size: 10.5px; margin-top: 2px; }
+  .mbtn.big { margin-top: 9px; padding: 10px 18px; }
   .pausecard { padding: 14px 16px 14px; }
   .pausecard h2 { margin-bottom: 8px; }
-  .mbtn { padding: 10px 16px; margin-top: 7px; }
+  .mbtn { padding: 8px 16px; margin-top: 5px; font-size: 14px; }
+  .menurow { gap: 7px; }
+  #menubank { margin-top: 7px; padding: 5px 12px; }
+  .menufoot { display: none; } /* the orbit hint is not worth a row here */
+}
+/* ...but the 44 px floor is not negotiable on an actual touch device. Eight
+   buttons at 44 px cannot fit 390 px of height alongside a title, so on a real
+   landscape phone the menu keeps full-size targets and scrolls (#menu is
+   overflow-y:auto). A resized DESKTOP window has a fine pointer and takes the
+   compact treatment above, where a 42 px button is perfectly clickable. */
+@media (max-height: 460px) and (pointer: coarse) {
+  .mbtn, .mbtn.tiny { min-height: 44px; }
 }
 
 /* crash-test HUD (visible only in crash mode) */
@@ -577,17 +626,24 @@ input[type="range"]::-moz-range-thumb {
   #dmgHud { font-size: 13px; padding: 6px 12px; top: calc(58px + env(safe-area-inset-top)); }
 }
 
-/* ============ boot preloader (main menu) ============ */
-#boot { margin-top: 14px; width: 100%; }
-#bootbar {
-  height: 5px; border-radius: 999px; overflow: hidden;
+/* ============ progress bar — ONE component, three uses (G5) ============
+   The boot preload, the per-round pre-sim beat and scene loading all render
+   through makeProgress() in main.js against this shared markup, so there is a
+   single definition of what "loading" looks like in this game. The two hosts
+   differ only in placement (inline in the menu card vs a fullscreen card). */
+.pbar {
+  height: 6px; border-radius: 999px; overflow: hidden;
   background: rgba(255, 255, 255, 0.1);
 }
-#bootfill {
+.pfill {
   display: block; height: 100%; width: 0%;
   background: var(--accent-grad); border-radius: 999px;
-  transition: width 0.25s ease;
+  transition: width 0.22s ease;
 }
+
+/* ============ boot preloader (main menu) ============ */
+#boot { margin-top: 14px; width: 100%; }
+#bootbar { height: 5px; }
 #bootmsg {
   margin: 7px 0 0; font-size: 12px; letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.55); font-variant-numeric: tabular-nums;
@@ -606,15 +662,6 @@ input[type="range"]::-moz-range-thumb {
 .loadlabel {
   margin: 0 0 12px; font-size: 15px; font-weight: 700; letter-spacing: 0.05em;
   color: #ffcf8a;
-}
-#loadbar {
-  height: 6px; border-radius: 999px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.1);
-}
-#loadfill {
-  display: block; height: 100%; width: 0%;
-  background: var(--accent-grad); border-radius: 999px;
-  transition: width 0.2s linear;
 }
 .loadsub {
   margin: 10px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.45);
@@ -664,6 +711,41 @@ input[type="range"]::-moz-range-thumb {
   color: #ff8a5a; text-indent: 0.34em;
 }
 .fzhint { margin: 8px 0 0; font-size: 11px; color: rgba(255, 255, 255, 0.4); }
+/* freeze scrub bar (G5) — rewind the last 10 s while time is stopped */
+#scrub {
+  display: flex; align-items: center; gap: 10px;
+  width: min(420px, 78vw); margin: 2px 0 12px;
+  padding: 8px 13px; border-radius: 14px;
+  background: rgba(18, 20, 25, 0.82); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+#scrubT {
+  font-size: 12px; font-weight: 800; color: #ffcf8a; flex: none;
+  min-width: 46px; text-align: right; font-variant-numeric: tabular-nums;
+}
+#scrubBar {
+  -webkit-appearance: none; appearance: none; flex: 1 1 auto;
+  height: 26px; background: transparent; cursor: ew-resize; margin: 0;
+}
+#scrubBar::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255, 176, 58, 0.75), rgba(255, 138, 90, 0.5));
+}
+#scrubBar::-moz-range-track {
+  height: 5px; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255, 176, 58, 0.75), rgba(255, 138, 90, 0.5));
+}
+#scrubBar::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; margin-top: -6.5px; border-radius: 50%;
+  background: #ffcf8a; border: 2px solid rgba(20, 22, 26, 0.9);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+#scrubBar::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(20, 22, 26, 0.9);
+  background: #ffcf8a; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+#scrubBar:focus-visible { outline: 2px solid rgba(255, 207, 138, 0.7); outline-offset: 4px; }
 #outcome {
   position: fixed; z-index: 40; left: 50%; transform: translateX(-50%);
   bottom: calc(24px + env(safe-area-inset-bottom));
@@ -1024,7 +1106,80 @@ input[type="range"]::-moz-range-thumb {
 .sumbust[hidden] { display: none; }
 .sumfoot { margin-top: 13px; font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .sumfoot b { color: #ffcf8a; font-size: 15px; }
-#sumNext { margin-top: 12px; max-width: none; }
+#sumNext { margin-top: 0; max-width: none; flex: 1 1 auto; }
+/* share + next sit on one row (G5).
+   `width: auto` is load-bearing: .mbtn sets width:100%, so a flex item that
+   inherits it resolves flex-basis:auto to the FULL row width — Share came out
+   329 px on a 390 px phone and shoved Next off the screen. */
+.sumbtns { display: flex; gap: 8px; margin-top: 12px; align-items: stretch; }
+.sumbtns .mbtn { margin: 0; width: auto; max-width: none; }
+#sumShare { flex: 0 0 auto; padding-left: 15px; padding-right: 15px; }
+/* achievements unlocked by this round */
+.sumach {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px;
+}
+.sumach[hidden] { display: none; }
+.achpill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 700; padding: 6px 11px; border-radius: 999px;
+  background: rgba(255, 176, 58, 0.16); border: 1px solid rgba(255, 176, 58, 0.5); color: #ffcf8a;
+  animation: achpop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.achpill i { font-style: normal; font-size: 14px; }
+/* Scale only — never animate opacity from 0 on something that ANNOUNCES an
+   unlock. With `both` fill an unstarted animation holds its 0 % keyframe, so
+   a frozen or throttled animation (a background tab at the moment of
+   settlement, and this repo's embedded Browser pane, which freezes animations
+   whenever document.hidden) would render the badge permanently invisible.
+   Popping the scale degrades to "slightly small"; fading the opacity degrades
+   to "the player never learns they unlocked anything". */
+@keyframes achpop { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
+
+/* ============ stats page (G5) ============ */
+.statgrid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 4px;
+}
+.stat {
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 9px 6px; text-align: center;
+}
+.stat b {
+  display: block; font-size: 17px; color: #ffcf8a; font-variant-numeric: tabular-nums;
+  line-height: 1.15; overflow-wrap: anywhere;
+}
+.stat span { font-size: 10px; color: var(--text-dim); letter-spacing: 0.05em; }
+.stkinds { display: flex; flex-direction: column; gap: 5px; }
+.stkind { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+.stkind .skname { flex: 0 0 78px; color: var(--text-dim); text-transform: capitalize; }
+.stkind .skbar {
+  flex: 1 1 auto; height: 7px; border-radius: 4px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.stkind .skbar i { display: block; height: 100%; background: linear-gradient(90deg, #ffb03a, #ff8a5a); }
+.stkind .sknum {
+  flex: 0 0 62px; text-align: right; color: var(--text); font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stempty { font-size: 11.5px; color: var(--text-dim); margin: 0; }
+.stachn { color: var(--text-dim); font-weight: 700; letter-spacing: 0; }
+.achgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.ach {
+  display: flex; align-items: center; gap: 8px; text-align: left;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border);
+  border-radius: 11px; padding: 8px 9px;
+}
+.ach.got { background: rgba(255, 176, 58, 0.13); border-color: rgba(255, 176, 58, 0.42); }
+.ach .achicon { font-size: 17px; flex: none; filter: grayscale(1); opacity: 0.42; }
+.ach.got .achicon { filter: none; opacity: 1; }
+.ach .achtxt { min-width: 0; }
+.ach .achname { display: block; font-size: 11.5px; font-weight: 800; color: var(--text-dim); }
+.ach.got .achname { color: #ffcf8a; }
+.ach .achdesc { display: block; font-size: 10px; line-height: 1.35; color: rgba(255, 255, 255, 0.42); }
+@media (max-width: 460px) {
+  .achgrid { grid-template-columns: 1fr; }
+  .statgrid { gap: 5px; }
+  .stat b { font-size: 15px; }
+}
 
 /* short screens (landscape phones): tighter, still right-docked */
 @media (max-height: 520px) {
@@ -1052,12 +1207,20 @@ input[type="range"]::-moz-range-thumb {
   .bettoggle:hover { transform: translateX(50%) translateY(-2px); }
   .bettoggle:active { transform: translateX(50%) scale(0.97); }
 }
-/* touch: never below the 44 px target */
+/* touch: never below the 44 px target.
+   These are REAL box sizes, not pseudo-element hit areas: the slip is a
+   bottom sheet spanning the full width on phones (~340 px inner at 390 px),
+   and the stake row costs 44+6+42+6+44 = 142 px, so honest 44 px boxes fit
+   with room for the "to win $12" tail. Overlapping ::after hit areas would
+   have been cheaper visually but the legacts row sits directly under the
+   stake row — an expanded target there would swallow taps meant for +/−. */
 @media (pointer: coarse) {
   .mkrow { min-height: 46px; }
   .stakebtn { min-height: 44px; }
-  .legstake button { width: 34px; height: 34px; }
-  .legacts button { padding: 8px 12px; font-size: 11.5px; }
+  .legstake button { width: 44px; height: 44px; font-size: 17px; }
+  .legacts button { min-height: 44px; padding: 8px 14px; font-size: 11.5px; }
   .bpclose { width: 44px; height: 44px; }
   .povchip { width: 46px; height: 46px; }
+  /* the scrub bar's thumb is the one control you drag, not tap */
+  #scrubBar { height: 44px; }
 }

@@ -34,6 +34,10 @@
     </div>
     <button id="startBtn" class="mbtn primary big" disabled>▶&nbsp; Continue</button>
     <div class="menurow">
+      <button id="dailyBtn" class="mbtn" disabled>📅&nbsp; Daily</button>
+      <button id="statsBtn" class="mbtn" disabled>📊&nbsp; Stats</button>
+    </div>
+    <div class="menurow">
       <button id="seedBtn" class="mbtn" disabled>🔑&nbsp; Custom seed</button>
       <button id="garageBtn" class="mbtn" disabled>🏛&nbsp; Garage</button>
     </div>
@@ -43,7 +47,7 @@
     </div>
     <button id="newRunBtn" class="mbtn tiny danger" hidden>↻&nbsp; New run</button>
     <div id="boot">
-      <div id="bootbar"><i id="bootfill"></i></div>
+      <div id="bootbar" class="pbar"><i id="bootfill" class="pfill"></i></div>
       <p id="bootmsg">warming up…</p>
     </div>
     <p class="menufoot">drag to orbit · pinch / scroll to zoom</p>
@@ -54,7 +58,7 @@
 <div id="loading" hidden>
   <div class="loadcard">
     <p class="loadlabel" id="loadlabel">syncing dashcams…</p>
-    <div id="loadbar"><i id="loadfill"></i></div>
+    <div id="loadbar" class="pbar"><i id="loadfill" class="pfill"></i></div>
     <p class="loadsub" id="loadsub"></p>
   </div>
 </div>
@@ -79,8 +83,13 @@
     <div id="scenetag"><b id="sceneLv">LV 1</b><span id="sceneTopo">—</span></div>
     <div id="freeze" hidden>
       <p class="fzlabel">INCIDENT</p>
+      <div id="scrub">
+        <input id="scrubBar" type="range" min="0" max="600" step="6" value="600"
+               aria-label="Scrub the last ten seconds">
+        <span id="scrubT">0.0s</span>
+      </div>
       <button id="fzGo" class="mbtn primary">▶&nbsp; Resume</button>
-      <p class="fzhint">space / tap</p>
+      <p class="fzhint">drag to rewind · space / tap to go</p>
     </div>
     <div id="outcome" hidden></div>
     <div id="povbar" role="group" aria-label="Camera angle"></div>
@@ -112,6 +121,20 @@
         <button class="mchip" data-d="10">10</button>
       </div>
       <button id="seedGo" class="mbtn primary">🎬&nbsp; Play this seed</button>
+    </div>
+    <div id="modalStats" hidden>
+      <div class="statgrid">
+        <div class="stat"><b id="stRounds">0</b><span>rounds</span></div>
+        <div class="stat"><b id="stBank">$100</b><span>bankroll</span></div>
+        <div class="stat"><b id="stBest">$0</b><span>biggest win</span></div>
+        <div class="stat"><b id="stStreak">0</b><span>best streak</span></div>
+        <div class="stat"><b id="stBusts">0</b><span>busts</span></div>
+        <div class="stat"><b id="stRoi">—</b><span>return</span></div>
+      </div>
+      <p class="msub">Hit rate by market</p>
+      <div id="stKinds" class="stkinds"></div>
+      <p class="msub">Achievements <span id="stAchN" class="stachn"></span></p>
+      <div id="stAch" class="achgrid"></div>
     </div>
     <div id="modalHow" hidden>
       <ol class="howlist">
@@ -171,8 +194,12 @@
       <p id="sumScene" class="sumscene"></p>
       <div id="sumRows" class="sumrows"></div>
       <p id="sumBust" class="sumbust" hidden>💀 Busted. The bank staked you a fresh $100.</p>
+      <div id="sumAch" class="sumach" hidden></div>
       <div class="sumfoot">Bankroll <b id="sumBank">$100</b></div>
-      <button id="sumNext" class="mbtn primary">Next scene →</button>
+      <div class="sumbtns">
+        <button id="sumShare" class="mbtn">🔗&nbsp; Share</button>
+        <button id="sumNext" class="mbtn primary">Next scene →</button>
+      </div>
     </div>
   </div>
 </div>
@@ -209,6 +236,13 @@
       <div class="mchips" id="set_cam" role="group" aria-label="Camera mode">
         <button data-cam="orbit" class="mchip sel">Orbit</button>
         <button data-cam="fly" class="mchip">Freecam</button>
+      </div>
+      <p class="msub">Volume <span id="set_volN" class="setval">50%</span></p>
+      <input id="set_vol" class="setrange" type="range" min="0" max="100" step="5" value="50" aria-label="Volume">
+      <p class="msub">Motion</p>
+      <div class="mchips" id="set_motion" role="group" aria-label="Motion">
+        <button data-motion="full" class="mchip sel">Full</button>
+        <button data-motion="reduced" class="mchip">Reduced</button>
       </div>
       <button id="p_back" class="mbtn">← Back</button>
     </div>
