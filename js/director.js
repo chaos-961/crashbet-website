@@ -764,7 +764,9 @@ const TEMPLATES = {
   },
   // pedals go soft right when the queue appears
   brakefail: {
-    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
+    // no switchback: a parked queue on a hairpin sits beside the folded-back
+    // leg and gets clipped before the incident
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
     minLane: 115,
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
@@ -781,6 +783,264 @@ const TEMPLATES = {
       cmd(carA, { t: 552, noBrake: true }); // the failure — invisible until needed
       cmd(carA, { t: 585, v: 0 }); // driver stands on a dead pedal
       return { cars: [carA, q2, q1], aggressor: 0, victim: 1, label: 'Brake Failure', tell: 'no brake dive where there should be' };
+    },
+  },
+
+  /* ---------------- G4: incident library 8 → 20 ----------------
+     Same contract as above: cars in a fixed order, everything goes wrong at
+     exactly INCIDENT_TICK, nothing may touch before it. Where a template
+     needs an obstacle it returns `props` (merged into the topology dressing),
+     and it must keep those clear of other lanes — normal preview traffic will
+     happily mow down a badly placed catcher (learned by overspeed). */
+
+  // a heavy stands on the brakes and the back end comes around
+  jackknife: {
+    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'tramcrossing'],
+    minLane: 130,
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v + 2, laneMaxV(lane, approach.anchorS));
+      const rig = place(lane, approach.anchorS, v);
+      rig._pool = 'HEAVY'; // cast pass: this one must be a truck
+      if (tellK > 0.9) cmd(rig, { t: 500, bias: -0.014 }); // a hint of wander
+      cmd(rig, { t: INCIDENT_TICK, v: 0, brakeMax: 4.2 });
+      cmd(rig, { t: INCIDENT_TICK + 8, bias: rng.sign() * 0.3, off: true });
+      const cars = [rig];
+      const follow = placeAt(lane, rig._s0 - Math.max(16, v * 1.5), v);
+      if (follow) { cmd(follow, { t: INCIDENT_TICK + 44, v: 0, brakeMax: 0.7 }); cars.push(follow); }
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Jackknife', tell: 'that trailer is moving faster than the cab' };
+    },
+  },
+
+  // a flatbed sheds its load into the lane behind it
+  loadspill: {
+    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection'],
+    minLane: 125,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const truck = place(lane, approach.anchorS, v);
+      truck._pool = 'HEAVY';
+      cmd(truck, { t: INCIDENT_TICK, bias: rng.sign() * 0.05, off: true });
+      const cars = [truck];
+      const chaser = placeAt(lane, truck._s0 - Math.max(22, v * 2.1), v);
+      if (chaser) cars.push(chaser);
+      // the load lands just behind the truck's incident position
+      const props = [];
+      const sDrop = approach.anchorS + 5;
+      for (let i = 0; i < 4; i++) {
+        const p = arcPos(lane.pts, sDrop + i * 2.6);
+        props.push({
+          kind: rng.pick(['cone', 'bin_wheelie', 'planter_stone']),
+          x: p.x + rng.range(-1.4, 1.4), z: p.z + rng.range(-1.4, 1.4),
+          heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)),
+        });
+      }
+      return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Load Spill', tell: 'that load is not tied down' };
+    },
+  },
+
+  // police contact: the pursuit ends with a nudge that spins the runner
+  pit: {
+    topos: ['highway', 'suburb', 'city', 'causeway', 'intersection', 'parkinglot'],
+    minLane: 120, minD: 4,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v + 2, laneMaxV(lane, approach.anchorS));
+      const runner = place(lane, approach.anchorS, v);
+      const cop = placeAt(lane, runner._s0 - 8.5, v);
+      const cars = [runner];
+      if (cop) {
+        cop._pool = 'POLICE';
+        cmd(cop, { t: INCIDENT_TICK - 40, v: v + 2.5 });        // close the gap
+        cmd(cop, { t: INCIDENT_TICK, bias: 0.11, off: true });   // swing out
+        cmd(cop, { t: INCIDENT_TICK + 12, bias: -0.28, off: true }); // and in
+        cars.push(cop);
+      }
+      cmd(runner, { t: INCIDENT_TICK + 16, bias: rng.sign() * 0.26, off: true });
+      return { cars, aggressor: cars.length > 1 ? 1 : 0, victim: 0, label: 'PIT Maneuver', tell: 'the cruiser is lining up on a corner' };
+    },
+  },
+
+  // somebody is coming the other way in your lane
+  wrongway: {
+    topos: ['highway', 'causeway', 'suburb', 'city', 'intersection', 'switchback'],
+    needsOpp: true, minD: 3,
+    make(ctx) {
+      const { rng, tellK, lane, opp } = ctx;
+      const ho = solveHeadOn(lane, opp);
+      const carA = place(lane, ho.aS, ho.v);
+      // the wrong-way car rides the centre line from the start — the tell is
+      // that it is simply on the wrong side, visible the whole preview
+      const ghost = place(opp, ho.oS, ho.v * 0.9, INCIDENT_TICK + rng.int(70, 110));
+      cmd(ghost, { t: 576, bias: 0.08 * tellK, off: true });
+      cmd(ghost, { t: INCIDENT_TICK, bias: 0.22, off: true });
+      return { cars: [carA, ghost], aggressor: 1, victim: 0, label: 'Wrong Way', tell: 'one of them is on the wrong side of the line' };
+    },
+  },
+
+  // one tailgater, one lift-off — a plain two-car rear-ender
+  tailgate: {
+    topos: ['highway', 'causeway', 'city', 'suburb', 'schoolzone', 'roundabout', 'tramcrossing', 'parkinglot'],
+    minLane: 140, // both cars plus a 10 s run-up must fit, or the tail is
+                  // dropped and the scene is one car braking gently: eventless
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      // Solve the speed so the run-up AND the gap behind the lead both fit,
+      // the way chain does. Without this the lead's 10 s approach consumed the
+      // whole lane, placeAt found no room, the tail was dropped and the scene
+      // was one car braking alone — 9 eventless in a 300-seed sweep.
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS), (approach.anchorS - 10) / 11.2);
+      const lead = place(lane, approach.anchorS, v);
+      cmd(lead, { t: INCIDENT_TICK, v: 0, brakeMax: 4.2 });
+      lead._short = true;
+      const gap = Math.max(6.2, v * (0.28 - 0.08 * tellK) + 3.4);
+      const tail = placeAt(lane, lead._s0 - gap, v);
+      const cars = [lead];
+      if (tail) {
+        tail._short = true;
+        cmd(tail, { t: INCIDENT_TICK + 34 + rng.int(0, 14), v: 0, brakeMax: 0.5 });
+        cars.push(tail);
+      }
+      return { cars, aggressor: cars.length > 1 ? 1 : 0, victim: 0, label: 'Tailgater', tell: 'no room at all between those two' };
+    },
+  },
+
+  // a dead car sitting in a live lane
+  stall: {
+    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'tramcrossing', 'switchback'],
+    minLane: 120,
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const sDead = approach.anchorS;
+      const dead = placeParked(lane, sDead);
+      dead._short = true;
+      const v = Math.min(approach.v + 2 + tellK, laneMaxV(lane, sDead - 11));
+      const comer = place(lane, sDead - 11, v);
+      // brakes far too late — the tell is that nothing is slowing down
+      cmd(comer, { t: INCIDENT_TICK + 14, v: 0, brakeMax: 0.7 });
+      const cars = [comer, dead];
+      const props = [];
+      if (rng.chance(0.6)) {
+        const p = arcPos(lane.pts, sDead + 5);
+        props.push({ kind: 'cone', x: p.x, z: p.z, heading: 0, seed: String(rng.int(1, 9999)) });
+      }
+      return { cars, props, aggressor: 0, victim: 1, label: 'Stalled Car', tell: 'that one has not moved all preview' };
+    },
+  },
+
+  // unprotected left across oncoming traffic
+  leftturn: {
+    topos: ['intersection', 'tramcrossing', 'roundabout'],
+    minD: 2,
+    make(ctx) {
+      const { rng, topo, tellK } = ctx;
+      const [ia, ib] = rng.pick(topo.crossings);
+      const thru = topo.lanes[ia], turner = topo.lanes[ib];
+      const x = crossOf(thru, turner);
+      const vT = Math.min(thru.v + 1 + tellK, laneMaxV(thru, x.sA));
+      const vU = Math.min(turner.v * 0.72, laneMaxV(turner, x.sB));
+      const tMeet = INCIDENT_TICK + rng.int(12, 20);
+      const straight = place(thru, x.sA, vT, tMeet);
+      const turning = place(turner, x.sB, vU, tMeet + rng.int(-4, 4));
+      // the turn itself: slow, then cut across
+      cmd(turning, { t: INCIDENT_TICK - 26, v: vU * 0.5 });
+      cmd(turning, { t: INCIDENT_TICK, bias: 0.24, off: true });
+      return { cars: [straight, turning], aggressor: 1, victim: 0, label: 'Unprotected Left', tell: 'the turner never checks the gap' };
+    },
+  },
+
+  // a tall vehicle carries too much speed into a bend and goes up on two wheels
+  rollover: {
+    topos: ['switchback', 'city', 'suburb', 'highway', 'causeway'],
+    needsCurve: true, minD: 3,
+    make(ctx) {
+      const { rng, tellK, lane, curveS } = ctx;
+      const sBend = curveS || Math.min(lane.len - 30, lane.v * 10 + 25);
+      const v = Math.min(laneMaxV(lane, sBend), lane.v + 4);
+      const tall = place(lane, sBend, v);
+      tall._pool = 'HEAVY'; // a high centre of gravity is the whole point
+      cmd(tall, { t: INCIDENT_TICK, bias: rng.sign() * 0.16, off: true });
+      cmd(tall, { t: INCIDENT_TICK + 18, v: v * 0.4, brakeMax: 3.4 });
+      return { cars: [tall], aggressor: 0, victim: -1, label: 'Rollover', tell: 'far too tall for that much speed' };
+    },
+  },
+
+  // late braking into a stopped queue — the driver simply never saw it
+  sunblind: {
+    topos: ['highway', 'causeway', 'city', 'suburb', 'schoolzone', 'intersection'],
+    minLane: 125,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const sQ = approach.anchorS;
+      const q1 = placeParked(lane, sQ);
+      const q2 = placeParked(lane, sQ - 9);
+      const v = Math.min(approach.v + 3, laneMaxV(lane, sQ - 15));
+      const comer = place(lane, sQ - 15, v);
+      q1._short = q2._short = comer._short = true;
+      cmd(comer, { t: INCIDENT_TICK + 22, v: 0, brakeMax: 0.9 }); // far too late
+      return { cars: [comer, q2, q1], aggressor: 0, victim: 1, label: 'Never Saw It', tell: 'the queue is stopped and nobody is braking' };
+    },
+  },
+
+  // something in the road; the swerve is worse than the obstacle
+  debris: {
+    topos: ['highway', 'causeway', 'suburb', 'city', 'switchback', 'intersection'],
+    minLane: 120,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      const side = rng.sign();
+      cmd(carA, { t: INCIDENT_TICK, bias: side * 0.2, off: true });
+      cmd(carA, { t: INCIDENT_TICK + 20, bias: -side * 0.26, off: true }); // overcorrect
+      const props = [];
+      const p = arcPos(lane.pts, approach.anchorS + 7);
+      props.push({ kind: rng.pick(['rock', 'bin_wheelie', 'cone']), x: p.x, z: p.z, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)) });
+      const cars = [carA];
+      const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
+      if (behind) cars.push(behind);
+      return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Debris Swerve', tell: 'there is something lying in the road' };
+    },
+  },
+
+  // a merge into a lane that is already occupied
+  merge: {
+    topos: ['highway', 'causeway', 'city', 'suburb', 'roundabout', 'parkinglot'],
+    needsOpp: false, minLane: 115,
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const held = place(lane, approach.anchorS, v);
+      held._short = true;
+      const merger = placeAt(lane, held._s0 - Math.max(8, v * 0.6), v * 1.18);
+      const cars = [held];
+      if (merger) {
+        merger._short = true;
+        // drift out, then back in on top of the car already there
+        cmd(merger, { t: INCIDENT_TICK - 14, bias: 0.09 * tellK, off: true });
+        cmd(merger, { t: INCIDENT_TICK, bias: -0.34, off: true });
+        cars.push(merger);
+      }
+      return { cars, aggressor: cars.length > 1 ? 1 : 0, victim: 0, label: 'Bad Merge', tell: 'one of them is drifting toward an occupied lane' };
+    },
+  },
+
+  // a launch off a ramp — does it clear what is on the far side?
+  rampjump: {
+    topos: ['highway', 'suburb', 'city', 'parkinglot', 'causeway'],
+    minLane: 130, minD: 5,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const sRamp = approach.anchorS;
+      const v = Math.min(approach.v + 6, laneMaxV(lane, sRamp));
+      const carA = place(lane, sRamp - 5, v);
+      const p = arcPos(lane.pts, sRamp);
+      const props = [{ kind: 'ramp', x: p.x, z: p.z, heading: p.heading, seed: String(rng.int(1, 9999)) }];
+      // a landing zone worth betting on
+      const q = arcPos(lane.pts, sRamp + 11);
+      props.push({ kind: rng.pick(['boxes', 'cone', 'barrier_water']), x: q.x, z: q.z, heading: q.heading, seed: String(rng.int(1, 9999)) });
+      return { cars: [carA], props, aggressor: 0, victim: -1, label: 'Ramp Jump', tell: 'that is a lot of speed at a ramp' };
     },
   },
 };
@@ -1053,6 +1313,8 @@ export function generateScene(seed, d = 1) {
     // _short = spawned in a tight queue: only compact bodies fit the gap
     if (c._short) return c._pool === 'FAST' ? FAST : CIVIC;
     if (c._pool === 'FAST') return FAST;
+    // an explicitly heavy actor still yields to the bendy guard
+    if (c._pool === 'HEAVY') return bendy(c) ? CIVIC : HEAVY;
     if (topo.name === 'highway') return rCast.chance(0.3) && !bendy(c) ? HEAVY : CIVIC;
     return rCast.chance(0.12) && !bendy(c) ? HEAVY : CIVIC;
   };
