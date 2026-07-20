@@ -4,6 +4,7 @@
 // scatter uses a fixed seed — the same preset always renders identically.
 import * as THREE from 'three';
 import { makeRng, matFactory } from './lib.js';
+import { buildTerrain, TERRAIN_FOR_ENV, isTerrain } from './terrain.js';
 
 export const ENVS = [
   { id: 'proving', label: 'Proving Ground' },
@@ -299,6 +300,7 @@ export function initEnv(ctx) {
     groundR = r;
     ground.geometry.dispose();
     ground.geometry = new THREE.CircleGeometry(r, 48);
+    buildTerrainNow(); // the terrain annulus starts at this edge
     ctx.invalidate();
   }
 
@@ -353,6 +355,43 @@ export function initEnv(ctx) {
     ctx.invalidate();
   }
 
+  /* Terrain (1A). Opt-in exactly like water: setTerrain(null) removes it and
+     nothing else in the frame changes. It is an ANNULUS starting at the ground
+     disc's edge — the height mask is 0 there, so the two meet at y=0 with no
+     overlap to z-fight and no step to see. (1F turns it into the ground disc
+     itself, at which point r0 goes to 0.)
+     The spec is kept because the haze colour is baked into the vertex colours,
+     so a preset change has to rebuild it — same as the sky. */
+  let terrainMesh = null;
+  let terrainSpec = null;
+  function dropTerrain() {
+    if (!terrainMesh) return;
+    ctx.scene.remove(terrainMesh);
+    terrainMesh.geometry.dispose();
+    terrainMesh.material.dispose();
+    terrainMesh = null;
+  }
+  function buildTerrainNow() {
+    dropTerrain();
+    if (!terrainSpec) return;
+    const sk = SKIES[current] || SKIES.proving;
+    const pr = { ...BASE, ...(PRESETS[current] || {}) };
+    terrainMesh = buildTerrain(
+      { playR: groundR, ...terrainSpec },
+      { horizon: sk.hor, blend: pr.ground[2], small: !!ctx.small },
+    );
+    ctx.scene.add(terrainMesh);
+  }
+  function setTerrain(spec) {
+    if (spec === null || spec === undefined) { terrainSpec = null; dropTerrain(); ctx.invalidate(); return; }
+    // a bare seed is enough; the preset falls back to whatever suits the env
+    const s = typeof spec === 'object' ? { ...spec } : { seed: spec };
+    if (!isTerrain(s.preset)) s.preset = TERRAIN_FOR_ENV[current] || 'rolling';
+    terrainSpec = s;
+    buildTerrainNow();
+    ctx.invalidate();
+  }
+
   const state = { fogN: BASE.fogN, fogF: BASE.fogF, fk: 1 };
 
   // fk = camera-fit scale from fitCamera — big scenes push the fog out
@@ -400,6 +439,9 @@ export function initEnv(ctx) {
     deco = new THREE.Group();
     (DECO[id] || (() => {}))(deco, matFactory());
     ctx.scene.add(deco);
+    // the horizon haze is baked into the terrain's vertex colours, so a new
+    // sky means a new landscape tint — rebuild rather than let them disagree
+    buildTerrainNow();
     ctx.invalidate();
   }
 
@@ -408,5 +450,9 @@ export function initEnv(ctx) {
     if (sky) sky.position.copy(pos);
   }
 
-  return { apply, setFogScale, setGroundRadius, setWater, syncSky, state, get current() { return current; } };
+  return {
+    apply, setFogScale, setGroundRadius, setWater, setTerrain, syncSky, state,
+    get current() { return current; },
+    get terrainField() { return terrainMesh ? terrainMesh.userData.field : null; },
+  };
 }

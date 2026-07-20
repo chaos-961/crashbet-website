@@ -89,7 +89,7 @@ fill.position.set(-6, 4, -5);
 scene.add(fill);
 
 /* ---------------- environment (ground + presets) ---------------- */
-const env = initEnv({ scene, hemi, key, fill, invalidate });
+const env = initEnv({ scene, hemi, key, fill, invalidate, small: smallScreen });
 env.apply('proving');
 
 /* ---------------- camera fitting / tween ---------------- */
@@ -937,6 +937,7 @@ function destroyRound() {
   targetMap = null; hoverGroup = null;
   povRig = null; activePov = null;
   env.setWater(null); // otherwise the channel follows you into the showroom
+  env.setTerrain(null); // ditto the landscape
   $('povfx').className = '';
   $('povbar').innerHTML = '';
   controls.enabled = true;
@@ -1019,6 +1020,11 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     if (sc.world.env && ENVS.some((e) => e.id === sc.world.env)) env.apply(sc.world.env);
     env.setGroundRadius(sc.world.ground || 90);
     env.setWater(sc.world.water || null);
+    // Terrain (1A). Render-side and opt-in: the scenario may name a preset,
+    // otherwise the seed alone is enough and the env preset picks the
+    // landscape. playR defaults to the ground radius set above, which is what
+    // keeps the displacement mask off the drivable area.
+    env.setTerrain(sc.world.terrain || { seed });
 
     const sim = new engine.mod.CrashSim(engine.R, sc, catOfId);
     sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick
