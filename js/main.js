@@ -206,8 +206,10 @@ function leaveGame() {
   setCamMode('orbit');
   inGame = false;
   if (crash) destroyCrashSim();
-  document.body.classList.remove('ingame', 'crashmode');
+  if (round) destroyRound();
+  document.body.classList.remove('ingame', 'crashmode', 'roundmode');
   $('crashui').hidden = true;
+  $('roundui').hidden = true;
   $('pause').hidden = true;
   $('hud').hidden = true;
   $('menu').hidden = false;
@@ -775,11 +777,266 @@ function crashUpdate(dt, now) {
   return busy;
 }
 
+/* ---------------- boot preloader ----------------
+   Everything the first round needs is warmed here so no round ever pays a
+   lazy-load stall mid-scene: the physics module + Rapier wasm (2.2 MB), the
+   fx pools, and the showroom build. Start Game stays disabled until done.
+   The same progress UI is reused for the per-round pre-sim beat below. */
+let engine = null; // { mod, R } once physics is ready
+let preloaded = false;
+
+function bootStep(pct, msg) {
+  $('bootfill').style.width = Math.round(pct * 100) + '%';
+  $('bootmsg').textContent = msg;
+}
+
+async function preload() {
+  try {
+    bootStep(0.08, 'loading physics engine…');
+    const mod = await import('./physics.js');
+    bootStep(0.45, 'starting rapier…');
+    const R = await mod.loadRapier();
+    engine = { mod, R };
+    bootStep(0.62, 'warming effects…');
+    if (!crashFx) crashFx = initFX(scene, { small: smallScreen });
+    await new Promise((r) => setTimeout(r, 0)); // let the frame breathe
+    bootStep(0.78, 'building the yard…');
+    buildShowroom();
+    bootStep(1, 'ready');
+    preloaded = true;
+    $('boot').classList.add('done');
+    for (const id of ['startBtn', 'sceneBtn', 'crashBtn']) $(id).disabled = false;
+    $('menutag').textContent = 'bet on the physics · 200 models';
+  } catch (e) {
+    console.error('preload failed', e);
+    bootStep(1, 'failed to load — reload the page');
+  }
+}
+
+/* ---------------- scene round (G1) ----------------
+   deal → pre-sim (loading beat) → 10 s preview → freeze at the incident
+   tick → resolve to rest → outcome card. The pre-sim and the live view are
+   two separate sims built from the SAME scenario; determinism makes the
+   recorded event log describe exactly what the player watches. */
+let round = null; // { sim, scene, rec, phase, seed, d }
+let roundLoading = false;
+let roundSeedN = 0;
+
+const LOAD_LINES = [
+  'syncing dashcams…', 'pulling CCTV…', 'checking the traffic light…',
+  'reading skid marks…', 'winding the clock back…',
+];
+
+function roundLoad(show, pct, label, sub) {
+  const el = $('loading');
+  if (!show) { el.hidden = true; return; }
+  el.hidden = false;
+  if (label !== undefined) $('loadlabel').textContent = label;
+  if (pct !== undefined) $('loadfill').style.width = Math.round(pct * 100) + '%';
+  if (sub !== undefined) $('loadsub').textContent = sub;
+}
+
+function destroyRound() {
+  if (!round) return;
+  crashFx.reset();
+  crashFx.detachSim();
+  scene.remove(round.sim.root);
+  round.sim.dispose();
+  round = null;
+}
+
+function roundBox(sim) {
+  const bb = new THREE.Box3();
+  for (const car of sim.cars) bb.expandByPoint(car.wrap.position);
+  bb.expandByScalar(16);
+  bb.min.y = 0;
+  bb.max.y = Math.max(bb.max.y, 7);
+  return bb;
+}
+
+// deal a scene: generate → pre-sim headlessly behind the loading beat → play
+async function startScene(seedArg, dArg, wantFullscreen = true) {
+  if (roundLoading || !preloaded) return;
+  roundLoading = true;
+  try {
+    if (wantFullscreen && !document.fullscreenElement) {
+      try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch {}
+      try { await screen.orientation.lock('landscape'); } catch {}
+    }
+    const [{ generateScene, drawDifficulty, INCIDENT_TICK }, { recordScene }] = await Promise.all([
+      import('./director.js'), import('./recorder.js'),
+    ]);
+    const seed = seedArg != null ? String(seedArg) : 'r' + (++roundSeedN) + '-' + Math.floor(performance.now());
+    const d = dArg != null ? clamp(dArg, 1, 10) : drawDifficulty(makeRng('d:' + seed));
+    roundLoad(true, 0.05, LOAD_LINES[Math.floor(Math.random() * LOAD_LINES.length)], 'dealing scene ' + seed);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const sc = generateScene(seed, d);
+    roundLoad(true, 0.15, undefined, 'running the tape…');
+    // pre-sim in chunks so the loading bar actually animates on slow devices
+    const rec = await recordScene(engine.R, sc, catOfId, {
+      chunk: 90,
+      onProgress: (p) => roundLoad(true, 0.15 + p * 0.75, undefined, 'running the tape…'),
+    });
+    roundLoad(true, 0.95, undefined, 'cueing playback…');
+
+    destroyCrashSim();
+    destroyRound();
+    if (showroom) showroom.visible = false;
+    if (sc.world.env && ENVS.some((e) => e.id === sc.world.env)) env.apply(sc.world.env);
+    env.setGroundRadius(sc.world.ground || 90);
+
+    const sim = new engine.mod.CrashSim(engine.R, sc, catOfId);
+    sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick
+    round = { sim, scene: sc, rec, phase: 'preview', seed, d, resumeAt: 0 };
+    scene.add(sim.root);
+    crashFx.attach(sim);
+    hookRoundCinematics(sim);
+    sim.speed = 1;
+    sim.playing = true;
+
+    setCamMode('orbit');
+    inGame = true;
+    document.body.classList.add('ingame', 'roundmode');
+    $('menu').hidden = true;
+    $('hud').hidden = false;
+    $('pause').hidden = true;
+    $('crashui').hidden = true;
+    $('roundui').hidden = false;
+    $('freeze').hidden = true;
+    $('outcome').hidden = true;
+    $('sceneLv').textContent = 'LV ' + d;
+    $('sceneTopo').textContent = sc.meta.topo + ' · ' + sc.meta.label;
+    setRing(1, 10);
+    camera.position.set(0, 40, 90);
+    fitCamera(roundBox(sim), true);
+    roundLoad(false);
+    toast(`🎬 ${sc.meta.label} — LV ${d}`);
+    invalidate();
+  } catch (e) {
+    console.error('scene failed', e);
+    roundLoad(false);
+    toast('Scene failed to load');
+  } finally {
+    roundLoading = false;
+  }
+}
+
+// cinematics: reuse the crash-test language (auto slow-mo + one push-in)
+function hookRoundCinematics(sim) {
+  const fxImpact = sim.onImpact;
+  sim.onImpact = (car, ev) => {
+    fxImpact(car, ev);
+    const now = performance.now();
+    if (ev.dv > 6.5 && now > crashSlowLast + 5000) {
+      sim.speed = 0.28;
+      crashSlowT = now + 1200;
+      crashSlowLast = now;
+    }
+    if (ev.dv > 5 && !crashPushed) {
+      crashPushed = true;
+      if (!fly.on) {
+        fitCamera(new THREE.Box3(
+          new THREE.Vector3(ev.point.x - 10, 0, ev.point.z - 10),
+          new THREE.Vector3(ev.point.x + 10, 5, ev.point.z + 10),
+        ), false);
+      }
+    }
+  };
+}
+
+const RING_LEN = 119.4;
+function setRing(frac, secs) {
+  $('rfg').style.strokeDashoffset = String(RING_LEN * (1 - clamp(frac, 0, 1)));
+  $('ringT').textContent = String(Math.max(0, Math.ceil(secs)));
+  $('ring').classList.toggle('hot', secs <= 3);
+}
+
+// resume from the freeze — the incident fires and physics runs to rest
+function resumeRound() {
+  if (!round || round.phase !== 'freeze') return;
+  round.phase = 'resolve';
+  $('freeze').hidden = true;
+  round.sim.stopAt = null;
+  round.sim.playing = true;
+  crashPushed = false;
+  crashSlowT = 0;
+  setRing(0, 0);
+  invalidate();
+}
+
+function roundOutcome() {
+  const s = round.rec.summary;
+  const names = round.scene.cars.map((c) => c.type);
+  const bits = [];
+  bits.push(s.crashed ? `<b>${s.crashed}</b> vehicle${s.crashed === 1 ? '' : 's'} crashed` : '<b>no crash</b> — everyone walked');
+  if (s.propsMoved) bits.push(`<b>${s.propsMoved}</b> object${s.propsMoved === 1 ? '' : 's'} hit`);
+  if (s.anyFlip) bits.push('a <b>rollover</b>');
+  if (s.anyWheel) bits.push('a <b>wheel torn off</b>');
+  const first = s.perCar.findIndex((p) => p.crashedAt === s.firstCrashTick && p.crashedAt >= 0);
+  const sub = first >= 0 ? `first to go: the ${names[first]} · ${((s.firstCrashTick - 600) / 60).toFixed(1)}s after the incident` : round.scene.meta.tell;
+  $('outcome').innerHTML = bits.join(' · ') + `<span class="osub">${sub}</span>`;
+  $('outcome').hidden = false;
+}
+
+// per-frame round update — called from the frame loop
+function roundUpdate(dt, now) {
+  if (!round || !inGame) return false;
+  if (crashSlowT && now > crashSlowT) { round.sim.speed = 1; crashSlowT = 0; }
+  if (!$('pause').hidden) return false;
+  let busy = false;
+  const sim = round.sim;
+  sim.update(dt);
+  sim.syncVisuals();
+  if (crashFx.update(dt, camera)) busy = true;
+
+  if (round.phase === 'preview') {
+    const left = (600 - sim.tick) / 60;
+    setRing(sim.tick / 600, left);
+    busy = true;
+    if (!sim.playing) { // stopAt reached: the freeze
+      round.phase = 'freeze';
+      setRing(1, 0);
+      if (round.d >= 8) { // no study time at the top difficulties
+        resumeRound();
+      } else {
+        $('freeze').hidden = false;
+        fitCamera(roundBox(sim), false);
+      }
+    }
+  } else if (round.phase === 'resolve') {
+    busy = true;
+    // gentle auto-follow on the wreck centroid (orbit only)
+    if (!fly.on && sim.cars.length) {
+      _crashC.set(0, 0, 0);
+      for (const car of sim.cars) _crashC.add(car.wrap.position);
+      _crashC.divideScalar(sim.cars.length);
+      _crashC.y = Math.min(_crashC.y + 0.6, 3);
+      controls.target.lerp(_crashC, 1 - Math.pow(0.3, dt));
+    }
+    // the recorded rest tick is authoritative — the live sim reaches it too
+    if (sim.tick >= round.rec.restTick) {
+      round.phase = 'done';
+      sim.playing = false;
+      roundOutcome();
+      fitCamera(roundBox(sim), false);
+    }
+  }
+  return busy;
+}
+
+$('sceneBtn').addEventListener('click', () => startScene(null, null, true));
+$('fzGo').addEventListener('click', resumeRound);
+addEventListener('pointerdown', () => { if (round && round.phase === 'freeze') resumeRound(); });
+
 /* ---------------- keyboard ---------------- */
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'Escape' && inGame) showPause($('pause').hidden);
   if ((e.key === 'c' || e.key === 'C') && inGame) { setCamMode(fly.on ? 'orbit' : 'fly'); return; }
+  if (round && inGame && $('pause').hidden && (e.key === ' ' || e.code === 'Space') && round.phase === 'freeze') {
+    e.preventDefault(); resumeRound(); return;
+  }
   if (crash && inGame && $('pause').hidden) {
     if (e.key === 'r' || e.key === 'R') { replayCrash(); return; }
     if (e.key === 'n' || e.key === 'N') { nextCrash(1); return; }
@@ -824,6 +1081,7 @@ function frame(now) {
   }
   if (flyUpdate(dt)) animating = true;
   if (crashUpdate(dt, now)) animating = true;
+  if (roundUpdate(dt, now)) animating = true;
   // OrbitControls.update() re-aims the camera at its target even when the
   // handlers are disabled — never run it while the freecam owns the camera
   const moved = fly.on ? false : controls.update();
@@ -921,8 +1179,18 @@ if (q0.has('simtest')) {
     .catch((e) => console.error('SIM DETERMINISTIC: FAIL (error)', e));
 }
 
+// boot preload gates the menu buttons (skipped for the pure-build test hooks)
+if (!q0.has('smoke') && !q0.has('simtest') && !q0.has('sheet')) preload();
+
 if (q0.has('sheet')) contactSheet();
-else if (q0.has('crash')) { // dev: straight into crash mode (?crash=N picks the scene)
+else if (q0.has('scene')) {
+  // dev: straight into a round. ?scene=<seed>~<d> (both optional)
+  const [s, dRaw] = String(q0.get('scene') || '').split('~');
+  const dN = parseInt(dRaw, 10);
+  const go = () => startScene(s || null, Number.isFinite(dN) ? dN : null, false);
+  if (preloaded) go();
+  else { const t = setInterval(() => { if (preloaded) { clearInterval(t); go(); } }, 60); }
+} else if (q0.has('crash')) { // dev: straight into crash mode (?crash=N picks the scene)
   const n = parseInt(q0.get('crash'), 10);
   if (n >= 1 && n <= CRASH_SCENES.length) crashSceneIdx = n - 1;
   startCrash(false);
@@ -933,5 +1201,6 @@ window.__app = {
   renderer, scene, camera, controls, REG, env, fitCamera, invalidate,
   startGame, leaveGame, setCamMode, fly, flyUpdate, get showroom() { return showroom; },
   startCrash, nextCrash, replayCrash, get crash() { return crash; }, get crashFx() { return crashFx; },
+  startScene, resumeRound, get round() { return round; }, get preloaded() { return preloaded; },
   pump: (now) => frame(now),
 };

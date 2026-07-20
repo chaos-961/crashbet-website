@@ -28,9 +28,23 @@
     </svg>
     <h1 class="menutitle">CRASH <span>BET</span></h1>
     <p class="menutag" id="menutag">deterministic low-poly sandbox</p>
-    <button id="startBtn" class="mbtn primary big">▶&nbsp; Start Game</button>
-    <button id="crashBtn" class="mbtn big">💥&nbsp; Crash Test</button>
+    <button id="startBtn" class="mbtn primary big" disabled>▶&nbsp; Start Game</button>
+    <button id="sceneBtn" class="mbtn big" disabled>🎬&nbsp; Play a Scene</button>
+    <button id="crashBtn" class="mbtn big" disabled>💥&nbsp; Crash Test</button>
+    <div id="boot">
+      <div id="bootbar"><i id="bootfill"></i></div>
+      <p id="bootmsg">warming up…</p>
+    </div>
     <p class="menufoot">drag to orbit · pinch / scroll to zoom</p>
+  </div>
+</div>
+
+<!-- ============ round loading beat (pre-sim) ============ -->
+<div id="loading" hidden>
+  <div class="loadcard">
+    <p class="loadlabel" id="loadlabel">syncing dashcams…</p>
+    <div id="loadbar"><i id="loadfill"></i></div>
+    <p class="loadsub" id="loadsub"></p>
   </div>
 </div>
 
@@ -42,6 +56,23 @@
   <button id="camBtn" class="hambtn cambtn" aria-label="Toggle freecam" title="Freecam (C)">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5h9A1.5 1.5 0 0 1 14 10v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 15.5V10a1.5 1.5 0 0 1 1.5-1.5zM14 11.5l6-3v9l-6-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
   </button>
+  <!-- round HUD (scene mode): countdown ring + incident banner -->
+  <div id="roundui" hidden>
+    <div id="ring">
+      <svg viewBox="0 0 44 44" aria-hidden="true">
+        <circle class="rbg" cx="22" cy="22" r="19"/>
+        <circle class="rfg" id="rfg" cx="22" cy="22" r="19"/>
+      </svg>
+      <span id="ringT">10</span>
+    </div>
+    <div id="scenetag"><b id="sceneLv">LV 1</b><span id="sceneTopo">—</span></div>
+    <div id="freeze" hidden>
+      <p class="fzlabel">INCIDENT</p>
+      <button id="fzGo" class="mbtn primary">▶&nbsp; Resume</button>
+      <p class="fzhint">space / tap</p>
+    </div>
+    <div id="outcome" hidden></div>
+  </div>
   <!-- crash-test controls (visible only in crash mode) -->
   <div id="crashui" hidden>
     <button id="cReplay" class="hambtn crashbtn" aria-label="Replay crash" title="Replay (R)">⟳</button>

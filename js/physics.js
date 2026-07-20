@@ -12,6 +12,7 @@ import { makeDeformState, applyImpact, flushDeform } from './deform.js';
 import { buildProp } from './props.js';
 import { buildRoad } from './roads.js';
 import { generateWorld } from './worldgen.js';
+import { generateScene } from './director.js';
 
 export const STEP = 1 / 60;
 
@@ -327,6 +328,188 @@ export function makeStream(spec) {
   return (tick) => ({ steer, throttle: th, brake: 0 });
 }
 
+/* ---------------- driver controller (director era) ----------------
+   Closed-loop pure pursuit along a world-space polyline. Everything here is a
+   pure function of sim state + the drive spec, and uses ONLY +,-,*,/ and
+   Math.sqrt/min/max/abs — no transcendentals, so it is bit-deterministic across
+   JS engines, not just across runs (Math.sin/atan2 precision is engine-defined).
+
+   spec.drive = {
+     pts:  [x0,z0, x1,z1, ...]   flat world-coordinate polyline (the lane path)
+     v:    cruise target speed (m/s) — initial; also set spec.speed = v so the
+           existing launch path spawns the car already rolling
+     end:  'stop' | 'coast'      behaviour at path end (default 'stop')
+     cmds: [{t, v?, bias?, off?, noBrake?, brakeMax?}, ...] sorted by t —
+           sparse timeline overrides: target speed, steering bias (rad, added
+           to pursuit steer), driver off (no pedals, bias-only steer),
+           brake failure, emergency brake strength (default 1, slam ≈ 2.5)
+   } */
+function makeDriver(drive) {
+  const n = drive.pts.length >> 1;
+  const cum = new Float64Array(n); // cumulative arc length at each point
+  for (let i = 1; i < n; i++) {
+    const dx = drive.pts[i * 2] - drive.pts[i * 2 - 2];
+    const dz = drive.pts[i * 2 + 1] - drive.pts[i * 2 - 1];
+    cum[i] = cum[i - 1] + Math.sqrt(dx * dx + dz * dz);
+  }
+  return {
+    pts: drive.pts, n, cum, total: cum[n - 1],
+    end: drive.end || 'stop',
+    cmds: drive.cmds || [],
+    acc: drive.acc || 0, // ambient car-following; >1 = full-attention tick bound (see driveTick)
+    seg: 0, ci: 0,
+    vt: drive.v || 0, bias: 0, off: false, noBrake: false, brakeMax: 1,
+    done: false,
+  };
+}
+
+function driveTick(sim, car, tick) {
+  const d = car.driver;
+  while (d.ci < d.cmds.length && d.cmds[d.ci].t <= tick) {
+    const c = d.cmds[d.ci++];
+    if (c.v !== undefined) d.vt = c.v;
+    if (c.bias !== undefined) d.bias = c.bias;
+    if (c.off !== undefined) d.off = c.off;
+    if (c.noBrake !== undefined) d.noBrake = c.noBrake;
+    if (c.brakeMax !== undefined) d.brakeMax = c.brakeMax;
+  }
+  const v = car.veh.currentVehicleSpeed();
+  // shock: after a real hit the driver stops driving and just gets on the
+  // brake — wrecks settle instead of grinding against the pile forever
+  if (car.damage > 6) return { steer: 0, throttle: 0, brake: 0.9 };
+  // control lost (blowout etc.): locked steer, dragging to a stop — a car
+  // that never hits anything must still come to rest
+  if (d.off) return { steer: clamp(d.bias, -MAX_STEER, MAX_STEER), throttle: 0, brake: 0.1 };
+  const t = car.body.translation(), q = car.body.rotation();
+  // forward vector = quat * (1,0,0), arithmetic only
+  const hx = 1 - 2 * (q.y * q.y + q.z * q.z);
+  const hz = 2 * (q.x * q.z - q.w * q.y);
+  const P = d.pts;
+  // advance progress: hop segments whose end we have passed (projection > len)
+  let segFrac = 0;
+  while (true) {
+    const ax = P[d.seg * 2], az = P[d.seg * 2 + 1];
+    const bx = P[d.seg * 2 + 2], bz = P[d.seg * 2 + 3];
+    const dx = bx - ax, dz = bz - az;
+    const len2 = dx * dx + dz * dz;
+    const proj = len2 > 1e-9 ? ((t.x - ax) * dx + (t.z - az) * dz) / len2 : 1;
+    if (proj < 1 || d.seg >= d.n - 2) { segFrac = Math.max(0, Math.min(1, proj)); break; }
+    d.seg++;
+  }
+  // remaining path length from our projected position to the terminus
+  const segLen = d.cum[d.seg + 1] - d.cum[d.seg];
+  const remainPath = Math.max(0, d.total - (d.cum[d.seg] + segFrac * segLen));
+  // goal point: walk the lookahead distance along the polyline from our projection
+  const L = clamp(0.55 * Math.abs(v) + 2.5, 3.5, 13);
+  let gx = P[d.n * 2 - 2], gz = P[d.n * 2 - 1];
+  let remain = L;
+  let sx = t.x, sz = t.z; // walk start: our position projected forward is close enough
+  let reachedEnd = true;
+  for (let s = d.seg; s < d.n - 1; s++) {
+    const bx = P[s * 2 + 2], bz = P[s * 2 + 3];
+    const ex = bx - sx, ez = bz - sz;
+    const el = Math.sqrt(ex * ex + ez * ez);
+    if (el >= remain && el > 1e-9) {
+      const k = remain / el;
+      gx = sx + ex * k; gz = sz + ez * k;
+      reachedEnd = false;
+      break;
+    }
+    remain -= el;
+    sx = bx; sz = bz;
+  }
+  // end-of-path handling: anticipatory braking into the terminus (v² = 2·a·s),
+  // then hold once we are basically there
+  if (remainPath < 2.4) d.done = true;
+  let vt = d.vt;
+  if (d.end === 'stop') {
+    const vLim = Math.sqrt(2 * 3.6 * Math.max(0, remainPath - 1.2));
+    if (vLim < vt) vt = vLim;
+    if (d.done) vt = 0;
+  } else if (d.done) {
+    // coast out: off the pedals and rolling to a stop past the path end.
+    // Firm enough that the scene actually settles — a feather brake leaves
+    // cars trickling for thousands of ticks and the pre-sim never rests.
+    return { steer: clamp(d.bias, -MAX_STEER, MAX_STEER), throttle: 0, brake: 0.4 };
+  }
+  // pure pursuit: lateral offset of the goal in car frame → curvature → steer.
+  // cross(h, g) sign matches wheel-steer sign (verified against MAX_STEER turn
+  // direction in the sim, not assumed).
+  const ox = gx - t.x, oz = gz - t.z;
+  const gl = Math.sqrt(ox * ox + oz * oz);
+  let steer = d.bias;
+  if (gl > 0.6 && !d.done) {
+    const lat = hz * ox - hx * oz; // sign verified empirically (drivetest.mjs)
+    const kappa = (2 * lat) / (gl * L);
+    steer = clamp(kappa * (car.size.x * 0.55) + d.bias, -MAX_STEER, MAX_STEER);
+  }
+  // ambient car-following (spec.drive.acc): never plow into a slower car
+  // ahead during the preview — heavy casts can't hold their plan speed
+  // through bends, and over 10 s a 2 m/s deficit becomes a pre-incident
+  // rear-end. Detection probes MY OWN PATH (goal point, a far point, and
+  // their midpoint), not a straight-ahead cone: on a bend the car ahead sits
+  // metres off the heading axis, and opposing traffic 6.5 m off the path
+  // never triggers. After the incident tick attentiveness drops to panic
+  // range only, so cars still pile into fresh wrecks like real late brakers.
+  // Essential template cars never carry .acc — choreography is untouched.
+  // Arithmetic-only reads of sim state in fixed car order: deterministic.
+  if (d.acc && sim) {
+    const lookout = Math.abs(v) * 1.5 + 8;
+    // far probe: walk the polyline `lookout` metres from our projection
+    let fpx = P[d.n * 2 - 2], fpz = P[d.n * 2 - 1];
+    let rem2 = lookout, wx = t.x, wz = t.z;
+    for (let s = d.seg; s < d.n - 1; s++) {
+      const bx = P[s * 2 + 2], bz = P[s * 2 + 3];
+      const ex = bx - wx, ez = bz - wz;
+      const el = Math.sqrt(ex * ex + ez * ez);
+      if (el >= rem2 && el > 1e-9) { const k = rem2 / el; fpx = wx + ex * k; fpz = wz + ez * k; break; }
+      rem2 -= el; wx = bx; wz = bz;
+    }
+    const mpx = (gx + fpx) / 2, mpz = (gz + fpz) / 2;
+    const panic2 = (Math.abs(v) * 0.7 + 5) ** 2;
+    const tame = d.acc > 1 ? tick < d.acc : true; // acc = tick bound of full attention
+    for (const other of sim.cars) {
+      if (other === car) continue;
+      const to = other.body.translation();
+      const dMe2 = (to.x - t.x) ** 2 + (to.z - t.z) ** 2;
+      if (dMe2 > (lookout + 3) ** 2) continue;
+      // ahead of us at all? (behind-us traffic is its own problem)
+      if ((to.x - t.x) * hx + (to.z - t.z) * hz < 1.5) continue;
+      const onPath =
+        (to.x - gx) ** 2 + (to.z - gz) ** 2 < 13 ||
+        (to.x - mpx) ** 2 + (to.z - mpz) ** 2 < 13 ||
+        (to.x - fpx) ** 2 + (to.z - fpz) ** 2 < 13;
+      if (!onPath) continue;
+      // same-direction traffic only: reacting to crossing cars blipping
+      // through the probes shifts junction arrival times and breaks the
+      // conflict scrub's crossing-window guarantees (found on a d9
+      // intersection where the drift caused the pre-600 hit it "prevented")
+      const oq = other.body.rotation();
+      const ohx = 1 - 2 * (oq.y * oq.y + oq.z * oq.z);
+      const ohz = 2 * (oq.x * oq.z - oq.w * oq.y);
+      // 0.2 ≈ 78°: crossing traffic (≈90°) stays excluded, while same-lane
+      // pairs separated by a tight bend (large heading gap) still register
+      if (hx * ohx + hz * ohz < 0.2) continue;
+      // the leader's TRUE velocity projected on my heading — a truck crabbing
+      // sideways through a bend reads ~9 on its own odometer while making
+      // ~4 m/s of actual progress, and capping to the odometer still rear-ends
+      const olv = other.body.linvel();
+      const vo = olv.x * hx + olv.z * hz;
+      const closeIn = dMe2 < panic2;
+      if (!tame && !closeIn) continue; // post-incident: only panic range reacts
+      const cap = Math.max(0, vo - (closeIn && tame ? 1.5 : closeIn ? 0 : 0.3));
+      if (cap < vt) vt = cap;
+    }
+  }
+  // speed control
+  const dv = vt - v;
+  let throttle = clamp(dv * 0.42, 0, 1);
+  let brake = 0;
+  if (dv < -0.8 && !d.noBrake) brake = clamp(-dv * 0.5, 0, d.brakeMax);
+  if (d.done && d.end === 'stop' && Math.abs(v) < 0.4) { throttle = 0; brake = 1; }
+  return { steer, throttle, brake };
+}
+
 /* ---------------- the sim ---------------- */
 export class CrashSim {
   constructor(R, scenario, catOf) {
@@ -338,6 +521,7 @@ export class CrashSim {
     this.accum = 0;
     this.speed = 1; // slow-mo factor (0.25/0.5/1)
     this.playing = false;
+    this.stopAt = null; // freeze on this exact tick (round incident freeze)
     this.onImpact = null;  // (car, ev {point,dir,dv}) — big hit landed (deform already applied)
     this.onScrape = null;  // (car, ev {point,speed,dyn}) — metal grinding at speed (visual only)
     this.onGlass = null;   // (car, ev {type,point,r}) — pane cracked / shattered
@@ -354,19 +538,25 @@ export class CrashSim {
     this.world = new RAPIER.World({ x: 0, y: -(W.gravity == null ? 9.81 : W.gravity), z: 0 });
     this.world.timestep = STEP;
     this.events = new RAPIER.EventQueue(true);
+    // collider handle → what it belongs to, for impact attribution ({kind,
+    // rec?}; cars resolve through colToCar). Pure bookkeeping — never touches
+    // creation order, so hashes are unaffected.
+    this.colToObj = new Map();
     const g = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     this.groundCol = this.world.createCollider(
       RAPIER.ColliderDesc.cuboid(220, 1, 220).setTranslation(0, -1, 0).setFriction(0.9),
       g,
     );
+    this.colToObj.set(this.groundCol.handle, { kind: 'ground' });
     if (W.walls) {
       const half = (W.arena || 80) / 2;
       const wb = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
       for (const [x, z, rx, rz] of [[half + 1, 0, 1, half + 2], [-half - 1, 0, 1, half + 2], [0, half + 1, half + 2, 1], [0, -half - 1, half + 2, 1]]) {
-        this.world.createCollider(
+        const wc = this.world.createCollider(
           RAPIER.ColliderDesc.cuboid(rx, 6, rz).setTranslation(x, 6, z).setFriction(0.3).setRestitution(0.35),
           wb,
         );
+        this.colToObj.set(wc.handle, { kind: 'wall' });
       }
     }
     this.roads = [];
@@ -385,6 +575,7 @@ export class CrashSim {
   _addCarRig(spec) {
     const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type));
     rig.stream = makeStream(spec);
+    rig.driver = spec.drive ? makeDriver(spec.drive) : null;
     this.root.add(rig.wrap);
     for (const c of rig.colliders) this.colToCar.set(c.handle, rig);
     this.cars.push(rig);
@@ -397,16 +588,18 @@ export class CrashSim {
     const built = buildRoad(spec);
     this.root.add(built.group);
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    const rec = { spec, group: built.group, body, handles: [] };
     for (const s of built.shapes) {
-      this.world.createCollider(
+      const c = this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(s.he[0], s.he[1], s.he[2])
           .setTranslation(s.pos[0], s.pos[1], s.pos[2])
           .setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] })
           .setFriction(0.75).setRestitution(0.05),
         body,
       );
+      rec.handles.push(c.handle);
+      this.colToObj.set(c.handle, { kind: 'road', rec });
     }
-    const rec = { spec, group: built.group, body };
     this.roads.push(rec);
     return rec;
   }
@@ -420,7 +613,7 @@ export class CrashSim {
     built.group.rotation.y = yaw;
     this.root.add(built.group);
     built.group.updateMatrixWorld(true);
-    const rec = { spec, group: built.group, dyn: [], bodies: [] };
+    const rec = { spec, group: built.group, dyn: [], bodies: [], handles: [] };
     const _p = new THREE.Vector3(), _q = new THREE.Quaternion();
     for (const bd of built.bodies) {
       // body world pose = prop pose ∘ node local pose (+ optional rest height);
@@ -445,7 +638,10 @@ export class CrashSim {
         else if (s.kind === 'cyl') cd = RAPIER.ColliderDesc.cylinder(s.hh, s.r).setTranslation(s.pos[0], s.pos[1], s.pos[2]).setRotation({ x: s.rot[0], y: s.rot[1], z: s.rot[2], w: s.rot[3] });
         if (!cd) continue;
         cd.setFriction(bd.friction).setRestitution(bd.restitution).setDensity(1);
-        cols.push(this.world.createCollider(cd, body));
+        const c = this.world.createCollider(cd, body);
+        cols.push(c);
+        rec.handles.push(c.handle);
+        this.colToObj.set(c.handle, { kind: 'prop', rec });
       }
       if (!bd.fixed) {
         const m0 = body.mass();
@@ -467,7 +663,7 @@ export class CrashSim {
 
   stepOnce() {
     for (const car of this.cars) {
-      const inp = car.stream(this.tick);
+      const inp = car.driver ? driveTick(this, car, this.tick) : car.stream(this.tick);
       const v = car.veh.currentVehicleSpeed();
       let th = v < car.cat.vmax ? inp.throttle : 0;
       let brake = inp.brake;
@@ -480,11 +676,15 @@ export class CrashSim {
       if (this.tick >= car.brakeTick) { th = 0; brake = 1; }
       car.brakingNow = brake > 0.5; // render-side state for the fx layer
       car.throttleNow = th;         // (never read back into the sim)
+      // driven cars get real brake authority (input 1 ≈ firm stop, slam ≈
+      // emergency lockup); stream cars keep the legacy scale so the old
+      // scenario hashes never move
+      const brakeK = car.driver ? 0.055 : 0.02;
       for (let i = 0; i < car.wheelMeta.length; i++) {
         const m = car.wheelMeta[i];
         if (m.detached) { car.veh.setWheelEngineForce(i, 0); car.veh.setWheelBrake(i, 0); continue; }
         car.veh.setWheelEngineForce(i, th * car.engineF);
-        car.veh.setWheelBrake(i, brake * car.mass * 0.02);
+        car.veh.setWheelBrake(i, brake * car.mass * brakeK);
         // bent wheels track crooked — misalignment adds onto driver steering
         if (m.steer) car.veh.setWheelSteering(i, inp.steer + m.bent);
         else if (m.bent !== 0) car.veh.setWheelSteering(i, m.bent);
@@ -558,7 +758,15 @@ export class CrashSim {
             const pt = manifold.solverContactPoint(0);
             const n = manifold.normal(); // points collider1 → collider2
             const s = flipped ? 1 : -1;  // push INTO our car
-            const ev = { point: pt, dir: { x: n.x * s, y: n.y * s, z: n.z * s }, dv };
+            // attribution: what did we hit? (cars via colToCar, rest via colToObj)
+            const oCar = this.colToCar.get(other);
+            const oObj = oCar ? null : this.colToObj.get(other);
+            const ev = {
+              point: pt, dir: { x: n.x * s, y: n.y * s, z: n.z * s }, dv,
+              other: oCar ? { kind: 'car', i: this.cars.indexOf(oCar) }
+                : oObj ? { kind: oObj.kind, i: oObj.rec ? (oObj.kind === 'prop' ? this.props.indexOf(oObj.rec) : this.roads.indexOf(oObj.rec)) : -1 }
+                  : { kind: 'unknown', i: -1 },
+            };
             applyImpact(car.deform, ev, bodyPos, bodyQuat);
             hit = true;
             // damage bookkeeping (wrap-local impact point)
@@ -656,6 +864,7 @@ export class CrashSim {
     const m0 = body.mass();
     const target = clamp(18 + m.r * m.r * m.w * 480, 15, 160);
     if (m0 > 1e-6) for (const c of cols) c.setDensity(target / m0);
+    for (const c of cols) this.colToObj.set(c.handle, { kind: 'debris' });
     // visual wheels of this cluster leave the car and follow the debris body
     const node = new THREE.Group();
     this.root.add(node);
@@ -669,19 +878,24 @@ export class CrashSim {
       }
     }
     this.debris.push({
-      car, body, node, r: m.r,
+      car, body, node, r: m.r, handles: cols.map((c) => c.handle),
       prev: { p: wp.clone(), q: q.clone() },
       cur: { p: wp.clone(), q: q.clone() },
     });
     if (this.onDetach) this.onDetach(car, { point: { x: wp.x, y: wp.y, z: wp.z }, r: m.r, speed: vel.length() });
   }
 
-  // wall-clock update with accumulator; render-rate independent
+  // wall-clock update with accumulator; render-rate independent.
+  // stopAt: freeze on an EXACT tick (the round's incident freeze) — the loop
+  // never steps past it, no matter the frame rate.
   update(dtWall) {
     if (!this.playing) return false;
     this.accum += Math.min(dtWall, 0.1) * this.speed;
     let n = 0;
-    while (this.accum >= STEP && n < 6) { this.stepOnce(); this.accum -= STEP; n++; }
+    while (this.accum >= STEP && n < 6) {
+      if (this.stopAt != null && this.tick >= this.stopAt) { this.playing = false; this.accum = 0; break; }
+      this.stepOnce(); this.accum -= STEP; n++;
+    }
     if (n === 6) this.accum = 0; // hitched frame: drop backlog, sim state stays exact
     return n > 0;
   }
@@ -792,6 +1006,7 @@ export class CrashSim {
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i];
       if (d.car !== car) continue;
+      for (const h of d.handles) this.colToObj.delete(h);
       this.world.removeRigidBody(d.body);
       this.root.remove(d.node);
       disposeGroup(d.node);
@@ -815,6 +1030,7 @@ export class CrashSim {
   }
 
   _disposePropRig(rec) {
+    for (const h of rec.handles) this.colToObj.delete(h);
     for (const b of rec.bodies) this.world.removeRigidBody(b);
     for (const d of rec.dyn) { this.root.remove(d.node); disposeGroup(d.node); }
     this.root.remove(rec.group);
@@ -846,6 +1062,7 @@ export class CrashSim {
   }
 
   _disposeRoadRig(rec) {
+    for (const h of rec.handles) this.colToObj.delete(h);
     this.world.removeRigidBody(rec.body); // frees its colliders too
     this.root.remove(rec.group);
     disposeGroup(rec.group);
@@ -991,6 +1208,14 @@ export const TEST_SCENARIOS = {
       { seed: '21', type: 'suv', x: 0, z: -24, heading: Math.PI / 2, speed: 26, throttle: 1, steer: 0.12 },
     ],
   },
+  // G1 director era: a full generated round (driven cars on a signalized
+  // intersection, incident firing at tick 600) must replay bit-exact. This
+  // pins the driver controller AND the scene generator — any drift in lane
+  // extraction, placement or pure-pursuit math moves the hash.
+  director: (() => {
+    const sc = generateScene('pin-1', 4);
+    return { world: sc.world, roads: sc.roads, props: sc.props, cars: sc.cars };
+  })(),
   // world-building P3: a full generated suburb must replay bit-exact — this
   // also pins the generator itself (layout drift changes the hash)
   worldgen: (() => {

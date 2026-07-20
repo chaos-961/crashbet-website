@@ -280,13 +280,27 @@ export function initEnv(ctx) {
   let current = null;
   let deco = null;
   let sky = null;
+  const GROUND_R0 = 90;
+  let groundR = GROUND_R0;
   const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(90, 48),
+    new THREE.CircleGeometry(GROUND_R0, 48),
     new THREE.MeshStandardMaterial({ roughness: 0.96 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   ctx.scene.add(ground);
+
+  // director scenes need long approach roads (10 s of run-up at road speed
+  // is >100 m), so the disc grows on request. Visual only — the physics
+  // ground collider is already 220 m half-extent.
+  function setGroundRadius(r) {
+    r = Math.max(GROUND_R0, Math.round(r));
+    if (r === groundR) return;
+    groundR = r;
+    ground.geometry.dispose();
+    ground.geometry = new THREE.CircleGeometry(r, 48);
+    ctx.invalidate();
+  }
 
   const state = { fogN: BASE.fogN, fogF: BASE.fogF, fk: 1 };
 
@@ -343,5 +357,5 @@ export function initEnv(ctx) {
     if (sky) sky.position.copy(pos);
   }
 
-  return { apply, setFogScale, syncSky, state, get current() { return current; } };
+  return { apply, setFogScale, setGroundRadius, syncSky, state, get current() { return current; } };
 }

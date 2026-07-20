@@ -23,7 +23,7 @@ import { roadCurve } from './roads.js';
 export const WORLD_PRESETS = [
   { id: 'suburb', label: '🏘 Suburb', env: 'proving', arena: 120 },
   { id: 'city', label: '🏙 City', env: 'grid', arena: 110 },
-  { id: 'highway', label: '🛣 Highway', env: 'salt', arena: 140 },
+  { id: 'highway', label: '🛣 Highway', env: 'salt', arena: 290 },
 ];
 export const isWorldPreset = (id) => WORLD_PRESETS.some((p) => p.id === id);
 
@@ -187,8 +187,11 @@ function city(r, props) {
 
 /* ---------------- highway: sweeping divided road + work zone ---------------- */
 function highway(r, props) {
-  const half = 64;
-  const z0 = r.range(-8, 8), amp = r.range(10, 18) * r.pick([1, -1]);
+  // long enough for a director round: a 10 s approach at highway speed eats
+  // >110 m of road, and oncoming traffic needs the same again — the old ±64
+  // span could host neither (every highway scene played out on empty asphalt)
+  const half = 130;
+  const z0 = r.range(-10, 10), amp = r.range(14, 26) * r.pick([1, -1]);
   const road = {
     w: 13, loop: 0, style: 1, // wide, double yellow
     pts: [
@@ -200,14 +203,15 @@ function highway(r, props) {
   };
   const curve = roadCurve(road);
   const L = curve.getLength();
+  const uM = (m) => m / L; // arc metres → curve fraction: spacing stays metric
 
   props.push(place('sign_highway', frameOn(curve, 0.06), 9.4, 'road', r));
   props.push(place('sign_speed', frameOn(curve, 0.2), -9.2, 'road', r));
 
   // guardrails hug the two apex stretches (outside of each bend)
   for (const [u0, side] of [[0.28, Math.sign(amp)], [0.62, -Math.sign(amp)]]) {
-    for (let i = 0; i < 4; i++) {
-      const f = frameOn(curve, u0 + i * 0.035);
+    for (let i = 0; i < 6; i++) {
+      const f = frameOn(curve, u0 + i * uM(5.1));
       props.push(place('guardrail', f, side * 8.6, 'along', r, 0.03));
     }
   }
@@ -215,21 +219,21 @@ function highway(r, props) {
   // work zone: vms → barricade → cone taper into the outer lane → arrow board
   const wz = r.range(0.55, 0.68);
   const wSide = r.pick([1, -1]);
-  props.push(place('vms_board', frameOn(curve, wz - 0.1), wSide * 8.8, 'road', r));
-  props.push(place('barricade', frameOn(curve, wz - 0.045), wSide * 5.2, 'along', r));
+  props.push(place('vms_board', frameOn(curve, wz - uM(14.5)), wSide * 8.8, 'road', r));
+  props.push(place('barricade', frameOn(curve, wz - uM(6.5)), wSide * 5.2, 'along', r));
   for (let i = 0; i < 5; i++) {
-    const f = frameOn(curve, wz - 0.03 + i * 0.016);
+    const f = frameOn(curve, wz - uM(4.4) + i * uM(2.35));
     props.push(place('cone', f, wSide * (5 - i * 0.75), 'along', r, 0.4));
   }
-  props.push(place('arrow_board', frameOn(curve, wz + 0.06), wSide * 3.4, 'along', r));
-  props.push(place('barrier_water', frameOn(curve, wz + 0.1), wSide * 4.4, 'along', r, 0.05));
+  props.push(place('arrow_board', frameOn(curve, wz + uM(8.7)), wSide * 3.4, 'along', r));
+  props.push(place('barrier_water', frameOn(curve, wz + uM(14.5)), wSide * 4.4, 'along', r, 0.05));
 
   props.push(place('billboard', frameOn(curve, 0.82), -13.5, 'road', r));
   for (let i = 0; i < 4; i++) {
-    props.push(place('delineator', frameOn(curve, 0.86 + i * 0.028), 7.6, 'along', r));
+    props.push(place('delineator', frameOn(curve, 0.86 + i * uM(4.1)), 7.6, 'along', r));
   }
   // sparse nature filler
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 10; i++) {
     const f = frameOn(curve, r.range(0.05, 0.95));
     props.push(place(r.pick(['rock', 'tree_pine', 'reeds', 'bush', 'tree_cypress']),
       f, r.pick([1, -1]) * r.range(15, 26), 'away', r, 0.9));

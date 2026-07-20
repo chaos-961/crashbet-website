@@ -576,3 +576,108 @@ input[type="range"]::-moz-range-thumb {
   /* the centered pill collides with the button row at phone widths — drop it below */
   #dmgHud { font-size: 13px; padding: 6px 12px; top: calc(58px + env(safe-area-inset-top)); }
 }
+
+/* ============ boot preloader (main menu) ============ */
+#boot { margin-top: 14px; width: 100%; }
+#bootbar {
+  height: 5px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+#bootfill {
+  display: block; height: 100%; width: 0%;
+  background: var(--accent-grad); border-radius: 999px;
+  transition: width 0.25s ease;
+}
+#bootmsg {
+  margin: 7px 0 0; font-size: 12px; letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.55); font-variant-numeric: tabular-nums;
+}
+#boot.done { display: none; }
+.mbtn[disabled] { opacity: 0.4; pointer-events: none; }
+
+/* ============ round loading beat (pre-sim) ============ */
+#loading {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(8, 9, 12, 0.93);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+}
+#loading[hidden] { display: none; }
+.loadcard { width: min(360px, 78vw); text-align: center; }
+.loadlabel {
+  margin: 0 0 12px; font-size: 15px; font-weight: 700; letter-spacing: 0.05em;
+  color: #ffcf8a;
+}
+#loadbar {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+#loadfill {
+  display: block; height: 100%; width: 0%;
+  background: var(--accent-grad); border-radius: 999px;
+  transition: width 0.2s linear;
+}
+.loadsub {
+  margin: 10px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums; min-height: 15px;
+}
+
+/* ============ round HUD (scene mode) ============ */
+#roundui[hidden] { display: none; }
+#ring {
+  position: fixed; z-index: 30; left: 50%; transform: translateX(-50%);
+  top: calc(12px + env(safe-area-inset-top));
+  width: 54px; height: 54px; display: grid; place-items: center;
+  pointer-events: none;
+}
+#ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+#ring .rbg { fill: rgba(10, 12, 16, 0.66); stroke: rgba(255, 255, 255, 0.12); stroke-width: 3; }
+#ring .rfg {
+  fill: none; stroke: url(#ringgrad); stroke: #ffb03a; stroke-width: 3.4;
+  stroke-linecap: round; stroke-dasharray: 119.4; stroke-dashoffset: 0;
+}
+#ring.hot .rfg { stroke: #ff5a3d; }
+#ringT {
+  position: relative; font-size: 19px; font-weight: 800; color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+#scenetag {
+  position: fixed; z-index: 30; left: 50%; transform: translateX(-50%);
+  top: calc(72px + env(safe-area-inset-top));
+  display: flex; gap: 8px; align-items: center;
+  padding: 5px 13px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  font-size: 12px; letter-spacing: 0.05em; pointer-events: none;
+  white-space: nowrap;
+}
+#scenetag b { color: #ffcf8a; }
+#scenetag span { color: rgba(255, 255, 255, 0.6); text-transform: capitalize; }
+#freeze {
+  position: fixed; z-index: 40; inset: 0; display: grid; place-content: center;
+  justify-items: center; gap: 4px;
+  background: rgba(8, 9, 12, 0.42);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+#freeze[hidden] { display: none; }
+.fzlabel {
+  margin: 0 0 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.34em;
+  color: #ff8a5a; text-indent: 0.34em;
+}
+.fzhint { margin: 8px 0 0; font-size: 11px; color: rgba(255, 255, 255, 0.4); }
+#outcome {
+  position: fixed; z-index: 40; left: 50%; transform: translateX(-50%);
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  padding: 12px 20px; border-radius: 16px; text-align: center;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  font-size: 14px; line-height: 1.5; max-width: min(460px, 88vw);
+}
+#outcome[hidden] { display: none; }
+#outcome b { color: #ffcf8a; }
+#outcome .osub { display: block; margin-top: 3px; font-size: 12px; color: rgba(255, 255, 255, 0.5); }
+@media (max-width: 560px) {
+  #ring { width: 46px; height: 46px; }
+  #ringT { font-size: 16px; }
+  #scenetag { top: calc(62px + env(safe-area-inset-top)); font-size: 11px; }
+  #outcome { font-size: 13px; padding: 10px 15px; }
+}

@@ -168,7 +168,12 @@ function treeRound(r, M) {
     g.add(c2);
   }
   const H = tH + R1 * 1.85;
+  // root plate: a thin trunk cyl under a heavy canopy box self-topples from
+  // solver jitter alone (found by the G1 director sweeps — trees fell across
+  // lanes in empty scenes). The wide low plate keeps it standing at rest but
+  // a car strike still tips it past the ~15° topple angle easily.
   return { g, bodies: dynGround(g, H, 380 + R1 * 260, [
+    cylSh(0.16, 0.55, 0, 0.16, 0),
     cylSh(H / 2, tR * 2.1, 0, H / 2, 0),
     boxSh(R1 * 0.6, R1 * 0.58, R1 * 0.6, 0, tH + R1 * 0.85, 0),
   ], { fr: 0.7, rest: 0.08 }) };
@@ -199,6 +204,7 @@ function treeOak(r, M) {
   }
   const H = tH + R * 1.85;
   return { g, bodies: dynGround(g, H, 700 + R * 300, [
+    cylSh(0.16, 0.7, 0, 0.16, 0), // root plate (see treeRound)
     cylSh(H / 2, tR * 1.9, 0, H / 2, 0),
     boxSh(R * 0.85, R * 0.6, R * 0.85, 0, tH + R * 0.8, 0),
   ], { fr: 0.7, rest: 0.08 }) };
@@ -242,7 +248,10 @@ function treeCypress(r, M) {
   top.position.y = tH + H1 * 0.96;
   g.add(top);
   const H = tH + H1 * 1.1;
-  return { g, bodies: dynGround(g, H, 340, [cylSh(H / 2, 0.4, 0, H / 2, 0)], { fr: 0.7, rest: 0.06 }) };
+  return { g, bodies: dynGround(g, H, 340, [
+    cylSh(0.16, 0.5, 0, 0.16, 0), // root plate (see treeRound)
+    cylSh(H / 2, 0.4, 0, H / 2, 0),
+  ], { fr: 0.7, rest: 0.06 }) };
 }
 function treePalm(r, M) {
   const g = new THREE.Group();
@@ -280,6 +289,7 @@ function treePalm(r, M) {
   }
   const H = topY + 0.5;
   return { g, bodies: dynGround(g, H, 420, [
+    cylSh(0.16, 0.5, 0, 0.16, 0), // root plate (see treeRound)
     cylSh(H / 2, 0.18, topX / 2, H / 2, 0),
     boxSh(0.7, 0.25, 0.7, topX, topY, 0),
   ], { fr: 0.7, rest: 0.08 }) };
@@ -298,6 +308,7 @@ function treeBlossom(r, M) {
   g.add(c2);
   const H = tH + R * 1.75;
   return { g, bodies: dynGround(g, H, 360 + R * 200, [
+    cylSh(0.16, 0.55, 0, 0.16, 0), // root plate (see treeRound)
     cylSh(H / 2, 0.24, 0, H / 2, 0),
     boxSh(R * 0.62, R * 0.5, R * 0.62, 0, tH + R * 0.85, 0),
   ], { fr: 0.7, rest: 0.08 }) };
@@ -1010,11 +1021,13 @@ function trafficLight(r, M) {
   };
   makeHead(2.95, 4.42);
   makeHead(0.16, 3.35);
-  return { g, bodies: dynGround(g, 5.35, 260, [
+  // bolted down: a 5 m mast on a 9 cm base can't balance as a dynamic body —
+  // it self-topples at spawn (found by the G1 director sweeps)
+  return { g, bodies: fixedBody(g, [
     cylSh(2.55, 0.09, 0, 2.55, 0),
     boxSh(1.62, 0.05, 0.05, 1.65, 4.95, 0),
     boxSh(0.13, 0.42, 0.16, 2.98, 4.42, 0),
-  ], { fr: 0.5, rest: 0.08 }) };
+  ], 0.5, 0.08) };
 }
 function hydrant(r, M) {
   const g = new THREE.Group();
@@ -2571,10 +2584,11 @@ function lampCobra(r, M) {
   const lens = box(M('#fff2cf', { rough: 0.3, emissive: '#ffe9b0', emInt: 1.2 }), 0.4, 0.03, 0.16);
   lens.position.set(1.32, 4.66, 0);
   g.add(lens);
-  return { g, bodies: dynGround(g, 4.8, 130, [
+  // bolted down (same self-topple issue as the traffic light masts)
+  return { g, bodies: fixedBody(g, [
     cylSh(2.35, 0.07, 0, 2.35, 0),
     boxSh(0.32, 0.06, 0.13, 1.28, 4.72, 0),
-  ], { fr: 0.5, rest: 0.1 }) };
+  ], 0.5, 0.1) };
 }
 function streetClock(r, M) {
   const g = new THREE.Group();
@@ -2844,10 +2858,11 @@ function trafficLightPed(r, M) {
   const dot = cyl(M('#c9302c', { rough: 0.4 }), { r: 0.022, len: 0.03, axis: 'x', seg: 6 });
   dot.position.set(0.1, 1.12, 0);
   g.add(dot);
-  return { g, bodies: dynGround(g, 2.75, 42, [
+  // bolted down (same self-topple issue as the traffic light masts)
+  return { g, bodies: fixedBody(g, [
     cylSh(1.36, 0.055, 0, 1.36, 0),
     boxSh(0.1, 0.24, 0.17, 0, 2.5, 0),
-  ], { fr: 0.5, rest: 0.2 }) };
+  ], 0.5, 0.2) };
 }
 function barrelDrum(r, M) {
   const g = new THREE.Group();
@@ -3137,6 +3152,29 @@ function cellTower(r, M) {
 }
 
 /* ================= registry ================= */
+/* junction infill: bare asphalt square filling the gap where road stubs meet
+   (roads must never overlap — same-height asphalt z-fights, see P3 notes).
+   Top sits at 0.020, 2 mm under the road ribbon (0.022), so even a slight
+   stub overlap never flickers. Fixed 13 m — the director's intersection
+   geometry is sized around it. Visual only: no colliders. */
+function asphaltPatch(r, M) {
+  const g = new THREE.Group();
+  const slab = box(M('#3d4046', { rough: 0.96, env: 0.3 }), 13, 0.04, 13);
+  slab.position.y = 0; // top face at 0.020
+  g.add(slab);
+  // faint tire-polish lanes through the box (render-only detail)
+  const wear = M('#34373c', { rough: 0.97, env: 0.25 });
+  for (let i = 0; i < 2; i++) {
+    const s = box(wear, 12.4, 0.004, 0.9 + r.range(0, 0.5));
+    s.position.set(0, 0.021, (i === 0 ? -1 : 1) * (1.1 + r.range(0, 0.4)));
+    g.add(s);
+    const s2 = box(wear, 0.9 + r.range(0, 0.5), 0.004, 12.4);
+    s2.position.set((i === 0 ? -1 : 1) * (1.1 + r.range(0, 0.4)), 0.0215, 0);
+    g.add(s2);
+  }
+  return { g, bodies: [] };
+}
+
 const NAT = 'Nature', SUB = 'Suburbia', CITY = 'Street & City', TRAF = 'Signs & Traffic';
 export const SCENERY = [
   { id: 'tree_round', label: 'Tree', icon: '🌳', cat: NAT, build: treeRound },
@@ -3248,6 +3286,7 @@ export const SCENERY = [
   { id: 'scaffolding', label: 'Scaffolding', icon: '🏗️', cat: TRAF, build: scaffolding },
   { id: 'pallet', label: 'Loaded Pallet', icon: '📦', cat: TRAF, build: pallet },
   { id: 'cell_tower', label: 'Cell Tower', icon: '📡', cat: TRAF, build: cellTower },
+  { id: 'asphalt_patch', label: 'Asphalt Patch', icon: '⬛', cat: CITY, build: asphaltPatch },
 ];
 
 export const isScenery = (kind) => SCENERY.some((s) => s.id === kind);

@@ -490,7 +490,11 @@ export function initFX(scene, opts = {}) {
       if (speed > 4 && car.vis.length) {
         _v2.set(0, 0, 1).applyQuaternion(car.wrap.quaternion);
         const lat = Math.abs(lv.x * _v2.x + lv.z * _v2.z);
-        const skidding = lat > 3.4 || (car.brakingNow && speed > 6);
+        // a slide is a slip ANGLE, not an absolute lateral speed: driven cars
+        // cornering an S-curve at 12 m/s sit just over a flat 3.4 threshold
+        // and carpeted the entire director-round road in skid quads. 0.34 ≈
+        // sin 20° — crash shoves read far above it, honest cornering far below.
+        const skidding = lat > Math.max(4.2, speed * 0.34) || (car.brakingNow && speed > 6);
         if (skidding) {
           busy = true;
           for (const v of car.vis) {

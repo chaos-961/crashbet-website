@@ -1,10 +1,10 @@
 // Crash Bet service worker — network-first, cache fallback (offline PWA)
-const CACHE = 'crash-bet-v4'; // v4: freecam + procedural skybox
+const CACHE = 'crash-bet-v5'; // v5: G1 incident engine (director/recorder/fx cached)
 const ASSETS = [
   '.', 'index.html', 'css/style.css', 'icon.svg', 'manifest.webmanifest',
   'js/main.js', 'js/lib.js', 'js/parts.js', 'js/families.js', 'js/vehicles.js', 'js/names.js',
   'js/physics.js', 'js/deform.js', 'js/editor.js', 'js/props.js', 'js/env.js',
-  'js/scenery.js', 'js/roads.js', 'js/worldgen.js',
+  'js/scenery.js', 'js/roads.js', 'js/worldgen.js', 'js/fx.js', 'js/director.js', 'js/recorder.js',
   'libs/three.module.js', 'libs/OrbitControls.js', 'libs/RoomEnvironment.js',
   'libs/GLTFExporter.js', 'libs/TextureUtils.js', 'libs/rapier3d-compat.module.js',
 ];
