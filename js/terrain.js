@@ -127,6 +127,7 @@ export const isTerrain = (id) => Object.prototype.hasOwnProperty.call(TERRAINS, 
 // which landscape suits which environment preset, when a scene doesn't say
 export const TERRAIN_FOR_ENV = {
   proving: 'rolling', salt: 'flats', night: 'rolling', grid: 'flats',
+  city: 'rolling',
 };
 
 const RIDGE_AT = 255;   // distant band starts lifting here…
@@ -184,9 +185,18 @@ export function buildTerrain(spec, opts = {}) {
   const r1 = spec.outerR || 420;
   const p = field.preset;
 
-  // radii, packed toward the inner edge
+  /* Radii. In annulus mode (r0 > 0) every ring is outside playR and packs
+     toward the inner edge. As the ground (r0 = 0) a third of the rings are
+     spent on the flat play area — they carry no displacement, but they carry
+     the surface colour ramp, and that is what stops the apron reading as one
+     stretched gradient. The rest still pack as u^1.7 just outside playR. */
   const rad = new Float64Array(rings + 1);
-  for (let j = 0; j <= rings; j++) rad[j] = r0 + (r1 - r0) * Math.pow(j / rings, 1.7);
+  const nIn = r0 > 0 ? 0 : Math.round(rings * 0.34);
+  const rIn = r0 > 0 ? r0 : field.playR;
+  for (let j = 0; j <= rings; j++) {
+    if (j < nIn) rad[j] = rIn * (j / nIn);
+    else { const u = (j - nIn) / (rings - nIn); rad[j] = rIn + (r1 - rIn) * Math.pow(u, 1.7); }
+  }
 
   // sample the grid once; slope then comes from neighbours for free rather
   // than from four extra noise evaluations per vertex
@@ -234,7 +244,18 @@ export function buildTerrain(spec, opts = {}) {
   // coin dropped on grass. Fading the terrain out of the disc's own outer
   // colour over the first `blendR` metres makes the apron give way to the
   // country instead. (1F removes the seam properly by deleting the disc.)
-  const cBlend = opts.blend ? new THREE.Color(opts.blend) : null;
+  /* Surface colour of the play area, as a radial ramp in world units. As the
+     ground (r0 = 0) this replaces the old CanvasTexture gradient outright, and
+     takes ledger #4 with it: setGroundRadius rebuilt the disc geometry but
+     never rescaled its texture, so the same gradient stretched identically
+     over 90 m or 167 m. This ramp is parameterised by playR and cannot fall
+     out of step. In annulus mode it degenerates to exactly the old behaviour —
+     the outer stop at the inner rim, fading into the landscape over blendR. */
+  const gs = opts.ground || null;
+  const cG0 = gs ? new THREE.Color(gs[0]) : null;
+  const cG1 = gs ? new THREE.Color(gs[1]) : null;
+  const cG2 = gs ? new THREE.Color(gs[2]) : null;
+  const cGnd = new THREE.Color();
   const blendR = opts.blendR == null ? 95 : opts.blendR;
   // Baked vertex colours cannot respond to the lighting rig the way a lit
   // surface does, so under the night preset a daylight-green hillside stayed
@@ -262,7 +283,15 @@ export function buildTerrain(spec, opts = {}) {
     }
     if (cShore) tmp.lerp(cShore, 1 - smoothstep(0, p.shoreTo, h));
     const d = Math.sqrt(PX[k] * PX[k] + PZ[k] * PZ[k]);
-    if (cBlend) tmp.lerp(cBlend, 1 - smoothstep(r0, r0 + blendR, d));
+    if (cG0) {
+      const gm = 1 - smoothstep(field.playR, field.playR + blendR, d);
+      if (gm > 0) {
+        const t = clamp01(d / field.playR);
+        if (t < 0.55) cGnd.lerpColors(cG0, cG1, t / 0.55);
+        else cGnd.lerpColors(cG1, cG2, (t - 0.55) / 0.45);
+        tmp.lerp(cGnd, gm);
+      }
+    }
     // aerial perspective — the far band desaturates toward the sky it sits
     // against, which is most of what sells distance in a fogged scene. Kept
     // well under half: at 0.62 the ridges washed out into the dome entirely.
@@ -271,6 +300,7 @@ export function buildTerrain(spec, opts = {}) {
   }
 
   const quads = rings * spokes;
+  const fan = rad[0] === 0; // ground mode — ring 0 is the origin
   const pos = new Float32Array(quads * 18); // 2 tris × 3 verts × 3 floats
   const col = new Float32Array(quads * 18);
   const c00 = [0, 0, 0], c10 = [0, 0, 0], c01 = [0, 0, 0], c11 = [0, 0, 0];
@@ -292,23 +322,31 @@ export function buildTerrain(spec, opts = {}) {
       // (00, 01, 11) order gives a normal of -y and the whole landscape is
       // backface-culled when seen from above — present, lit, invisible.
       push(k00, c00); push(k11, c11); push(k01, c01);
-      push(k00, c00); push(k10, c10); push(k11, c11);
+      // As the ground, ring 0 collapses to the origin: every vertex on it is
+      // the same point, so this second triangle is zero-area. Emitting it
+      // would hand computeVertexNormals a zero-length normal and leave a black
+      // speck at the scene centre. Ring 0 becomes a proper triangle fan.
+      if (!(fan && j === 0)) { push(k00, c00); push(k10, c10); push(k11, c11); }
     }
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  // the fan leaves the tail unfilled — trim, or it renders as a pile of
+  // zero-area triangles sitting at the origin
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos.subarray(0, o), 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col.subarray(0, o), 3));
   geo.computeVertexNormals(); // non-indexed ⇒ flat per-triangle normals
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.97, metalness: 0,
   }));
-  // nothing casts onto the far field and the shadow frustum is sized to the
-  // scene, so both shadow passes here would be pure cost
+  // Nothing casts onto the far field, so casting is pure cost. Receiving is
+  // not optional once this IS the ground — the shadow frustum only covers the
+  // scene, but that is exactly where the cars are, and without it they lose
+  // their contact shadows entirely.
   mesh.castShadow = false;
-  mesh.receiveShadow = false;
+  mesh.receiveShadow = r0 === 0;
   mesh.matrixAutoUpdate = false;
   mesh.updateMatrix();
   mesh.renderOrder = -5;

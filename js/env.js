@@ -11,6 +11,13 @@ export const ENVS = [
   { id: 'salt', label: 'Salt Flat' },
   { id: 'night', label: 'Night Lot' },
   { id: 'grid', label: 'Grid' },
+  // Ledger #5: topoIntersection and topoRoundabout have always asked for
+  // 'city' (director.js:267, 478) and always silently got 'proving', because
+  // apply() falls back on an unknown id. Two of ten topologies were rendering
+  // in the wrong environment. The director was right and the preset was
+  // missing — so add the preset rather than edit the director, which keeps
+  // every generated scenario byte-identical.
+  { id: 'city', label: 'City Overcast' },
 ];
 export const isEnv = (id) => ENVS.some((e) => e.id === id);
 
@@ -40,6 +47,13 @@ const PRESETS = {
     bg: '#23252b', fogN: 30, fogF: 84,
     ground: ['#31343c', '#2b2e35', '#23252b'],
     hemi: 0.5, key: 1.5,
+  },
+  // flat overcast daylight — soft key, lifted hemi, cool grey ground
+  city: {
+    bg: '#8fa0ad', fogN: 34, fogF: 120,
+    hemiSky: '#dfe8f0', hemiGnd: '#54585e', hemi: 0.66,
+    key: 1.32, keyColor: '#fdf7ec', fill: 0.5, fillColor: '#b4c4d4',
+    ground: ['#585c63', '#4c5057', '#42464d'],
   },
 };
 
@@ -73,6 +87,11 @@ const SKIES = {
     clouds: { n: 3, hex: '#1a2130' },
   },
   grid: { top: '#16181e', mid: '#1f2229', hor: '#2b2f37', fog: '#23252b' },
+  city: {
+    top: '#5b6b7d', mid: '#8fa0ad', hor: '#c3ccd2', fog: '#b7c0c6',
+    sun: { hex: '#f4f1ea', glow: '#e8e6df', az: 1.35, el: 0.68, size: 18 },
+    clouds: { n: 12, hex: '#dfe4e8' },
+  },
 };
 
 function makeSky(id) {
@@ -359,24 +378,32 @@ export function initEnv(ctx) {
     ctx.invalidate();
   }
 
-  /* Terrain (1A). Opt-in exactly like water: setTerrain(null) removes it and
-     nothing else in the frame changes. It is an ANNULUS starting at the ground
-     disc's edge — the height mask is 0 there, so the two meet at y=0 with no
-     overlap to z-fight and no step to see. (1F turns it into the ground disc
-     itself, at which point r0 goes to 0.)
-     The spec is kept because the haze colour is baked into the vertex colours,
-     so a preset change has to rebuild it — same as the sky. */
+  /* Terrain (1A, promoted to the ground in 1F). Opt-in exactly like water:
+     setTerrain(null) removes it and nothing else in the frame changes.
+
+     It reaches all the way to r=0 and IS the ground wherever it exists, so the
+     flat disc hides while it is up rather than being deleted — the showroom
+     and crash mode still want a plain apron, and a hidden mesh costs nothing.
+     Inside playR the height mask is exactly 0, so the play area is the same
+     flat y=0 plane the disc was, with the same shadow receiving; what changes
+     is that the surface colour is now a ramp in world units instead of a
+     stretched CanvasTexture, and there is no longer a rim where the world ends.
+
+     The spec is kept because the horizon haze and the ground ramp are baked
+     into the vertex colours, so a preset change has to rebuild — same as the
+     sky. */
   let terrainMesh = null;
   let terrainSpec = null;
   // how bright the landscape is authored, per environment — see `value` in
   // terrain.js. Not a lighting value: it scales the baked vertex colours.
-  const TERRAIN_VALUE = { proving: 1, salt: 1, night: 0.34, grid: 0.7 };
+  const TERRAIN_VALUE = { proving: 1, salt: 1, night: 0.34, grid: 0.7, city: 0.86 };
   function dropTerrain() {
     if (!terrainMesh) return;
     ctx.scene.remove(terrainMesh);
     terrainMesh.geometry.dispose();
     terrainMesh.material.dispose();
     terrainMesh = null;
+    ground.visible = true;
   }
   function buildTerrainNow() {
     dropTerrain();
@@ -384,13 +411,14 @@ export function initEnv(ctx) {
     const sk = SKIES[current] || SKIES.proving;
     const pr = { ...BASE, ...(PRESETS[current] || {}) };
     terrainMesh = buildTerrain(
-      { playR: groundR, ...terrainSpec },
+      { playR: groundR, r0: 0, ...terrainSpec },
       {
-        horizon: sk.hor, blend: pr.ground[2], small: !!ctx.small,
+        horizon: sk.hor, ground: pr.ground, small: !!ctx.small,
         value: TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current],
       },
     );
     ctx.scene.add(terrainMesh);
+    ground.visible = false; // the landscape is the ground now
   }
   function setTerrain(spec) {
     if (spec === null || spec === undefined) { terrainSpec = null; dropTerrain(); ctx.invalidate(); return; }
