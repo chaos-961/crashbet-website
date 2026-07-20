@@ -15,6 +15,7 @@
 </head>
 <body>
 <div id="stage" aria-label="3D viewport"></div>
+<div id="povfx" aria-hidden="true"></div>
 
 <!-- ============ main menu ============ -->
 <div id="menu">
@@ -28,9 +29,19 @@
     </svg>
     <h1 class="menutitle">CRASH <span>BET</span></h1>
     <p class="menutag" id="menutag">deterministic low-poly sandbox</p>
-    <button id="startBtn" class="mbtn primary big" disabled>▶&nbsp; Start Game</button>
-    <button id="sceneBtn" class="mbtn big" disabled>🎬&nbsp; Play a Scene</button>
-    <button id="crashBtn" class="mbtn big" disabled>💥&nbsp; Crash Test</button>
+    <div id="menubank" hidden>
+      <span class="mbl">BANKROLL</span><b id="mbAmt">$100</b><span id="mbRun" class="mbrun"></span>
+    </div>
+    <button id="startBtn" class="mbtn primary big" disabled>▶&nbsp; Continue</button>
+    <div class="menurow">
+      <button id="seedBtn" class="mbtn" disabled>🔑&nbsp; Custom seed</button>
+      <button id="garageBtn" class="mbtn" disabled>🏛&nbsp; Garage</button>
+    </div>
+    <div class="menurow">
+      <button id="howBtn" class="mbtn">📖&nbsp; How to play</button>
+      <button id="crashBtn" class="mbtn" disabled>💥&nbsp; Crash test</button>
+    </div>
+    <button id="newRunBtn" class="mbtn tiny danger" hidden>↻&nbsp; New run</button>
     <div id="boot">
       <div id="bootbar"><i id="bootfill"></i></div>
       <p id="bootmsg">warming up…</p>
@@ -72,6 +83,7 @@
       <p class="fzhint">space / tap</p>
     </div>
     <div id="outcome" hidden></div>
+    <div id="povbar" role="group" aria-label="Camera angle"></div>
   </div>
   <!-- crash-test controls (visible only in crash mode) -->
   <div id="crashui" hidden>
@@ -80,6 +92,88 @@
     <button id="cSlow" class="hambtn crashbtn" aria-label="Toggle slow motion" title="Slow-mo (T)">🐢</button>
     <button id="cMute" class="hambtn crashbtn" aria-label="Toggle sound" title="Sound">🔊</button>
     <div id="dmgHud" aria-live="off">💥 0</div>
+  </div>
+</div>
+
+<!-- ============ custom seed / how-to-play (G3) ============ -->
+<div id="modal" hidden>
+  <div class="modalcard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h2 id="modalTitle">Custom seed</h2>
+    <div id="modalSeed">
+      <p class="modaltext">Any text is a valid scene. Shared and custom seeds run as <b>Exhibition</b> — fully playable, but they never move your bankroll.</p>
+      <input id="seedInput" type="text" placeholder="e.g. hello-world" autocomplete="off" spellcheck="false" maxlength="40">
+      <p class="msub">Difficulty</p>
+      <div class="mchips" id="seedD" role="group" aria-label="Difficulty">
+        <button class="mchip sel" data-d="">Auto</button>
+        <button class="mchip" data-d="1">1</button>
+        <button class="mchip" data-d="3">3</button>
+        <button class="mchip" data-d="5">5</button>
+        <button class="mchip" data-d="7">7</button>
+        <button class="mchip" data-d="10">10</button>
+      </div>
+      <button id="seedGo" class="mbtn primary">🎬&nbsp; Play this seed</button>
+    </div>
+    <div id="modalHow" hidden>
+      <ol class="howlist">
+        <li><b>Watch.</b> Every scene is ten seconds from a crash. The tell is hidden in plain sight — a drifting van, a light about to change.</li>
+        <li><b>Bet.</b> Tap markets to build a slip: who crashes, who walks away, what gets hit. Chain picks into a parlay for bigger odds.</li>
+        <li><b>Lock.</b> At the incident the clock stops so you can study the freeze — then press BET and time runs again. Above level 7 there is no freeze.</li>
+        <li><b>Settle.</b> Physics decides. Chips turn green the instant they land, and the bank pays out at rest.</li>
+      </ol>
+      <p class="modaltext">Bust at $0 and the bank stakes you a fresh $100. Vehicles and property only — nobody is ever in these cars.</p>
+    </div>
+    <button id="modalClose" class="mbtn">Close</button>
+  </div>
+</div>
+
+<!-- ============ betting HUD (G3) ============ -->
+<div id="betui" hidden>
+  <div id="bankpill">
+    <span class="bklabel">BANK</span>
+    <b id="bkamt">$100</b>
+    <span id="bkdelta" class="bkdelta"></span>
+    <span id="exhTag" hidden>EXHIBITION</span>
+  </div>
+
+  <div id="crosshair" hidden aria-hidden="true"><i></i><span id="targetTag"></span></div>
+
+  <button id="betToggle" class="bettoggle empty" aria-label="Open markets and bet slip">
+    <span class="btix">🎫</span><span id="betN">0</span>
+  </button>
+
+  <aside id="betpanel" aria-label="Markets and bet slip">
+    <div class="bphead">
+      <b>MARKETS</b>
+      <button id="bpClose" class="bpclose" aria-label="Close markets">✕</button>
+    </div>
+    <div id="mklist"></div>
+    <div id="slipwrap">
+      <p id="slipMsg" class="slipmsg" role="status"></p>
+      <div id="sliplegs"></div>
+      <div id="stakebtns" role="group" aria-label="Quick stake">
+        <button class="stakebtn" data-stake="1">$1</button>
+        <button class="stakebtn sel" data-stake="5">$5</button>
+        <button class="stakebtn" data-stake="25">$25</button>
+        <button class="stakebtn" data-stake="half">Half</button>
+        <button class="stakebtn" data-stake="all">All-in</button>
+      </div>
+      <div class="sliptot">
+        <span>Stake <b id="slipTot">$0</b></span>
+        <span>To win <b id="slipWin">$0</b></span>
+      </div>
+      <button id="betPlace" class="mbtn primary" disabled>PLACE BET</button>
+    </div>
+  </aside>
+
+  <div id="summary" hidden>
+    <div class="sumcard" role="dialog" aria-label="Round result">
+      <h2 id="sumHead"></h2>
+      <p id="sumScene" class="sumscene"></p>
+      <div id="sumRows" class="sumrows"></div>
+      <p id="sumBust" class="sumbust" hidden>💀 Busted. The bank staked you a fresh $100.</p>
+      <div class="sumfoot">Bankroll <b id="sumBank">$100</b></div>
+      <button id="sumNext" class="mbtn primary">Next scene →</button>
+    </div>
   </div>
 </div>
 

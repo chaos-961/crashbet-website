@@ -12,6 +12,10 @@ import { buildRoad } from './roads.js';
 import { disposeGroup, clamp, makeRng } from './lib.js';
 import { initEnv, ENVS } from './env.js';
 import { initFX } from './fx.js';
+import * as Econ from './economy.js';
+import { generateMarkets } from './markets.js';
+import * as Bet from './betui.js';
+import { buildLoadout, drivePov, POV_META } from './povcam.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -208,11 +212,13 @@ function leaveGame() {
   if (crash) destroyCrashSim();
   if (round) destroyRound();
   document.body.classList.remove('ingame', 'crashmode', 'roundmode');
+  Bet.closeRound();
   $('crashui').hidden = true;
   $('roundui').hidden = true;
   $('pause').hidden = true;
   $('hud').hidden = true;
   $('menu').hidden = false;
+  syncMenu(); // bankroll / round-in-progress state may have moved
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   try { screen.orientation.unlock(); } catch {}
 }
@@ -227,7 +233,7 @@ function showPause(show) {
     syncFsLabel();
   }
 }
-$('startBtn').addEventListener('click', () => startGame(true));
+$('garageBtn').addEventListener('click', () => startGame(true));
 $('hamb').addEventListener('click', () => showPause(true));
 $('p_resume').addEventListener('click', () => showPause(false));
 $('p_leave').addEventListener('click', leaveGame);
@@ -805,8 +811,9 @@ async function preload() {
     bootStep(1, 'ready');
     preloaded = true;
     $('boot').classList.add('done');
-    for (const id of ['startBtn', 'sceneBtn', 'crashBtn']) $(id).disabled = false;
-    $('menutag').textContent = 'bet on the physics · 200 models';
+    for (const id of ['startBtn', 'seedBtn', 'garageBtn', 'crashBtn']) $(id).disabled = false;
+    $('menutag').textContent = 'bet on the physics';
+    syncMenu();
   } catch (e) {
     console.error('preload failed', e);
     bootStep(1, 'failed to load — reload the page');
@@ -818,9 +825,36 @@ async function preload() {
    tick → resolve to rest → outcome card. The pre-sim and the live view are
    two separate sims built from the SAME scenario; determinism makes the
    recorded event log describe exactly what the player watches. */
-let round = null; // { sim, scene, rec, phase, seed, d }
+let round = null; // { sim, scene, rec, markets, phase, seed, d, exhibition }
 let roundLoading = false;
 let roundSeedN = 0;
+
+/* ---------------- profile / bankroll (G3) ----------------
+   One profile per browser, persisted through economy.js. The campaign seed
+   stream is hidden inside it — startScene never invents a seed for a money
+   round, it asks the profile for the next one. */
+const store = Econ.localStore();
+let profile = null;
+
+function initProfile() {
+  try {
+    profile = Econ.loadProfile(store);
+  } catch { profile = null; }
+  if (!profile) {
+    // entropy for the hidden campaign stream — crypto where available so two
+    // players on the same machine never walk the same scene sequence
+    let ent = '';
+    if (self.crypto && self.crypto.getRandomValues) {
+      const b = new Uint32Array(4);
+      self.crypto.getRandomValues(b);
+      for (const n of b) ent += n.toString(36);
+    } else ent = String(Date.now()) + Math.random().toString(36).slice(2);
+    profile = Econ.newProfile(ent);
+    Econ.saveProfile(store, profile);
+  }
+  return profile;
+}
+
 
 const LOAD_LINES = [
   'syncing dashcams…', 'pulling CCTV…', 'checking the traffic light…',
@@ -838,6 +872,11 @@ function roundLoad(show, pct, label, sub) {
 
 function destroyRound() {
   if (!round) return;
+  targetMap = null; hoverGroup = null;
+  povRig = null; activePov = null;
+  $('povfx').className = '';
+  $('povbar').innerHTML = '';
+  controls.enabled = true;
   crashFx.reset();
   crashFx.detachSim();
   scene.remove(round.sim.root);
@@ -866,12 +905,32 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
     const [{ generateScene, drawDifficulty, INCIDENT_TICK }, { recordScene }] = await Promise.all([
       import('./director.js'), import('./recorder.js'),
     ]);
-    const seed = seedArg != null ? String(seedArg) : 'r' + (++roundSeedN) + '-' + Math.floor(performance.now());
+    // Pick the round. A campaign round pulls the next hidden seed from the
+    // profile (and resumes an unfinished one, slip draft included); ANY
+    // explicit seed — custom, shared link, replay — is Exhibition and never
+    // moves the bankroll, and so is a campaign seed that already paid out.
+    if (!profile) initProfile();
+    let seed, exhibition;
+    if (seedArg != null) {
+      seed = String(seedArg);
+      exhibition = true;
+      Econ.exhibitionRound(profile, seed);
+    } else {
+      const r = Econ.currentRound(profile);
+      seed = r.seed;
+      exhibition = r.exhibition || Econ.seedSettled(profile, seed);
+      r.exhibition = exhibition;
+    }
+    Econ.saveProfile(store, profile);
     const d = dArg != null ? clamp(dArg, 1, 10) : drawDifficulty(makeRng('d:' + seed));
     roundLoad(true, 0.05, LOAD_LINES[Math.floor(Math.random() * LOAD_LINES.length)], 'dealing scene ' + seed);
     await new Promise((r) => setTimeout(r, 0));
 
     const sc = generateScene(seed, d);
+    // markets are generated from the SCENE ONLY, before the tape is even run —
+    // markets.js is outcome-blind by construction and this ordering keeps it
+    // honest (nothing here has seen the recording yet)
+    const markets = generateMarkets(sc, { labelOf: (t) => (REG.find((e) => e.id === t) || {}).label || t });
     roundLoad(true, 0.15, undefined, 'running the tape…');
     // pre-sim in chunks so the loading bar actually animates on slow devices
     const rec = await recordScene(engine.R, sc, catOfId, {
@@ -888,8 +947,13 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
 
     const sim = new engine.mod.CrashSim(engine.R, sc, catOfId);
     sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick
-    round = { sim, scene: sc, rec, phase: 'preview', seed, d, resumeAt: 0 };
+    round = { sim, scene: sc, rec, markets, phase: 'preview', seed, d, exhibition, resumeAt: 0 };
+    targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
     scene.add(sim.root);
+    povRig = buildLoadout(sc, seed, d, povFocus());
+    activePov = null;
+    $('povfx').className = '';
+    renderPovBar();
     crashFx.attach(sim);
     hookRoundCinematics(sim);
     sim.speed = 1;
@@ -907,6 +971,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
     $('outcome').hidden = true;
     $('sceneLv').textContent = 'LV ' + d;
     $('sceneTopo').textContent = sc.meta.topo + ' · ' + sc.meta.label;
+    Bet.openRound({ scene: sc, markets, profile, store, exhibition });
     setRing(1, 10);
     camera.position.set(0, 40, 90);
     fitCamera(roundBox(sim), true);
@@ -956,6 +1021,7 @@ function setRing(frac, secs) {
 function resumeRound() {
   if (!round || round.phase !== 'freeze') return;
   round.phase = 'resolve';
+  Bet.setPhase('resolve'); // locks betting and rides any drafted slip
   $('freeze').hidden = true;
   round.sim.stopAt = null;
   round.sim.playing = true;
@@ -965,19 +1031,8 @@ function resumeRound() {
   invalidate();
 }
 
-function roundOutcome() {
-  const s = round.rec.summary;
-  const names = round.scene.cars.map((c) => c.type);
-  const bits = [];
-  bits.push(s.crashed ? `<b>${s.crashed}</b> vehicle${s.crashed === 1 ? '' : 's'} crashed` : '<b>no crash</b> — everyone walked');
-  if (s.propsMoved) bits.push(`<b>${s.propsMoved}</b> object${s.propsMoved === 1 ? '' : 's'} hit`);
-  if (s.anyFlip) bits.push('a <b>rollover</b>');
-  if (s.anyWheel) bits.push('a <b>wheel torn off</b>');
-  const first = s.perCar.findIndex((p) => p.crashedAt === s.firstCrashTick && p.crashedAt >= 0);
-  const sub = first >= 0 ? `first to go: the ${names[first]} · ${((s.firstCrashTick - 600) / 60).toFixed(1)}s after the incident` : round.scene.meta.tell;
-  $('outcome').innerHTML = bits.join(' · ') + `<span class="osub">${sub}</span>`;
-  $('outcome').hidden = false;
-}
+// (the G1 outcome bar was replaced by the G3 summary card — betui.settle()
+// renders the same physical recap plus the bet-by-bet result)
 
 // per-frame round update — called from the frame loop
 function roundUpdate(dt, now) {
@@ -996,16 +1051,23 @@ function roundUpdate(dt, now) {
     busy = true;
     if (!sim.playing) { // stopAt reached: the freeze
       round.phase = 'freeze';
+      Bet.setPhase('freeze');
       setRing(1, 0);
       if (round.d >= 8) { // no study time at the top difficulties
         resumeRound();
       } else {
+        // the freeze is the last chance to bet — say so on the button
+        const ss = Bet.slipSummary();
+        $('fzGo').innerHTML = (!ss.placed && ss.total > 0)
+          ? `🎫&nbsp; Bet $${ss.total} &amp; go`
+          : '▶&nbsp; Resume';
         $('freeze').hidden = false;
         fitCamera(roundBox(sim), false);
       }
     }
   } else if (round.phase === 'resolve') {
     busy = true;
+    Bet.tickLive(round.rec, sim.tick); // chips flip as their trigger ticks pass
     // gentle auto-follow on the wreck centroid (orbit only)
     if (!fly.on && sim.cars.length) {
       _crashC.set(0, 0, 0);
@@ -1018,16 +1080,246 @@ function roundUpdate(dt, now) {
     if (sim.tick >= round.rec.restTick) {
       round.phase = 'done';
       sim.playing = false;
-      roundOutcome();
+      Bet.setPhase('done');
+      // settlement: economy.js pays out and consumes the seed (Exhibition
+      // rounds compute the same report but mutate nothing), then the card
+      // renders from that authoritative report
+      const report = Econ.settleRound(profile, round.markets, round.rec);
+      Econ.saveProfile(store, profile);
+      Bet.settle(report, round.rec);
+      renderPovBar(); // every angle unlocks once the scene has settled
       fitCamera(roundBox(sim), false);
     }
   }
   return busy;
 }
 
-$('sceneBtn').addEventListener('click', () => startScene(null, null, true));
+// betting layer: mounted once, driven by the round lifecycle above
+Bet.mountBetUI({
+  onLock: resumeRound,
+  // NEXT on the summary card deals the following campaign round (already
+  // in-game, so never re-request fullscreen)
+  onNext: () => startScene(null, null, false),
+});
+initProfile();
+
+/* ---------------- POV picker (G3) ----------------
+   A scene ships a camera rig (povcam.js); difficulty prunes how much of it
+   the player gets before the resolve, and everything unlocks once the scene
+   has settled. 'free' is the existing freecam — picking it just hands the
+   camera back to fly mode, so the two systems never fight over the camera. */
+let povRig = null;      // { all, available }
+let activePov = null;   // descriptor or null (= orbit/freecam)
+const _povFocus = new THREE.Vector3();
+
+function povFocus() {
+  // pre-incident: the middle of the cast. post: the wreck centroid, which is
+  // what the player actually wants to look at.
+  if (!round) return _povFocus.set(0, 0, 0);
+  const cars = round.sim.cars;
+  if (!cars.length) return _povFocus.set(0, 0, 0);
+  _povFocus.set(0, 0, 0);
+  for (const c of cars) _povFocus.add(c.wrap.position);
+  _povFocus.divideScalar(cars.length);
+  _povFocus.y = Math.min(_povFocus.y + 1.0, 3);
+  return _povFocus;
+}
+
+function renderPovBar() {
+  const bar = $('povbar');
+  if (!povRig || !round) { bar.innerHTML = ''; return; }
+  // after the scene settles, every angle unlocks (spec: "after resolution,
+  // everything unlocks") — before that, difficulty decides
+  const list = round.phase === 'done' ? povRig.all : povRig.available;
+  let html = `<button class="povchip${activePov ? '' : ' sel'}" data-pov="free">${POV_META.free.icon}</button>`;
+  for (const p of list) {
+    const m = POV_META[p.kind];
+    const lab = p.kind === 'dash' && round.scene.cars[p.car]
+      ? `${m.icon}` : m.icon;
+    html += `<button class="povchip${activePov && activePov.id === p.id ? ' sel' : ''}" data-pov="${p.id}" title="${m.label}">${lab}</button>`;
+  }
+  bar.innerHTML = html;
+}
+
+function setPov(id) {
+  if (!povRig) return;
+  if (id === 'free') {
+    activePov = null;
+    $('povfx').className = '';
+    setCamMode('orbit');
+  } else {
+    const list = round && round.phase === 'done' ? povRig.all : povRig.available;
+    const p = list.find((x) => x.id === id);
+    if (!p) return;
+    activePov = p;
+    $('povfx').className = 'on pov-' + p.kind;
+    // a scripted camera owns the view: freecam and orbit both stand down
+    if (fly.on) setCamMode('orbit');
+    controls.enabled = false;
+  }
+  if (!activePov) controls.enabled = true;
+  renderPovBar();
+  invalidate();
+}
+
+$('povbar').addEventListener('click', (e) => {
+  const b = e.target.closest('.povchip');
+  if (b) setPov(b.dataset.pov);
+});
+
+/* ---------------- crosshair targeting (G3) ----------------
+   "Bet on anything from anywhere": the freecam carries a centre dot that
+   raycasts the round's world, and in orbit mode a tap does the same at the
+   pointer. Hitting a car or prop opens that object's markets. The map is
+   built once per round — traversing every mesh per frame would be silly. */
+const _ray = new THREE.Raycaster();
+const _ndc = new THREE.Vector2();
+let targetMap = null;   // Object3D -> group id ('car:3' / 'prop:11')
+let hoverGroup = null;
+
+function buildTargetMap(sim) {
+  const map = new Map();
+  sim.cars.forEach((car, i) => car.wrap.traverse((o) => map.set(o, 'car:' + i)));
+  sim.props.forEach((rec, i) => {
+    const g = 'prop:' + i;
+    if (rec.group) rec.group.traverse((o) => map.set(o, g));
+    // dynamic prop nodes are re-parented to sim.root, so cover them too
+    if (rec.dyn) for (const d of rec.dyn) if (d.node) d.node.traverse((o) => map.set(o, g));
+  });
+  return map;
+}
+
+function pickGroup(nx, ny) {
+  if (!targetMap || !round) return null;
+  _ndc.set(nx, ny);
+  _ray.setFromCamera(_ndc, camera);
+  for (const h of _ray.intersectObject(round.sim.root, true)) {
+    const g = targetMap.get(h.object);
+    if (g) return g;
+  }
+  return null;
+}
+
+// per-frame while freecam owns the camera: what is the dot resting on?
+function updateCrosshair() {
+  const on = !!(round && inGame && fly.on && $('pause').hidden);
+  $('crosshair').hidden = !on;
+  if (!on) { hoverGroup = null; return; }
+  const g = pickGroup(0, 0);
+  if (g === hoverGroup) return;
+  hoverGroup = g;
+  const tag = $('targetTag');
+  if (!g) { tag.textContent = ''; tag.classList.remove('has', 'nomarket'); return; }
+  const has = Bet.groupExists(g);
+  tag.textContent = Bet.groupLabel(g) + (has ? '' : ' · no market');
+  tag.classList.toggle('has', has);
+  tag.classList.toggle('nomarket', !has);
+}
+
+// click (freecam centre) / tap (orbit, at the pointer) → that object's markets
+function targetAt(nx, ny) {
+  if (!round || !inGame || !$('pause').hidden) return;
+  const g = pickGroup(nx, ny);
+  if (!g) return;
+  if (!Bet.focusGroup(g)) toast(`No market on the ${Bet.groupLabel(g)}`);
+}
+
+renderer.domElement.addEventListener('click', (e) => {
+  if (!round || !inGame) return;
+  if (fly.on) { targetAt(0, 0); return; }
+  // orbit: ignore the click that ends a camera drag
+  if (orbitDragged) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  targetAt(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+});
+// OrbitControls swallows drags; only a clean tap should open a market card
+let orbitDragged = false;
+let _downXY = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { _downXY = [e.clientX, e.clientY]; orbitDragged = false; });
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (!_downXY) return;
+  if (Math.abs(e.clientX - _downXY[0]) + Math.abs(e.clientY - _downXY[1]) > 9) orbitDragged = true;
+});
+renderer.domElement.addEventListener('pointerup', () => { _downXY = null; });
+
+/* ---------------- main menu (G3) ----------------
+   Continue deals (or resumes) the campaign round; Garage is the old showroom;
+   a custom seed always runs Exhibition. The bankroll block only appears once
+   a profile exists so a first boot reads as a title screen, not a save file. */
+function syncMenu() {
+  if (!profile) return;
+  const unfinished = !!(profile.round && !profile.round.exhibition);
+  $('mbAmt').textContent = '$' + profile.bankroll.toLocaleString('en-US');
+  $('mbRun').textContent = unfinished ? 'round in progress' : 'round ' + (profile.campaign.n + 1);
+  $('menubank').hidden = false;
+  $('startBtn').innerHTML = unfinished ? '▶&nbsp; Resume round' : '▶&nbsp; Continue';
+  // "New run" only means something once there is progress to throw away
+  $('newRunBtn').hidden = !(profile.campaign.n > 0 || profile.bankroll !== Econ.START_BANKROLL || unfinished);
+}
+
+function openModal(which) {
+  $('modalTitle').textContent = which === 'how' ? 'How to play' : 'Custom seed';
+  $('modalSeed').hidden = which !== 'seed';
+  $('modalHow').hidden = which !== 'how';
+  $('modal').hidden = false;
+  if (which === 'seed') setTimeout(() => $('seedInput').focus(), 30);
+}
+// first run: the rules card comes up BEFORE the first deal, never over a
+// live preview — the 10 s clock would tick away while the player read it
+let pendingDeal = false;
+const closeModal = () => {
+  $('modal').hidden = true;
+  if (pendingDeal) { pendingDeal = false; startScene(null, null, true); }
+};
+
+$('startBtn').addEventListener('click', () => {
+  if (profile && !profile.settings.seenIntro) {
+    profile.settings.seenIntro = true;
+    Econ.saveProfile(store, profile);
+    pendingDeal = true;
+    openModal('how');
+    return;
+  }
+  startScene(null, null, true);
+});
+$('seedBtn').addEventListener('click', () => openModal('seed'));
+$('howBtn').addEventListener('click', () => openModal('how'));
+$('modalClose').addEventListener('click', closeModal);
+$('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeModal(); });
+
+let seedD = '';
+for (const b of $('seedD').querySelectorAll('.mchip')) {
+  b.addEventListener('click', () => {
+    seedD = b.dataset.d;
+    for (const o of $('seedD').querySelectorAll('.mchip')) o.classList.toggle('sel', o === b);
+  });
+}
+function playCustomSeed() {
+  const v = $('seedInput').value.trim();
+  if (!v) { $('seedInput').focus(); return; }
+  closeModal();
+  startScene(v, seedD ? parseInt(seedD, 10) : null, true);
+}
+$('seedGo').addEventListener('click', playCustomSeed);
+$('seedInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') playCustomSeed(); });
+
+$('newRunBtn').addEventListener('click', () => {
+  if (!confirm('Start a new run?\n\nThis wipes your bankroll, campaign progress and stats.')) return;
+  Econ.wipeProfile(store);
+  profile = null;
+  initProfile();
+  syncMenu();
+  toast('New run — $100 on the table');
+});
+
 $('fzGo').addEventListener('click', resumeRound);
-addEventListener('pointerdown', () => { if (round && round.phase === 'freeze') resumeRound(); });
+addEventListener('pointerdown', (e) => {
+  if (!round || round.phase !== 'freeze') return;
+  // taps inside the betting layer are bets, not "resume" — the freeze is the
+  // last chance to build a slip, so it must survive touching the panel
+  if (e.target && e.target.closest && e.target.closest('#betui')) return;
+  resumeRound();
+});
 
 /* ---------------- keyboard ---------------- */
 addEventListener('keydown', (e) => {
@@ -1082,9 +1374,16 @@ function frame(now) {
   if (flyUpdate(dt)) animating = true;
   if (crashUpdate(dt, now)) animating = true;
   if (roundUpdate(dt, now)) animating = true;
+  // a scripted POV owns the camera outright — it must run after roundUpdate
+  // (which moves the cars) so a dashcam sees this frame's transform, not last
+  if (activePov && round) {
+    drivePov(activePov, camera, round.sim, povFocus(), now / 1000, dt);
+    animating = true;
+  }
+  updateCrosshair();
   // OrbitControls.update() re-aims the camera at its target even when the
-  // handlers are disabled — never run it while the freecam owns the camera
-  const moved = fly.on ? false : controls.update();
+  // handlers are disabled — never run it while freecam or a POV owns the camera
+  const moved = (fly.on || activePov) ? false : controls.update();
   env.syncSky(camera.position);
   if (animating || moved || needsRender > 0) {
     // camera shake is applied for the render only, then undone — orbit and
