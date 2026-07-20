@@ -50,6 +50,11 @@ const PRESETS = {
    from the sky's horizon so the ground disc fades into the sky, not into a
    flat backdrop. */
 const SKY_R = 430;
+// unit vector from a preset's sun az/el — the sky draws its disc here and, as
+// of 1B, the key light comes from here too rather than from a hardcoded corner
+const dirOf = (az, el) => new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+// legacy key direction, kept for presets with no sun in the sky (grid)
+const KEY_FALLBACK = new THREE.Vector3(6, 9, 4).normalize();
 const SKIES = {
   proving: {
     top: '#2b5c94', mid: '#5e8fc0', hor: '#b6cbd9', fog: '#a9bcc9',
@@ -73,7 +78,6 @@ const SKIES = {
 function makeSky(id) {
   const cfg = SKIES[id] || SKIES.proving;
   const g = new THREE.Group();
-  const dirOf = (az, el) => new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
 
   // gradient dome (v 0.5 = equator = horizon; horizon color holds below it)
   const c = document.createElement('canvas');
@@ -364,6 +368,9 @@ export function initEnv(ctx) {
      so a preset change has to rebuild it — same as the sky. */
   let terrainMesh = null;
   let terrainSpec = null;
+  // how bright the landscape is authored, per environment — see `value` in
+  // terrain.js. Not a lighting value: it scales the baked vertex colours.
+  const TERRAIN_VALUE = { proving: 1, salt: 1, night: 0.34, grid: 0.7 };
   function dropTerrain() {
     if (!terrainMesh) return;
     ctx.scene.remove(terrainMesh);
@@ -378,7 +385,10 @@ export function initEnv(ctx) {
     const pr = { ...BASE, ...(PRESETS[current] || {}) };
     terrainMesh = buildTerrain(
       { playR: groundR, ...terrainSpec },
-      { horizon: sk.hor, blend: pr.ground[2], small: !!ctx.small },
+      {
+        horizon: sk.hor, blend: pr.ground[2], small: !!ctx.small,
+        value: TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current],
+      },
     );
     ctx.scene.add(terrainMesh);
   }
@@ -392,7 +402,15 @@ export function initEnv(ctx) {
     ctx.invalidate();
   }
 
-  const state = { fogN: BASE.fogN, fogF: BASE.fogF, fk: 1 };
+  /* The sun and the shadows used to disagree. The key light was hardcoded at
+     (6, 9, 4) — in main.js AND again in fitCamera — while the sun disc was
+     drawn from each preset's az/el. Measured angle between the two: proving
+     ~10°, salt ~51°, night ~64°, so in Night Lot the moon hung behind-left
+     while every shadow fell front-right. It was the single biggest reason
+     scenes read as subtly wrong.
+     Division of labour now: the sky owns the DIRECTION, fitCamera still owns
+     the distance and the shadow frustum. */
+  const state = { fogN: BASE.fogN, fogF: BASE.fogF, fk: 1, sunDir: KEY_FALLBACK.clone() };
 
   // fk = camera-fit scale from fitCamera — big scenes push the fog out
   function setFogScale(fk) {
@@ -427,6 +445,10 @@ export function initEnv(ctx) {
     ctx.hemi.groundColor.set(p.hemiGnd);
     ctx.key.intensity = p.key;
     ctx.key.color.set(p.keyColor);
+    // aim the key at the thing the player can see in the sky, keeping whatever
+    // distance fitCamera last chose
+    state.sunDir.copy(sk.sun ? dirOf(sk.sun.az, sk.sun.el) : KEY_FALLBACK);
+    ctx.key.position.copy(state.sunDir).multiplyScalar(ctx.key.position.length() || 30);
     ctx.fill.intensity = p.fill;
     ctx.fill.color.set(p.fillColor);
     if (ground.material.map) ground.material.map.dispose();

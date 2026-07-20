@@ -120,7 +120,9 @@ function fitCamera(bb, instant) {
   const sc = key.shadow.camera;
   sc.left = -s; sc.right = s; sc.top = s; sc.bottom = -s;
   sc.updateProjectionMatrix();
-  key.position.set(6, 9, 4).normalize().multiplyScalar(maxDim * 0.9 + 12);
+  // direction comes from the sky's sun (env.state.sunDir); this only owns how
+  // far out to put it so the shadow frustum covers the scene
+  key.position.copy(env.state.sunDir).multiplyScalar(maxDim * 0.9 + 12);
   key.shadow.camera.far = Math.max(80, maxDim * 2.2 + 30);
   invalidate();
 }

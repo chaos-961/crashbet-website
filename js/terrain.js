@@ -236,6 +236,11 @@ export function buildTerrain(spec, opts = {}) {
   // country instead. (1F removes the seam properly by deleting the disc.)
   const cBlend = opts.blend ? new THREE.Color(opts.blend) : null;
   const blendR = opts.blendR == null ? 95 : opts.blendR;
+  // Baked vertex colours cannot respond to the lighting rig the way a lit
+  // surface does, so under the night preset a daylight-green hillside stayed
+  // daylight green next to a properly dark sky. One authored multiplier per
+  // environment, applied last — see TERRAIN_VALUE in env.js.
+  const value = opts.value == null ? 1 : opts.value;
   const tmp = new THREE.Color();
   const peak = Math.max(1, p.amp * 1.2);
 
@@ -262,7 +267,7 @@ export function buildTerrain(spec, opts = {}) {
     // against, which is most of what sells distance in a fogged scene. Kept
     // well under half: at 0.62 the ridges washed out into the dome entirely.
     tmp.lerp(cHaze, smoothstep(200, 470, d) * 0.44);
-    out[0] = tmp.r; out[1] = tmp.g; out[2] = tmp.b;
+    out[0] = tmp.r * value; out[1] = tmp.g * value; out[2] = tmp.b * value;
   }
 
   const quads = rings * spokes;
