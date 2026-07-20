@@ -526,6 +526,8 @@ export class CrashSim {
     this.onScrape = null;  // (car, ev {point,speed,dyn}) — metal grinding at speed (visual only)
     this.onGlass = null;   // (car, ev {type,point,r}) — pane cracked / shattered
     this.onDetach = null;  // (car, ev {point,r,speed}) — wheel tore off
+    this.onSplash = null;  // (car, ev {point,speed}) — broke the water surface
+    this.onSunk = null;    // (car, ev {point}) — under and stopped
     this.build();
   }
 
@@ -535,6 +537,15 @@ export class CrashSim {
     // must keep it. (Legacy scenarios have no roads, so their order — and
     // their reference hashes — are untouched.)
     const W = this.scenario.world || {};
+    // G4 water. Opt-in: null for every pre-G4 scenario, which skips the whole
+    // _stepWater path and is why no pinned hash moved when this landed.
+    // water: { y, x0, x1, z0, z1, bed? } — surface height plus the basin the
+    // ground is carved away for. bed defaults to 3.5 m under the surface.
+    const wat = W.water;
+    this.waterY = wat && typeof wat.y === 'number' ? wat.y : null;
+    this.waterBasin = wat && typeof wat.x0 === 'number'
+      ? { x0: wat.x0, x1: wat.x1, z0: wat.z0, z1: wat.z1, bed: wat.bed == null ? wat.y - 3.5 : wat.bed }
+      : null;
     this.world = new RAPIER.World({ x: 0, y: -(W.gravity == null ? 9.81 : W.gravity), z: 0 });
     this.world.timestep = STEP;
     this.events = new RAPIER.EventQueue(true);
@@ -543,10 +554,43 @@ export class CrashSim {
     // creation order, so hashes are unaffected.
     this.colToObj = new Map();
     const g = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    this.groundCol = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(220, 1, 220).setTranslation(0, -1, 0).setFriction(0.9),
-      g,
-    );
+    // Ground. Without water this is the single 220 m slab it has always been —
+    // byte-for-byte the original call, because every pinned hash depends on
+    // this body being created exactly once, first, with these numbers. With a
+    // water basin the land is instead four slabs AROUND the hole plus a bed
+    // collider under it, so a car can actually leave the surface and sink.
+    const basin = this.waterBasin;
+    if (!basin) {
+      this.groundCol = this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(220, 1, 220).setTranslation(0, -1, 0).setFriction(0.9),
+        g,
+      );
+    } else {
+      const E = 220;
+      // The land slabs double as the basin WALLS: the top face stays exactly
+      // at y = 0, but they reach far below the bed. With the original 2 m
+      // thickness a submerged car simply slid sideways out from under them
+      // and fell forever (first water test bottomed out at y = -37).
+      const H = 20;
+      const land = (cx, cz, hx, hz) => this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(hx, H, hz).setTranslation(cx, -H, cz).setFriction(0.9), g,
+      );
+      // west / east of the basin, then north / south of it (fixed order)
+      const wHx = (basin.x0 + E) / 2, eHx = (E - basin.x1) / 2;
+      land(-E + wHx, 0, wHx, E);
+      land(basin.x1 + eHx, 0, eHx, E);
+      const nHz = (basin.z0 + E) / 2, sHz = (E - basin.z1) / 2;
+      const midHx = (basin.x1 - basin.x0) / 2, midCx = (basin.x0 + basin.x1) / 2;
+      land(midCx, -E + nHz, midHx, nHz);
+      land(midCx, basin.z1 + sHz, midHx, sHz);
+      // the bed: cars settle here once they have sunk
+      this.groundCol = this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(midHx, 1, (basin.z1 - basin.z0) / 2)
+          .setTranslation(midCx, basin.bed - 1, (basin.z0 + basin.z1) / 2)
+          .setFriction(0.9),
+        g,
+      );
+    }
     this.colToObj.set(this.groundCol.handle, { kind: 'ground' });
     if (W.walls) {
       const half = (W.arena || 80) / 2;
@@ -661,6 +705,43 @@ export class CrashSim {
     return rec;
   }
 
+  /* G4 water. Bodies below the surface get buoyancy plus heavy drag, and a
+     car that goes under and stops is logged as sunk. Determinism rules apply
+     exactly as they do in the driver controller: arithmetic only, and every
+     THRESHOLD compares squared magnitudes rather than calling Math.hypot,
+     whose last bits are not guaranteed identical across JS engines. The
+     onSplash/onSunk hooks are render-side like the other four. */
+  _stepWater() {
+    const wy = this.waterY;
+    for (const car of this.cars) {
+      if (car.sunkAt === undefined) { car.sunkAt = -1; car.inWater = false; }
+      const t = car.body.translation();
+      const depth = wy - t.y;
+      if (depth <= 0) { car.inWater = false; continue; }
+      const v = car.body.linvel();
+      const v2 = v.x * v.x + v.y * v.y + v.z * v.z;
+      if (!car.inWater) {
+        car.inWater = true;
+        if (this.onSplash) {
+          this.onSplash(car, { point: { x: t.x, y: wy, z: t.z }, speed: Math.sqrt(v2) });
+        }
+      }
+      const sub = depth < 1.4 ? depth / 1.4 : 1; // submerged fraction, saturating
+      const m = car.body.mass();
+      // buoyancy just under neutral so a wreck settles instead of bobbing
+      car.body.applyImpulse({ x: 0, y: m * 9.81 * 0.62 * sub * STEP, z: 0 }, true);
+      const k = 1.9 * sub * STEP;
+      car.body.applyImpulse({ x: -v.x * m * k, y: -v.y * m * k * 0.6, z: -v.z * m * k }, true);
+      const av = car.body.angvel();
+      const tk = m * k * 0.4;
+      car.body.applyTorqueImpulse({ x: -av.x * tk, y: -av.y * tk, z: -av.z * tk }, true);
+      if (car.sunkAt < 0 && depth > 0.9 && v2 < 1.44) {
+        car.sunkAt = this.tick;
+        if (this.onSunk) this.onSunk(car, { point: { x: t.x, y: t.y, z: t.z } });
+      }
+    }
+  }
+
   stepOnce() {
     for (const car of this.cars) {
       const inp = car.driver ? driveTick(this, car, this.tick) : car.stream(this.tick);
@@ -717,6 +798,7 @@ export class CrashSim {
       const t = d.body.translation(), q = d.body.rotation();
       d.cur.p.set(t.x, t.y, t.z); d.cur.q.set(q.x, q.y, q.z, q.w);
     }
+    if (this.waterY !== null) this._stepWater();
     this.events.drainCollisionEvents(() => {});
     this.processImpacts();
   }
@@ -1209,6 +1291,25 @@ export const TEST_SCENARIOS = {
     cars: [
       { seed: '5', type: 'sedan', x: -36, z: -1.8, heading: 0, speed: 26, throttle: 1 },
       { seed: '21', type: 'van', x: 36, z: 1.8, heading: Math.PI, speed: 18, throttle: 1, delay: 0.3 },
+    ],
+  },
+  // G4 water: a car leaves a bridge deck, breaks the surface and sinks to the
+  // bed. Pins buoyancy/drag, the carved basin (four land slabs + bed) and the
+  // splash/sunk thresholds. Water is opt-in, so no pre-G4 scenario is touched.
+  water: {
+    world: {
+      gravity: 9.81, arena: 120, walls: false,
+      water: { y: -0.6, x0: -16, x1: 16, z0: -60, z1: 60 },
+    },
+    roads: [
+      { w: 9, loop: 0, style: 1 | 8, pts: [
+        { x: -60, y: 0, z: 0 }, { x: -30, y: 3.4, z: 0 },
+        { x: 30, y: 3.4, z: 0 }, { x: 60, y: 0, z: 0 },
+      ] },
+    ],
+    props: [],
+    cars: [
+      { seed: '7', type: 'sedan', x: -52, z: -3.4, heading: 0.11, speed: 30, throttle: 1 },
     ],
   },
   // crash-quality pass: high-energy wrecks must replay bit-exact too — this

@@ -302,6 +302,57 @@ export function initEnv(ctx) {
     ctx.invalidate();
   }
 
+  /* G4 water. Purely visual — the sim carves its own basin out of the ground
+     collider and runs the buoyancy (see physics._stepWater). This just draws
+     the surface, plus dark basin walls so you read depth rather than a flat
+     blue rectangle lying on the grass. setWater(null) removes it. */
+  let waterGrp = null;
+  function setWater(w) {
+    if (waterGrp) {
+      ctx.scene.remove(waterGrp);
+      waterGrp.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      waterGrp = null;
+    }
+    if (w) {
+      const g = new THREE.Group();
+      const wx = w.x1 - w.x0, wz = w.z1 - w.z0;
+      const cx = (w.x0 + w.x1) / 2, cz = (w.z0 + w.z1) / 2;
+      const bed = w.bed == null ? w.y - 3.5 : w.bed;
+      const surf = new THREE.Mesh(
+        new THREE.PlaneGeometry(wx, wz),
+        new THREE.MeshStandardMaterial({
+          color: 0x2c4f63, roughness: 0.12, metalness: 0.1,
+          transparent: true, opacity: 0.82,
+        }),
+      );
+      surf.rotation.x = -Math.PI / 2;
+      surf.position.set(cx, w.y, cz);
+      surf.receiveShadow = true;
+      g.add(surf);
+      // basin walls: four inward-facing strips from the waterline down to the
+      // bed, so the channel reads as cut into the ground
+      const wall = new THREE.MeshStandardMaterial({ color: 0x1b2a33, roughness: 0.95 });
+      const h = w.y - bed;
+      const mk = (sw, px, pz, ry) => {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(sw, h), wall);
+        m.position.set(px, (w.y + bed) / 2, pz);
+        m.rotation.y = ry;
+        g.add(m);
+      };
+      mk(wx, cx, w.z0, 0);
+      mk(wx, cx, w.z1, Math.PI);
+      mk(wz, w.x0, cz, Math.PI / 2);
+      mk(wz, w.x1, cz, -Math.PI / 2);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(wx, wz), wall);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(cx, bed, cz);
+      g.add(floor);
+      waterGrp = g;
+      ctx.scene.add(g);
+    }
+    ctx.invalidate();
+  }
+
   const state = { fogN: BASE.fogN, fogF: BASE.fogF, fk: 1 };
 
   // fk = camera-fit scale from fitCamera — big scenes push the fog out
@@ -357,5 +408,5 @@ export function initEnv(ctx) {
     if (sky) sky.position.copy(pos);
   }
 
-  return { apply, setFogScale, setGroundRadius, syncSky, state, get current() { return current; } };
+  return { apply, setFogScale, setGroundRadius, setWater, syncSky, state, get current() { return current; } };
 }

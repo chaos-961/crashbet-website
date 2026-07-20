@@ -874,6 +874,7 @@ function destroyRound() {
   if (!round) return;
   targetMap = null; hoverGroup = null;
   povRig = null; activePov = null;
+  env.setWater(null); // otherwise the channel follows you into the showroom
   $('povfx').className = '';
   $('povbar').innerHTML = '';
   controls.enabled = true;
@@ -944,6 +945,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true) {
     if (showroom) showroom.visible = false;
     if (sc.world.env && ENVS.some((e) => e.id === sc.world.env)) env.apply(sc.world.env);
     env.setGroundRadius(sc.world.ground || 90);
+    env.setWater(sc.world.water || null);
 
     const sim = new engine.mod.CrashSim(engine.R, sc, catOfId);
     sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick

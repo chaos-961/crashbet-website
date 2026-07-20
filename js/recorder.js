@@ -12,7 +12,10 @@ import { CrashSim } from './physics.js';
 import { INCIDENT_TICK, RESOLVE_TICKS } from './director.js';
 import { roadCurve } from './roads.js';
 
-const EV_CODE = { hit: 1, glass: 2, wheel: 3, flip: 4, fire: 5, escape: 6, prop: 7, close: 8, offroad: 9 };
+const EV_CODE = {
+  hit: 1, glass: 2, wheel: 3, flip: 4, fire: 5, escape: 6, prop: 7, close: 8,
+  offroad: 9, splash: 10, sunk: 11,
+};
 const OTHER_CODE = { car: 1, prop: 2, road: 3, wall: 4, ground: 5, debris: 6, unknown: 0 };
 
 // crashed = a contact this hard or harder (Δv, m/s) — the market threshold
@@ -63,7 +66,7 @@ export async function recordScene(R, scenario, catOf, opts = {}) {
   const per = sim.cars.map(() => ({
     touched: false, crashedAt: -1, maxDv: 0, hits: 0,
     flipAt: -1, flipTicks: 0, wheels: 0, fireAt: -1, escapeAt: -1, glass: 0,
-    offroadAt: -1,
+    offroadAt: -1, splashAt: -1, sunkAt: -1,
   }));
   sim.onImpact = (car, ev) => {
     const i = carIdx.get(car);
@@ -93,6 +96,20 @@ export async function recordScene(R, scenario, catOf, opts = {}) {
     const i = carIdx.get(car);
     per[i].wheels++;
     events.push({ k: 'wheel', t: sim.tick, car: i });
+  };
+  // G4 water. These never fire on a scene without a basin, so the event hash
+  // of every pre-G4 scenario is untouched.
+  sim.onSplash = (car) => {
+    const i = carIdx.get(car);
+    if (per[i].splashAt >= 0) return; // first entry only — bobbing is not news
+    per[i].splashAt = sim.tick;
+    events.push({ k: 'splash', t: sim.tick, car: i });
+  };
+  sim.onSunk = (car) => {
+    const i = carIdx.get(car);
+    if (per[i].sunkAt >= 0) return;
+    per[i].sunkAt = sim.tick;
+    events.push({ k: 'sunk', t: sim.tick, car: i });
   };
 
   // ---- per-prop state (dynamic bodies: knocked over / shoved) ----
@@ -242,6 +259,7 @@ export async function recordScene(R, scenario, catOf, opts = {}) {
       touched: p.touched, crashedAt: p.crashedAt, maxDv: Math.round(p.maxDv * 1000) / 1000,
       hits: p.hits, flipAt: p.flipAt, wheels: p.wheels, fireAt: p.fireAt,
       escapeAt: p.escapeAt, glass: p.glass, offroadAt: p.offroadAt,
+      splashAt: p.splashAt, sunkAt: p.sunkAt,
     })),
     perProp: propState.map((st, i) => {
       let hitAt = -1;
