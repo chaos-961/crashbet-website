@@ -536,6 +536,375 @@ function topoRoundabout(rTopo, rDress, vBase) {
   };
 }
 
+/* ============ P2/2E topologies (10 → 22) ============
+   Twelve new PLACES. They are the callers 2B (verge/guardrail road bits), 2C
+   (drivable terrain) and 2D (weather grip) were each landed inert to serve —
+   every one of those features shipped pinned and with no topology that turned
+   it on, and these turn them on. They also deal the five 1F presets that only
+   the Settings chip could reach (dawn/dusk/alpine/coastal/desert), which is
+   what finally puts snow and the cold half of the weather table into a real
+   round.
+
+   Adding names to the topology pick array reshuffles which scene most seeds
+   deal — but NOT the `director` pin, which still lands on `intersection`: its
+   rng draw is small enough that floor(u·N) is 0 for both the old N=10 and the
+   new N=22 array, and the intersection path is byte-identical because the
+   NO_HEAVY guard below consumes no rng for a topology it does not name. So all
+   12 pins stay frozen (verified), which is the proof no physics changed; the
+   sweep, not a pin, is what validates the twelve new places choreograph clean.
+
+   Two rules the whole set is built around:
+   • RELIEF topos (drivable terrain) keep the road strictly inside `playR`, so
+     the drivable corridor is the same flat y=0 plane it has always been and the
+     hills rise only beyond it. Dressing on such a topo also stays inside playR,
+     or a prop placed at y=0 would float over (or sink into) displaced ground.
+   • WATER topos and RELIEF topos never combine: a basin carve and a heightfield
+     over the same ground is untested, so coast/harbour get water and no
+     drivable terrain, mountain/canyon/forest get drivable terrain and no water. */
+
+// A straight lane [x0,z0]→[x1,z1], sampled every 2.5 m and tagged with a road
+// id so opposite-direction pairing and crossing detection keep working. The
+// junction topologies each inlined their own copy; the 2E set shares this one.
+const straightLane = (x0, z0, x1, z1, v, w, road) => {
+  const pts = [];
+  const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2.5);
+  for (let i = 0; i <= n; i++) pts.push(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n);
+  return { pts, len: Math.hypot(x1 - x0, z1 - z0), v, w, road };
+};
+
+// Boulevard: a wide divided avenue at dusk. Straight and long like a city
+// street, but 13 m wide, which trips roads.js's lane-count-from-width (2B), and
+// it is the topology that finally deals the `dusk` preset.
+function topoBoulevard(rTopo, rDress, vBase) {
+  const A = 132;
+  const roads = [{ w: 13, loop: 0, style: 1 | 2, pts: [{ x: -A, z: 0 }, { x: 0, z: 0 }, { x: A, z: 0 }] }];
+  const props = [];
+  const S = dress(props, rDress);
+  for (let i = 0; i < 9; i++) { S('lamp_cobra', -80 + i * 20, 8.6, 0); S('lamp_cobra', -70 + i * 20, -8.6, Math.PI); }
+  S('building_city', -46, -32, 0); S('building_city', 30, -34, 0); S('building_city', -6, 32, Math.PI);
+  S('bus_stop', 22, 9.2, Math.PI); S('street_clock', -20, 9.2, 0);
+  for (let i = 0; i < 4; i++) S('tree_round', -66 + i * 42, 12.5 + rTopo.range(0, 3), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.6)) S('food_cart', 46, 9.6, Math.PI);
+  if (rTopo.chance(0.6)) S('billboard', -52, -15, Math.PI / 2);
+  return {
+    name: 'boulevard',
+    world: { arena: A * 2 + 20, env: 'dusk', ground: A + 22 },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Tunnel mouth: a straight approach to a portal, channelled by barrier. The
+// portal squares the far end as a backdrop — nothing on the centreline for
+// ambient traffic to hit — and the `overheight` template (2F) brings its own
+// clearance bar. Dealt at dawn.
+function topoTunnelMouth(rTopo, rDress, vBase) {
+  const A = 128;
+  const roads = [{ w: 9, loop: 0, style: 1, pts: [{ x: -A, z: 0 }, { x: 20, z: 0 }, { x: A, z: 0 }] }];
+  const props = [];
+  const S = dress(props, rDress);
+  S('tunnel_portal', A + 9, 0, Math.PI);           // squares the far end, off the drivable road
+  S('sign_warn', 70, 7.4, Math.PI / 2);
+  S('vms_board', 48, 7.8, Math.PI / 2);
+  for (let i = 0; i < 7; i++) { S('jersey_run', 40 + i * 12, 6.4, 0); S('jersey_run', 40 + i * 12, -6.4, 0); }
+  for (let i = 0; i < 5; i++) S('lamp_cobra', -84 + i * 24, 7.2, 0);
+  if (rTopo.chance(0.7)) S('utility_box', -30, 7.6, 0);
+  return {
+    name: 'tunnelmouth',
+    world: { arena: A * 2 + 20, env: 'dawn', ground: A + 22 },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Industrial yard: a wide floodlit apron with two aisles, everything slow and
+// close. Fender-benders, not highway wrecks — the parking-lot shape with a
+// working-yard face and the `night` preset in a real round.
+function topoIndustrialYard(rTopo, rDress, vBase) {
+  const A = 104;
+  const roads = [
+    { w: 8, loop: 0, style: 0, pts: [{ x: -A, z: -12 }, { x: 0, z: -12 }, { x: A, z: -12 }] },
+    { w: 8, loop: 0, style: 0, pts: [{ x: -A, z: 18 }, { x: 0, z: 18 }, { x: A, z: 18 }] },
+  ];
+  const props = [];
+  const S = dress(props, rDress);
+  S('gantry_crane', 0, 46, 0);
+  for (let i = 0; i < 4; i++) S('container_stack', -60 + i * 40, 42, (i % 2) * Math.PI / 2);
+  for (let i = 0; i < 5; i++) S('container', -50 + i * 26, -42, 0);
+  S('fuel_tank', -74, 3, 0); S('substation', 72, -40, 0); S('pipe_rack', 42, 3, 0);
+  for (let i = 0; i < 5; i++) S('floodlight_tower', -66 + i * 32, 3, 0);
+  S('weighbridge', -28, 3, 0);
+  if (rTopo.chance(0.7)) S('gate_arm', 90, 3, Math.PI / 2);
+  return {
+    name: 'industrialyard',
+    world: { arena: A * 2 + 24, env: 'night', ground: A + 22 },
+    roads, props, lanes: lanesFrom(roads, rTopo, Math.min(vBase, 8.5)), crossings: [],
+  };
+}
+
+// T-junction: a through road meeting a GIVE-WAY side street. A signalized T
+// fought the lane model — the stem's inbound lane has nowhere to go but the
+// junction centre (there is no opposite arm), so a car driving it stopped dead
+// IN the box and cross traffic T-boned it, and a junction-radius turn onto the
+// through road is far tighter than the pure-pursuit driver's ~22 m floor. So
+// the stem is a give-way SPUR carrying no through traffic: the incident plays
+// out on the through road, and the side street is the place a pullout noses out
+// from. It still reads as a T — asphalt fillets, stop bars, a give-way line.
+function topoTJunction(rTopo, rDress, vBase) {
+  const A = 138, STUB = 7.4, REACH = 9.6;
+  const roads = [
+    { pts: [{ x: -A, z: 0 }, { x: -A / 2, z: 0 }, { x: -STUB, z: 0 }], w: 8, loop: 0, style: 1 },
+    { pts: [{ x: STUB, z: 0 }, { x: A / 2, z: 0 }, { x: A, z: 0 }], w: 8, loop: 0, style: 1 },
+    { pts: [{ x: 0, z: STUB }, { x: 0, z: 44 }, { x: 0, z: 88 }], w: 7, loop: 0, style: 0 }, // give-way spur
+  ];
+  const junctions = [{
+    x: 0, z: 0, reach: REACH, style: 1 | 2, // stop bars + crosswalks, no signal
+    arms: [{ a: 0, w: 8 }, { a: Math.PI, w: 8 }, { a: Math.PI / 2, w: 7 }],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  S('sign_yield', 3.0, 10.2, Math.PI / 2); // give way on the spur mouth
+  S('sign_street', -8, 9.2, 0);
+  S('house', -30, -26, 0); S('house', 26, -28, 0); S('house', 42, 24, Math.PI);
+  if (rTopo.chance(0.7)) S('tree_oak', -16 - rTopo.range(0, 5), 16 + rTopo.range(0, 4), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.6)) S('mailbox', 12, -8.6, 0);
+  if (rTopo.chance(0.6)) S('bench', -22, 8.8, Math.PI);
+  return {
+    name: 'tjunction',
+    world: { arena: A * 2 + 20, env: 'suburb', ground: A + 22 },
+    roads, junctions, props,
+    lanes: [
+      straightLane(-A, 2, A, 2, 11, 8, 'ew'),   // W→E
+      straightLane(A, -2, -A, -2, 11, 8, 'ew'),  // E→W
+    ],
+    crossings: [],
+  };
+}
+
+// Overpass: a straight surface road running under an elevated crossing deck.
+// The two roads meet in plan but NEVER in height, so nothing overlaps. The
+// flyover is pure structure — deck + (visual-only) piers + a driving slab up at
+// H that no car reaches — and every incident plays out on the ground road.
+function topoOverpass(rTopo, rDress, vBase) {
+  const A = 130, H = 6.4;
+  const roads = [
+    { w: 9, loop: 0, style: 1, pts: [{ x: -A, z: 0 }, { x: 0, z: 0 }, { x: A, z: 0 }] },
+    // the flyover: elevated deck across +z→−z. deck&elev draws piers, which are
+    // VISUAL ONLY (1G) — its only colliders are the parapets and slab up at H,
+    // clearing a 2 m car by 4 m, so the surface road below is unaffected.
+    {
+      w: 10, loop: 0, style: 1 | 8, elev: true,
+      pts: [{ x: 0, y: H, z: -A }, { x: 0, y: H, z: -34 }, { x: 0, y: H, z: 34 }, { x: 0, y: H, z: A }],
+    },
+  ];
+  const props = [];
+  const S = dress(props, rDress);
+  S('building_city', -44, -34, 0); S('building_city', 40, 32, Math.PI);
+  for (let i = 0; i < 6; i++) S('lamp_cobra', -70 + i * 28, 7.4, i % 2 ? Math.PI : 0);
+  if (rTopo.chance(0.7)) S('utility_pole', -24, -8.6, 0);
+  if (rTopo.chance(0.6)) S('vms_board', 30, 7.8, Math.PI / 2);
+  return {
+    name: 'overpass',
+    world: { arena: A * 2 + 20, env: 'city', ground: A + 22 },
+    roads, props,
+    lanes: lanesFrom([roads[0]], rTopo, vBase), // ground road only — nobody drives the flyover
+    crossings: [],
+  };
+}
+
+// Forest road: gentle bends through pine woods, gravel verge instead of a kerb
+// so leaving the road is a run-off. Drivable alpine terrain rises just past the
+// corridor, and the wet-grip opt-in is live (a wet forest road is the point).
+function topoForestRoad(rTopo, rDress, vBase) {
+  const A = 96;
+  const roads = [{
+    w: 8.5, loop: 0, style: 1 | 16,
+    pts: [
+      { x: -A, z: -18 }, { x: -52, z: -28 }, { x: -14, z: -8 },
+      { x: 24, z: 16 }, { x: 60, z: 6 }, { x: A, z: -20 },
+    ],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  // dressing stays inside playR (r < 98) so it sits on the flat corridor, not
+  // on displaced ground; the far forest is vegetation.js scatter on the hills
+  for (let i = 0; i < 8; i++) S('tree_pine', rTopo.range(-84, 84), (i % 2 ? 1 : -1) * rTopo.range(16, 40), rTopo.range(0, 6.28));
+  for (let i = 0; i < 2; i++) S('tree_cluster', rTopo.range(-60, 60), (i % 2 ? 1 : -1) * rTopo.range(30, 42), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.7)) S('fallen_tree', rTopo.range(-40, 40), rTopo.range(24, 38), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.6)) S('log_pile', -58, 22, 0);
+  return {
+    name: 'forestroad',
+    wxGrip: true,
+    world: {
+      arena: A * 2 + 40, env: 'alpine', ground: A + 30,
+      terrain: { preset: 'rolling', seed: String(rTopo.int(1, 99999)), drivable: true, playR: A + 12 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Mountain pass: the flagship relief topology. A winding alpine road with a
+// gravel verge AND a swept guardrail (real colliders that contain a car),
+// drivable terrain, and weather grip — 2B + 2C + 2D all live at once.
+function topoMountainPass(rTopo, rDress, vBase) {
+  const A = 94;
+  const roads = [{
+    w: 9, loop: 0, style: 1 | 16 | 32,
+    pts: [
+      { x: -A, z: 20 }, { x: -50, z: 34 }, { x: -12, z: 8 },
+      { x: 26, z: -20 }, { x: 58, z: -6 }, { x: A, z: 26 },
+    ],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  for (let i = 0; i < 3; i++) S('rockfall_net', -60 + i * 50, -34, 0);
+  for (let i = 0; i < 4; i++) S('boulder_field', rTopo.range(-78, 78), (i % 2 ? 1 : -1) * rTopo.range(28, 40), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.7)) S('scree', -30, 36, 0);
+  if (rTopo.chance(0.7)) S('cairn', 40, 30, 0);
+  if (rTopo.chance(0.5)) S('alpine_hut', -72, -30, 0.6);
+  return {
+    name: 'mountainpass',
+    wxGrip: true,
+    world: {
+      arena: A * 2 + 44, env: 'alpine', ground: A + 32,
+      terrain: { preset: 'alpine', seed: String(rTopo.int(1, 99999)), drivable: true, playR: A + 14 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, Math.min(vBase, 11)), crossings: [],
+  };
+}
+
+// Canyon: a winding desert road between rock walls, gravel verge, drivable mesa
+// terrain around it. Dust weather bites here (grip on).
+function topoCanyon(rTopo, rDress, vBase) {
+  const A = 98;
+  const roads = [{
+    w: 8.5, loop: 0, style: 1 | 16,
+    pts: [
+      { x: -A, z: -10 }, { x: -54, z: 6 }, { x: -16, z: -14 },
+      { x: 22, z: 10 }, { x: 58, z: -8 }, { x: A, z: 12 },
+    ],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  for (let i = 0; i < 4; i++) S('cliff_face', rTopo.range(-78, 78), (i % 2 ? 1 : -1) * rTopo.range(30, 42), (i % 2) * Math.PI);
+  for (let i = 0; i < 3; i++) S('rock_outcrop', rTopo.range(-68, 68), (i % 2 ? 1 : -1) * rTopo.range(26, 40), rTopo.range(0, 6.28));
+  if (rTopo.chance(0.7)) S('cactus', -40, 24, 0);
+  if (rTopo.chance(0.6)) S('boulder_field', 44, -30, 0);
+  return {
+    name: 'canyon',
+    wxGrip: true,
+    world: {
+      arena: A * 2 + 40, env: 'desert', ground: A + 30,
+      terrain: { preset: 'mesa', seed: String(rTopo.int(1, 99999)), drivable: true, playR: A + 12 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Coastal cliff: a road along the shore, guardrail on the seaward side, the sea
+// as a basin off the +z edge. Wet grip is live — a wet coast road is a bet.
+function topoCoastalCliff(rTopo, rDress, vBase) {
+  const A = 116;
+  const roads = [{
+    w: 9, loop: 0, style: 1 | 32,
+    pts: [{ x: -A, z: -6 }, { x: -50, z: 4 }, { x: 0, z: -6 }, { x: 50, z: 6 }, { x: A, z: -4 }],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  S('lighthouse', -80, -40, 0);
+  for (let i = 0; i < 4; i++) S('seawall', -60 + i * 40, 12.5, 0);
+  if (rTopo.chance(0.7)) S('beach_hut', 60, -18, Math.PI);
+  if (rTopo.chance(0.6)) S('tide_marker', 30, 12, 0);
+  return {
+    name: 'coastalcliff',
+    wxGrip: true,
+    world: {
+      arena: A * 2 + 20, env: 'coastal', ground: A + 22,
+      water: { y: -0.8, x0: -A + 4, x1: A - 4, z0: 16, z1: 92 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Riverside: a gentle road beside a river, gravel verge toward the water so a
+// slide off the shoulder is a swim. Wet grip live.
+function topoRiverside(rTopo, rDress, vBase) {
+  const A = 120;
+  const roads = [{
+    w: 9, loop: 0, style: 1 | 16,
+    pts: [{ x: -A, z: -4 }, { x: -40, z: 4 }, { x: 40, z: -4 }, { x: A, z: 4 }],
+  }];
+  const props = [];
+  const S = dress(props, rDress);
+  S('dock', 20, 16, 0); S('jetty', -30, 15, Math.PI / 2);
+  for (let i = 0; i < 3; i++) S('reeds', -50 + i * 40, 13.5, 0);
+  for (let i = 0; i < 3; i++) S('cattails', -30 + i * 34, 13, 0);
+  if (rTopo.chance(0.7)) S('rowboat', 44, 15, 0.5);
+  if (rTopo.chance(0.6)) S('fishing_hut', -70, -16, 0);
+  return {
+    name: 'riverside',
+    wxGrip: true,
+    world: {
+      arena: A * 2 + 20, env: 'coastal', ground: A + 22,
+      water: { y: -0.8, x0: -A + 4, x1: A - 4, z0: 12, z1: 78 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Harbour ramp: a straight quay ending at open water. Gravel verge, no rail —
+// a car that fails to stop drives off the end into the harbour.
+function topoHarbourRamp(rTopo, rDress, vBase) {
+  const A = 118;
+  const roads = [{ w: 9, loop: 0, style: 1 | 16, pts: [{ x: -A, z: 0 }, { x: 30, z: 0 }, { x: 88, z: 0 }] }];
+  const props = [];
+  const S = dress(props, rDress);
+  S('lighthouse', 98, -32, 0);
+  for (let i = 0; i < 4; i++) S('mooring_bollard', 58 + i * 12, 8.5, 0);
+  S('dock', 70, 20, 0); S('boat_trailer', -20, 10, 0);
+  for (let i = 0; i < 3; i++) S('buoy', 102 + i * 6, rTopo.range(-18, 18), 0); // in the water
+  if (rTopo.chance(0.7)) S('container', -50, -12, 0);
+  if (rTopo.chance(0.6)) S('lifebuoy_stand', 78, 8, Math.PI / 2);
+  return {
+    name: 'harbourramp',
+    world: {
+      arena: A * 2 + 20, env: 'coastal', ground: A + 22,
+      water: { y: -0.8, x0: 96, x1: A + 6, z0: -70, z1: 70 },
+    },
+    roads, props, lanes: lanesFrom(roads, rTopo, vBase), crossings: [],
+  };
+}
+
+// Cloverleaf onramp: a straight motorway mainline with a sweeping on-ramp
+// curling in from the side. The ramp is STRUCTURE — no traffic drives it, since
+// a junction-radius merge curve is far tighter than the driver's ~22 m floor —
+// so the bad merge, the tailgate and the pile-up all play out on the mainline,
+// which is exactly what the merge template already choreographs on a single
+// carriageway (a car drifting into an occupied lane, no ramp geometry needed).
+function topoCloverleaf(rTopo, rDress, vBase) {
+  const A = 134;
+  const roads = [
+    { w: 11, loop: 0, style: 1, pts: [{ x: -A, z: 0 }, { x: 0, z: 0 }, { x: A, z: 0 }] },
+    // the sweeping ramp, VISUAL ONLY — curls down from the NE to run alongside
+    // the +z edge; its near edge stays clear of the mainline so nothing z-fights
+    {
+      w: 6.5, loop: 0, style: 1 | 16,
+      pts: [{ x: -98, z: 60 }, { x: -70, z: 45 }, { x: -44, z: 27 }, { x: -20, z: 15 }, { x: 6, z: 11.5 }, { x: 34, z: 11.5 }],
+    },
+  ];
+  const props = [];
+  const S = dress(props, rDress);
+  S('sign_highway', -70, -12, Math.PI / 2);
+  S('arrow_board', -14, 8.6, 0);
+  for (let i = 0; i < 5; i++) S('chevron_board', -30 + i * 12, 9.6, 0);
+  for (let i = 0; i < 6; i++) S('lamp_cobra', -80 + i * 30, -8.6, 0);
+  if (rTopo.chance(0.7)) S('sign_reg', 62, -10, Math.PI / 2);
+  if (rTopo.chance(0.6)) S('cell_tower', -58, 44, 0);
+  return {
+    name: 'cloverleaf',
+    world: { arena: A * 2 + 24, env: 'dawn', ground: A + 24 },
+    roads, props, lanes: lanesFrom([roads[0]], rTopo, vBase), crossings: [],
+  };
+}
+
 /* ---------------- placement ---------------- */
 // Put a car on `lane` so it reaches arc `sAnchor` at `tick` while cruising at
 // v. If the run-up doesn't fit the lane, v is reduced to make it fit (the
@@ -594,6 +963,10 @@ const cmd = (spec, c) => { spec.drive.cmds.push(c); return spec; };
 const TEMPLATES = {
   // a car simply does not stop for the junction — classic T-bone
   redlight: {
+    // NOT tjunction: its stem is one-sided, so the symmetric crossing the
+    // red-light and left-turn templates choreograph (a car through the box from
+    // the far arm) has no far arm to come from. The T still signals and queues
+    // cross traffic; its incidents are the rear-end / pullout kind instead.
     topos: ['intersection', 'tramcrossing', 'roundabout'],
     make(ctx) {
       const { rng, topo, tellK } = ctx;
@@ -619,7 +992,7 @@ const TEMPLATES = {
   },
   // lead car slams the brakes, the queue concertinas
   chain: {
-    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'industrialyard', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     minLane: 115,
     make(ctx) {
       const { rng, tellK, lane } = ctx;
@@ -656,7 +1029,7 @@ const TEMPLATES = {
   },
   // front tire lets go — the car carves across the road
   blowout: {
-    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     needsOpp: true, // the carve needs oncoming geometry to be worth watching
     make(ctx) {
       const { rng, tellK, lane, opp, approach } = ctx;
@@ -700,7 +1073,7 @@ const TEMPLATES = {
   },
   // slow drift out of lane, then a panicked overcorrection
   drowsy: {
-    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'industrialyard', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     needsOpp: true, // ditto — a solo drift into empty grass is a non-scene
     make(ctx) {
       const { rng, tellK, lane, opp, approach } = ctx;
@@ -745,7 +1118,7 @@ const TEMPLATES = {
     // city only: suburb loop apexes sit against side streets, so the catcher
     // guard strips them and the 200-sweep's only eventless scenes were all
     // suburb overspeeds. City corners keep their furniture.
-    topos: ['city', 'switchback', 'causeway'],
+    topos: ['city', 'switchback', 'causeway', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff'],
     needsCurve: true,
     minD: 5,
     make(ctx) {
@@ -803,7 +1176,7 @@ const TEMPLATES = {
   },
   // parked car noses into traffic without looking
   pullout: {
-    topos: ['suburb', 'city', 'intersection', 'schoolzone', 'parkinglot', 'roundabout', 'tramcrossing'],
+    topos: ['suburb', 'city', 'intersection', 'schoolzone', 'parkinglot', 'roundabout', 'tramcrossing', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'industrialyard', 'riverside', 'harbourramp'],
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
       const sMerge = approach.anchorS;
@@ -853,7 +1226,7 @@ const TEMPLATES = {
   },
   // a chase barrels through — the PIT lands around T=0
   police: {
-    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'industrialyard', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     minLane: 115,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -893,7 +1266,7 @@ const TEMPLATES = {
   brakefail: {
     // no switchback: a parked queue on a hairpin sits beside the folded-back
     // leg and gets clipped before the incident
-    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot'],
+    topos: ['suburb', 'city', 'highway', 'intersection', 'causeway', 'schoolzone', 'tramcrossing', 'roundabout', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'industrialyard', 'riverside', 'harbourramp'],
     minLane: 115,
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
@@ -922,7 +1295,7 @@ const TEMPLATES = {
 
   // a heavy stands on the brakes and the back end comes around
   jackknife: {
-    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'tramcrossing'],
+    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'tramcrossing', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf'],
     minLane: 130,
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
@@ -941,7 +1314,7 @@ const TEMPLATES = {
 
   // a flatbed sheds its load into the lane behind it
   loadspill: {
-    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection'],
+    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf'],
     minLane: 125,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -969,7 +1342,7 @@ const TEMPLATES = {
 
   // police contact: the pursuit ends with a nudge that spins the runner
   pit: {
-    topos: ['highway', 'suburb', 'city', 'causeway', 'intersection', 'parkinglot'],
+    topos: ['highway', 'suburb', 'city', 'causeway', 'intersection', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf'],
     minLane: 120, minD: 4,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -991,7 +1364,7 @@ const TEMPLATES = {
 
   // somebody is coming the other way in your lane
   wrongway: {
-    topos: ['highway', 'causeway', 'suburb', 'city', 'intersection', 'switchback'],
+    topos: ['highway', 'causeway', 'suburb', 'city', 'intersection', 'switchback', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     needsOpp: true, minD: 3,
     make(ctx) {
       const { rng, tellK, lane, opp } = ctx;
@@ -1008,7 +1381,7 @@ const TEMPLATES = {
 
   // one tailgater, one lift-off — a plain two-car rear-ender
   tailgate: {
-    topos: ['highway', 'causeway', 'city', 'suburb', 'schoolzone', 'roundabout', 'tramcrossing', 'parkinglot'],
+    topos: ['highway', 'causeway', 'city', 'suburb', 'schoolzone', 'roundabout', 'tramcrossing', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'riverside', 'harbourramp', 'industrialyard'],
     minLane: 140, // both cars plus a 10 s run-up must fit, or the tail is
                   // dropped and the scene is one car braking gently: eventless
     make(ctx) {
@@ -1035,7 +1408,7 @@ const TEMPLATES = {
 
   // a dead car sitting in a live lane
   stall: {
-    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'tramcrossing', 'switchback'],
+    topos: ['highway', 'causeway', 'city', 'suburb', 'intersection', 'tramcrossing', 'switchback', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'industrialyard', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     minLane: 120,
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
@@ -1058,6 +1431,10 @@ const TEMPLATES = {
 
   // unprotected left across oncoming traffic
   leftturn: {
+    // NOT tjunction: its stem is one-sided, so the symmetric crossing the
+    // red-light and left-turn templates choreograph (a car through the box from
+    // the far arm) has no far arm to come from. The T still signals and queues
+    // cross traffic; its incidents are the rear-end / pullout kind instead.
     topos: ['intersection', 'tramcrossing', 'roundabout'],
     minD: 2,
     make(ctx) {
@@ -1079,7 +1456,7 @@ const TEMPLATES = {
 
   // a tall vehicle carries too much speed into a bend and goes up on two wheels
   rollover: {
-    topos: ['switchback', 'city', 'suburb', 'highway', 'causeway'],
+    topos: ['switchback', 'city', 'suburb', 'highway', 'causeway', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff'],
     needsCurve: true, minD: 3,
     make(ctx) {
       const { rng, tellK, lane, curveS } = ctx;
@@ -1095,7 +1472,7 @@ const TEMPLATES = {
 
   // late braking into a stopped queue — the driver simply never saw it
   sunblind: {
-    topos: ['highway', 'causeway', 'city', 'suburb', 'schoolzone', 'intersection'],
+    topos: ['highway', 'causeway', 'city', 'suburb', 'schoolzone', 'intersection', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'coastalcliff', 'riverside', 'harbourramp'],
     minLane: 125,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -1112,7 +1489,7 @@ const TEMPLATES = {
 
   // something in the road; the swerve is worse than the obstacle
   debris: {
-    topos: ['highway', 'causeway', 'suburb', 'city', 'switchback', 'intersection'],
+    topos: ['highway', 'causeway', 'suburb', 'city', 'switchback', 'intersection', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'tjunction', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp'],
     minLane: 120,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -1133,7 +1510,7 @@ const TEMPLATES = {
 
   // a merge into a lane that is already occupied
   merge: {
-    topos: ['highway', 'causeway', 'city', 'suburb', 'roundabout', 'parkinglot'],
+    topos: ['highway', 'causeway', 'city', 'suburb', 'roundabout', 'parkinglot', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'industrialyard'],
     needsOpp: false, minLane: 115,
     make(ctx) {
       const { rng, tellK, lane, approach } = ctx;
@@ -1155,7 +1532,7 @@ const TEMPLATES = {
 
   // a launch off a ramp — does it clear what is on the far side?
   rampjump: {
-    topos: ['highway', 'suburb', 'city', 'parkinglot', 'causeway'],
+    topos: ['highway', 'suburb', 'city', 'parkinglot', 'causeway', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf'],
     minLane: 130, minD: 5,
     make(ctx) {
       const { rng, lane, approach } = ctx;
@@ -1227,16 +1604,26 @@ export function generateScene(seed, d = 1) {
   const topoName = rTopo.pick([
     'intersection', 'suburb', 'city', 'highway',
     'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'parkinglot', 'roundabout',
+    // P2/2E — the twelve new places
+    'boulevard', 'tunnelmouth', 'industrialyard', 'tjunction', 'overpass', 'cloverleaf',
+    'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp',
   ]);
   const VB = {
     highway: 12.5, causeway: 12, switchback: 11, suburb: 10,
     schoolzone: 8.5, parkinglot: 7.8, tramcrossing: 11, roundabout: 9.5,
+    // 2E: relief/curvy roads cruise a little under the straights they resemble
+    boulevard: 11.5, tunnelmouth: 12, industrialyard: 8, tjunction: 11, overpass: 12, cloverleaf: 12.5,
+    forestroad: 10.5, mountainpass: 11, canyon: 10.5, coastalcliff: 11, riverside: 11, harbourramp: 10,
   };
   const vBase = VB[topoName] || 9;
   const BESPOKE = {
     intersection: topoIntersection, causeway: topoCauseway, switchback: topoSwitchback,
     schoolzone: topoSchoolZone, tramcrossing: topoTramCrossing,
     parkinglot: topoParkingLot, roundabout: topoRoundabout,
+    boulevard: topoBoulevard, tunnelmouth: topoTunnelMouth, industrialyard: topoIndustrialYard,
+    tjunction: topoTJunction, overpass: topoOverpass, cloverleaf: topoCloverleaf,
+    forestroad: topoForestRoad, mountainpass: topoMountainPass, canyon: topoCanyon,
+    coastalcliff: topoCoastalCliff, riverside: topoRiverside, harbourramp: topoHarbourRamp,
   };
   let topo = BESPOKE[topoName]
     ? BESPOKE[topoName](rTopo, rDress, vBase)
@@ -1666,13 +2053,25 @@ export function generateScene(seed, d = 1) {
     for (let s = 10; s < len - 10; s += 8) k = Math.max(k, curvatureAt(pts, s, 8));
     return c._v * c._v * k > 2.4;
   };
+  /* Curvy/relief topologies (2E) never deal heavies. A long semi off-tracks
+     across the centreline on a SUSTAINED bend even when its lateral-g demand is
+     low — the `bendy` v²·κ guard measures the tip, not the length-driven crab,
+     so it waves a semibox through a gentle-radius corner and the drift into
+     oncoming is a pre-incident head-on. Measured on coastalcliff and
+     mountainpass: a semibox at ~11 m/s reaches ~5 m wide well before tick 600.
+     An artic on an alpine hairpin reads wrong anyway, so this is also correct
+     art direction, not only a determinism guard. */
+  const NO_HEAVY = topo.name === 'mountainpass' || topo.name === 'canyon'
+    || topo.name === 'forestroad' || topo.name === 'coastalcliff';
   const poolFor = (c) => {
     if (c._pool === 'POLICE') return ['police'];
     // _short = spawned in a tight queue: only compact bodies fit the gap
     if (c._short) return c._pool === 'FAST' ? FAST : CIVIC;
     if (c._pool === 'FAST') return FAST;
-    // an explicitly heavy actor still yields to the bendy guard
-    if (c._pool === 'HEAVY') return bendy(c) ? CIVIC : HEAVY;
+    // an explicitly heavy actor yields to the bendy guard AND to a topology
+    // that bars heavies outright
+    if (c._pool === 'HEAVY') return bendy(c) || NO_HEAVY ? CIVIC : HEAVY;
+    if (NO_HEAVY) return CIVIC;
     if (topo.name === 'highway') return rCast.chance(0.3) && !bendy(c) ? HEAVY : CIVIC;
     return rCast.chance(0.12) && !bendy(c) ? HEAVY : CIVIC;
   };
