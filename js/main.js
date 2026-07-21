@@ -1938,7 +1938,8 @@ function frame(now) {
   // OrbitControls.update() re-aims the camera at its target even when the
   // handlers are disabled — never run it while freecam or a POV owns the camera
   const moved = (fly.on || activePov) ? false : controls.update();
-  env.syncSky(camera.position);
+  // the cloud deck drifts on the scene's wind; frozen with everything else
+  env.syncSky(camera.position, frozen || reduceMotion ? 0 : dt);
   // fog density follows where the camera actually is. Rounds only: they are the
   // only mode with weather, and the showroom's free camera would otherwise
   // thin its fog just by flying away from the display floor.
