@@ -206,6 +206,129 @@ export function sphere(mat, r, detail = 0) {
   return m;
 }
 
+/* Merge a STATIC subtree down to one mesh per material.
+   `matFactory` already dedupes materials by parameter key, so "per material" is
+   usually a handful — a 20-mesh prop lands at 3 or 4 draw calls.
+
+   Sim-neutral by construction: colliders are explicit recipes that are never
+   parsed from geometry, so nothing physics reads is touched, and the caller's
+   own group node survives so `buildTargetMap` and `disposeGroup` still work.
+
+   NEVER call this on a vehicle. deform.js displaces per weld group with
+   per-zone stiffness (nose crumples, cabin resists), and merging every panel
+   into one buffer would weld zones together and change the crumple model.
+   Anything that must survive gets `userData.noMerge`. */
+// Two materials with identical parameters are still two GPU state changes when
+// they are different objects. `matFactory` dedupes within ONE build, so a
+// 20-prop scene has 20 separate "black rubber" materials and merging by uuid
+// can never join them. `byParams` keys on the parameters instead, which is what
+// makes a whole-showroom merge collapse thousands of meshes into dozens.
+const matKey = (m) => [
+  m.color && m.color.getHexString(), m.roughness, m.metalness, m.flatShading,
+  m.envMapIntensity, m.emissive && m.emissive.getHexString(), m.emissiveIntensity,
+  m.transparent, m.opacity, m.side, m.map ? m.map.uuid : '', m.type,
+].join('|');
+
+/* Flatten a list of meshes into ONE non-indexed triangle-list geometry, in the
+   space `inv` maps into (normally the merge root's local space).
+
+   **`box()`, `cyl()` and the torus helper are INDEXED.** `BoxGeometry` ships 24
+   vertices and 36 indices; `CylinderGeometry` 52 and 96. CLAUDE.md's "all
+   geometry is non-indexed" is true of the hexa/slab kit and false of three's
+   primitives, which is most of the scenery. Copying `position` in buffer order
+   and ignoring `index` therefore does not merge a box — it emits 8 triangles
+   stitched from whatever vertices happen to be adjacent, which renders as long
+   thin spikes reaching across the scene. Every merge MUST walk the index.
+
+   `opt.color` bakes each source mesh's material colour into a vertex-colour
+   attribute — that is what lets many differently-tinted meshes share one
+   material (vegetation.js relies on it). */
+export function bakeMerged(meshes, inv, opt = {}) {
+  const m4 = new THREE.Matrix4(), m3 = new THREE.Matrix3(), v = new THREE.Vector3();
+  let n = 0;
+  for (const o of meshes) {
+    const g = o.geometry;
+    n += g.index ? g.index.count : g.attributes.position.count;
+  }
+  const pos = new Float32Array(n * 3);
+  const nor = new Float32Array(n * 3);
+  const uv = opt.uv ? new Float32Array(n * 2) : null;
+  const col = opt.color ? new Float32Array(n * 3) : null;
+  let w = 0, wu = 0;
+  let anyNormal = false;
+  for (const o of meshes) {
+    const g = o.geometry, p = g.attributes.position, nn = g.attributes.normal, tt = g.attributes.uv;
+    const idx = g.index;
+    const cnt = idx ? idx.count : p.count;
+    if (nn) anyNormal = true;
+    m4.multiplyMatrices(inv, o.matrixWorld);
+    m3.getNormalMatrix(m4);
+    const c = opt.color ? o.material.color : null;
+    for (let k = 0; k < cnt; k++) {
+      const i = idx ? idx.getX(k) : k;
+      v.fromBufferAttribute(p, i).applyMatrix4(m4);
+      pos[w] = v.x; pos[w + 1] = v.y; pos[w + 2] = v.z;
+      if (nn) {
+        v.fromBufferAttribute(nn, i).applyMatrix3(m3).normalize();
+        nor[w] = v.x; nor[w + 1] = v.y; nor[w + 2] = v.z;
+      }
+      if (col) { col[w] = c.r; col[w + 1] = c.g; col[w + 2] = c.b; }
+      w += 3;
+      if (uv) {
+        // zeros where a mesh has no uv: a material carrying a map is only ever
+        // used by geometry that has them, so this never shows
+        uv[wu] = tt ? tt.getX(i) : 0; uv[wu + 1] = tt ? tt.getY(i) : 0;
+        wu += 2;
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  if (uv) geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  if (col) geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (!anyNormal) geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+export function mergeByMaterial(root, opt = {}) {
+  if (!root) return 0;
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const groups = new Map();
+  root.traverse((o) => {
+    if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return;
+    if (o.userData.noMerge || Array.isArray(o.material)) return;
+    const k = opt.byParams ? matKey(o.material) : o.material.uuid;
+    if (!groups.has(k)) groups.set(k, { mat: o.material, list: [], cast: false, recv: false, uv: false });
+    const e = groups.get(k);
+    e.list.push(o);
+    e.cast = e.cast || o.castShadow;
+    e.recv = e.recv || o.receiveShadow;
+    e.uv = e.uv || !!o.geometry.attributes.uv;
+  });
+  let saved = 0;
+  for (const e of groups.values()) if (e.list.length > 1) saved += e.list.length - 1;
+  if (!saved) return 0;
+
+  for (const e of groups.values()) {
+    if (e.list.length < 2) continue;
+    const geo = bakeMerged(e.list, inv, { uv: e.uv });
+    const mesh = new THREE.Mesh(geo, e.mat);
+    mesh.castShadow = e.cast;
+    mesh.receiveShadow = e.recv;
+    mesh.matrixAutoUpdate = false;
+    for (const o of e.list) {
+      if (o.parent) o.parent.remove(o);
+      o.geometry.dispose(); // the material is shared and stays alive
+    }
+    root.add(mesh);
+  }
+  root.updateMatrixWorld(true);
+  return saved;
+}
+
 export function disposeGroup(root) {
   const mats = new Set();
   root.traverse((c) => {

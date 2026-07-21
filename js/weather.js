@@ -286,6 +286,13 @@ export function initWeather(scene, opts = {}) {
   let wx = null;
   let t = 0;
   let flashT = 0, nextFlash = 0, flashRng = null;
+  let budget = 1; // quality-tier multiplier on the particle count (1H)
+
+  // draw-range only, so a tier change costs nothing and needs no rebuild
+  function setBudget(b) {
+    budget = clamp(b == null ? 1 : b, 0, 1);
+    if (wx) set(wx);
+  }
 
   function set(w) {
     wx = w;
@@ -296,7 +303,7 @@ export function initWeather(scene, opts = {}) {
     const p = w.precip;
     const wd = new THREE.Vector2(Math.cos(w.wind.dir), Math.sin(w.wind.dir)).multiplyScalar(w.wind.speed);
     if (p === 'rain') {
-      const n = Math.round(MAX_RAIN * (0.25 + 0.75 * w.intensity));
+      const n = Math.round(MAX_RAIN * (0.25 + 0.75 * w.intensity) * budget);
       rainGeo.setDrawRange(0, n * 2);
       rainUni.uWind.value.copy(wd);
       rainUni.uFall.value = 26 + 22 * w.intensity;
@@ -305,7 +312,7 @@ export function initWeather(scene, opts = {}) {
       rainUni.uColor.value.set('#cfe0ee');
       rain.visible = true;
     } else if (p === 'snow' || p === 'dust') {
-      const n = Math.round(MAX_FLAKE * (0.3 + 0.7 * w.intensity));
+      const n = Math.round(MAX_FLAKE * (0.3 + 0.7 * w.intensity) * budget);
       flakeGeo.setDrawRange(0, n);
       flakeUni.uWind.value.copy(wd);
       const snow = p === 'snow';
@@ -371,5 +378,5 @@ export function initWeather(scene, opts = {}) {
     flakeGeo.dispose(); flakes.material.dispose();
   }
 
-  return { set, update, setPixelScale, dispose, get wx() { return wx; } };
+  return { set, setBudget, update, setPixelScale, dispose, get wx() { return wx; } };
 }

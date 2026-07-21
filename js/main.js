@@ -9,7 +9,7 @@ import { RoomEnvironment } from '../libs/RoomEnvironment.js';
 import { buildVehicle, REG } from './vehicles.js';
 import { PROPS, SCENERY, buildProp } from './props.js';
 import { buildRoad } from './roads.js';
-import { disposeGroup, clamp, makeRng } from './lib.js';
+import { disposeGroup, clamp, makeRng, mergeByMaterial } from './lib.js';
 import { initEnv, ENVS } from './env.js';
 import { rollWeather, initWeather, applyWetness } from './weather.js';
 import { initVegetation } from './vegetation.js';
@@ -248,6 +248,42 @@ function buildShowroom() {
   scene.add(root);
   showroom = root;
   showroomBox = new THREE.Box3().setFromObject(root);
+  // The Garage is display-only — nothing here is targeted, deformed or posed —
+  // so it merges across the WHOLE field by material parameters. Per-build
+  // `matFactory` caches mean 280 models ship 280 separate "black rubber"
+  // materials, and merging by identity could never join them; by parameters
+  // they collapse. This is also the one place vehicles may be merged: the ban
+  // exists for deform.js weld groups, and nothing in here is ever crashed.
+  mergeByMaterial(root, { byParams: true });
+  freezeMatrices(root);
+}
+
+/* The showroom has to LEAVE the scene, not just go invisible.
+   `visible = false` is a render-time cull and the renderer's own
+   `scene.updateMatrixWorld()` walk ignores it — and that walk recurses into
+   every child unconditionally. So 280 models nobody was looking at cost a
+   7 321-node traversal on every frame of every round: measured at 2.3 ms, about
+   30 % of the frame. `visible` is kept in step because other code reads it. */
+function showShowroom(on) {
+  if (!showroom) return;
+  showroom.visible = on;
+  if (on && !showroom.parent) scene.add(showroom);
+  else if (!on && showroom.parent) scene.remove(showroom);
+}
+
+/* Stop paying for a static subtree every frame.
+   `matrixAutoUpdate = false` per NODE is the knob — it skips the `updateMatrix()`
+   call, which is the actual per-node work. `matrixWorldAutoUpdate` on the root
+   is NOT: in r169 it only guards whether that one node composes its own
+   `matrixWorld`; the child recursion below it runs unconditionally (three.module
+   .js:7778). Setting it on the showroom root measured exactly zero, which is how
+   this was caught.
+   Only safe on content whose transforms never change after build — anything the
+   sim poses each tick must stay live. */
+function freezeMatrices(obj) {
+  if (!obj) return;
+  obj.updateMatrixWorld(true);
+  obj.traverse((o) => { o.matrixAutoUpdate = false; });
 }
 
 /* ---------------- game flow: menu → showroom ---------------- */
@@ -259,7 +295,7 @@ async function startGame(wantFullscreen = true) {
     try { await screen.orientation.lock('landscape'); } catch {}
   }
   buildShowroom();
-  showroom.visible = true; // may have been hidden by crash mode
+  showShowroom(true); // may have been hidden by crash mode or a round
   setCamMode('orbit'); // the entry tween needs OrbitControls in charge
   inGame = true;
   document.body.classList.add('ingame');
@@ -345,18 +381,46 @@ document.addEventListener('fullscreenchange', syncFsLabel);
   }
 }
 let quality = smallScreen ? 'low' : 'high';
-function applyQuality(q) {
-  quality = q;
-  renderer.setPixelRatio(q === 'low' ? 1 : Math.min(devicePixelRatio, smallScreen ? 1.5 : 2));
-  renderer.shadowMap.enabled = q !== 'low';
-  scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
-  $('set_quality').querySelectorAll('.mchip').forEach((c) => c.classList.toggle('sel', c.dataset.q === q));
+/* Quality tiers (1H). Previously this moved only DPR and shadows on/off, forced
+   a shader recompile of every material on EVERY call, and was never saved — so
+   it reset to the screen-size guess on every boot and none of the density knobs
+   the world-building phases added had a tier to hang off.
+   Now it owns DPR, shadow map size, vegetation density and precipitation
+   budget, and it persists. The recompile only happens when `shadowMap.enabled`
+   actually flips, which is the one change that alters the shader. */
+const TIERS = {
+  low: { dpr: 1, shadow: false, map: 1024, veg: 0.4, precip: 0.5 },
+  high: { dpr: null, shadow: true, map: null, veg: 1, precip: 1 },
+};
+let qualityLive = false; // set once the profile and round bindings exist
+function tier() { return TIERS[quality] || TIERS.high; }
+function applyQuality(q, save = true) {
+  const t = TIERS[q] ? q : 'high';
+  const prevShadow = renderer.shadowMap.enabled;
+  quality = t;
+  const cfg = TIERS[t];
+  renderer.setPixelRatio(cfg.dpr || Math.min(devicePixelRatio, smallScreen ? 1.5 : 2));
+  renderer.shadowMap.enabled = cfg.shadow;
+  const map = cfg.map || (smallScreen ? 1024 : 2048);
+  if (key.shadow.mapSize.x !== map) {
+    key.shadow.mapSize.set(map, map);
+    if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; }
+  }
+  // a full material recompile is a real stall — only the shadow flag needs it
+  if (prevShadow !== cfg.shadow) scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+  weather.setBudget(cfg.precip);
+  // `qualityLive` short-circuits before `round` is evaluated: this runs once at
+  // module scope, above the `let round` declaration, and reading it there is a
+  // temporal-dead-zone throw rather than an undefined
+  if (qualityLive && round) veg.build(env.terrainField, round.seed, { density: cfg.veg, value: env.terrainValue });
+  $('set_quality').querySelectorAll('.mchip').forEach((c) => c.classList.toggle('sel', c.dataset.q === t));
+  if (save) saveSetting('quality', t);
   invalidate();
 }
 $('set_quality').querySelectorAll('.mchip').forEach((b) => {
   b.addEventListener('click', () => applyQuality(b.dataset.q));
 });
-applyQuality(quality);
+applyQuality(quality, false); // no profile yet — applySavedSettings lands the real tier
 
 /* ---------------- volume + motion settings (G5) ----------------
    Both persist in profile.settings, so they survive a reload but are wiped by
@@ -397,6 +461,10 @@ function applySavedSettings() {
   const s = (profile && profile.settings) || {};
   applyVolume(s.volume === undefined ? 50 : s.volume, false);
   applyMotion(s.motion || (osReduceMotion ? 'reduced' : 'full'), false);
+  // quality persists now — it used to reset to the screen-size guess on every
+  // boot, so a player who picked Low on a hot laptop got High back every time
+  qualityLive = true;
+  applyQuality(s.quality || (smallScreen ? 'low' : 'high'), false);
 }
 
 /* ---------------- freecam ----------------
@@ -785,7 +853,7 @@ async function startCrash(wantFullscreen = true) {
     $('hud').hidden = false;
     $('pause').hidden = true;
     $('crashui').hidden = false;
-    if (showroom) showroom.visible = false;
+    showShowroom(false);
     spawnCrash(new mod.CrashSim(R, scenario, catOfId), mod, true);
   } catch (e) {
     console.error('crash mode failed', e);
@@ -1079,7 +1147,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
 
     destroyCrashSim();
     destroyRound();
-    if (showroom) showroom.visible = false;
+    showShowroom(false);
     if (sc.world.env && ENVS.some((e) => e.id === sc.world.env)) env.apply(sc.world.env);
     env.setGroundRadius(sc.world.ground || 90);
     env.setWater(sc.world.water || null);
@@ -1116,6 +1184,19 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     // materials are per-build, so this cannot leak into the next round, and the
     // terrain is deliberately left alone (grass and rock do not gloss).
     if (wx.wetness > 0) applyWetness(sim.roads.map((r) => r.group), wx.wetness);
+    // Freeze everything the sim will never pose. Roads are static by contract
+    // (the group is never transformed) and a prop's `group` holds whatever was
+    // left after the dynamic bodies re-parented their nodes to sim.root — so
+    // skip any group that IS one of those nodes, because that one moves.
+    // Merge first, then freeze — merging rewrites the children. Both are safe
+    // here for the same reason: colliders are explicit recipes, never parsed
+    // from geometry, and fx reads `rec.spec` rather than any mesh.
+    for (const rec of sim.roads) { mergeByMaterial(rec.group); freezeMatrices(rec.group); }
+    for (const rec of sim.props) {
+      if (rec.dyn.some((d) => d.node === rec.group)) continue;
+      mergeByMaterial(rec.group);
+      freezeMatrices(rec.group);
+    }
     targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
     scene.add(sim.root);
     povRig = buildLoadout(sc, seed, d, povFocus());
@@ -1545,10 +1626,17 @@ function pickGroup(nx, ny) {
 }
 
 // per-frame while freecam owns the camera: what is the dot resting on?
-function updateCrosshair() {
+// The raycast is a full recursive intersect against every mesh in the round, so
+// it is throttled to ~12 Hz — a crosshair label that updates in under 90 ms is
+// indistinguishable from one that updates every frame, and this ran on every
+// frame of every freecam second.
+let crossT = 0;
+function updateCrosshair(now) {
   const on = !!(round && inGame && fly.on && $('pause').hidden);
   $('crosshair').hidden = !on;
   if (!on) { hoverGroup = null; return; }
+  if (now - crossT < 85) return;
+  crossT = now;
   const g = pickGroup(0, 0);
   if (g === hoverGroup) return;
   hoverGroup = g;
@@ -1828,7 +1916,7 @@ function frame(now) {
     drivePov(activePov, camera, round.sim, povFocus(), now / 1000, dt);
     animating = true;
   }
-  updateCrosshair();
+  updateCrosshair(now);
   // Weather is frozen while the round is. The sim's clock is stopped, so
   // hanging rain is the correct fiction — and it lets render-on-demand sleep
   // through the freeze, which is the longest UI phase and precisely when the

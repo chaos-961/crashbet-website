@@ -10,7 +10,7 @@
 // frame is gone. Here each KIND is baked down to exactly ONE InstancedMesh, so
 // a nine-species landscape of ~1200 plants costs 9.
 import * as THREE from 'three';
-import { makeRng, clamp } from './lib.js';
+import { makeRng, clamp, bakeMerged } from './lib.js';
 import { buildScenery } from './scenery.js';
 
 /* ---------------- prototype baking ----------------
@@ -45,43 +45,18 @@ function bakePrototype(kind, seed) {
   });
   if (!n) return null;
 
-  const pos = new Float32Array(n * 3);
-  const nor = new Float32Array(n * 3);
-  const col = new Float32Array(n * 3);
-  const m4 = new THREE.Matrix4();
-  const m3 = new THREE.Matrix3();
-  const v = new THREE.Vector3();
   // pick the material that covers the most vertices to donate the surface
   // parameters — roughness and metalness cannot vary per vertex, and for
   // vegetation they barely vary at all
   let bestMat = null, bestCount = -1;
-  let o = 0;
   for (const mesh of meshes) {
-    const g = mesh.geometry;
-    const p = g.attributes.position;
-    const nn = g.attributes.normal;
-    m4.multiplyMatrices(inv, mesh.matrixWorld);
-    m3.getNormalMatrix(m4);
-    const c = mesh.material.color;
-    if (p.count > bestCount) { bestCount = p.count; bestMat = mesh.material; }
-    for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i).applyMatrix4(m4);
-      pos[o] = v.x; pos[o + 1] = v.y; pos[o + 2] = v.z;
-      if (nn) {
-        v.fromBufferAttribute(nn, i).applyMatrix3(m3).normalize();
-        nor[o] = v.x; nor[o + 1] = v.y; nor[o + 2] = v.z;
-      }
-      col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
-      o += 3;
-    }
+    const c = mesh.geometry.attributes.position.count;
+    if (c > bestCount) { bestCount = c; bestMat = mesh.material; }
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  if (!meshes.some((m) => m.geometry.attributes.normal)) geo.computeVertexNormals();
-  geo.computeBoundingSphere();
-
+  // shared with mergeByMaterial so the index-expansion happens in exactly one
+  // place — `box()` and `cyl()` are indexed and copying them in buffer order
+  // silently produces spikes rather than solids
+  const geo = bakeMerged(meshes, inv, { color: true });
   const box = new THREE.Box3().setFromBufferAttribute(geo.attributes.position);
   return {
     geo,
