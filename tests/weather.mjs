@@ -18,7 +18,7 @@ const load = (f) => import(pathToFileURL(path.join(root, 'js', f)));
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log('  ok ' + msg); } else { fail++; console.log('  FAIL ' + msg); } };
 
-const { rollWeather, WEATHER_KINDS, WEATHER_ENVS, CLEAR } = await load('weather.js');
+const { rollWeather, gripFor, WEATHER_KINDS, WEATHER_ENVS, CLEAR } = await load('weather.js');
 const { ENVS } = await load('env.js');
 
 /* ---- cross-table integrity: the ledger #5 bug class ---- */
@@ -95,6 +95,37 @@ for (const e of ENVS) {
 /* ---- CLEAR is a usable no-weather default ---- */
 ok(CLEAR && CLEAR.kind === 'clear' && CLEAR.precip === null && CLEAR.light.envI === 1,
   'CLEAR default is clear, dry and unlit-unchanged');
+
+/* ---- grip (P2/2D) ----
+   Same silent-fallback class this whole file exists to guard: `gripFor` returns
+   1 for anything it does not recognise, so a kind added to KINDS without a grip
+   value would quietly become a dry road and nothing would say so. This asserts
+   every kind carries one, in range, and that dry kinds are exactly 1 — the
+   opt-in's whole safety argument is that x * 1.0 is bit-exact, and a `clear`
+   row of 0.999 would move every pin the moment a topology enabled grip. */
+{
+  const bad = [];
+  for (const k of WEATHER_KINDS) {
+    const g = gripFor({ kind: k });
+    if (!Number.isFinite(g) || g <= 0 || g > 1) bad.push(`${k}=${g}`);
+  }
+  ok(!bad.length, 'every kind has a finite grip in (0, 1]' + (bad.length ? ' — ' + bad.join(' ') : ''));
+  ok(gripFor({ kind: 'clear' }) === 1 && gripFor({ kind: 'fair' }) === 1,
+    'dry kinds are EXACTLY 1 (x * 1.0 is bit-exact — this is what keeps pins frozen)');
+  ok(gripFor(null) === 1 && gripFor(undefined) === 1 && gripFor({ kind: 'nope' }) === 1,
+    'unknown / missing weather falls back to full grip, never to NaN');
+  // the ordering that makes rain readable: wetter must never grip BETTER
+  ok(gripFor({ kind: 'downpour' }) < gripFor({ kind: 'rain' })
+    && gripFor({ kind: 'rain' }) < gripFor({ kind: 'drizzle' })
+    && gripFor({ kind: 'drizzle' }) < gripFor({ kind: 'overcast' })
+    && gripFor({ kind: 'overcast' }) < gripFor({ kind: 'clear' }),
+    'grip falls monotonically along the rain ramp (the tell must be readable)');
+  // snow is the trap: `wet` is only 0.20, so anything deriving grip from
+  // wetness would make the slipperiest surface in the table nearly dry
+  ok(gripFor({ kind: 'snow' }) < gripFor({ kind: 'rain' }),
+    'snow grips worse than rain despite being barely WET (grip is per-kind, not from wetness)');
+  ok(gripFor({ kind: 'dust' }) < 1, 'dust costs grip despite wet = 0 (grit on hardpan)');
+}
 
 console.log(`\nWEATHER: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,7 +1,12 @@
-// weather.js — per-scene weather. Strictly render-side, like fx.js and env.js:
-// it reads nothing from the sim and writes nothing back. Phase 1 deliberately
-// keeps it out of the physics entirely; grip is a Phase 2 opt-in
-// (world.weather.grip), so no pinned hash can move because of anything here.
+// weather.js — per-scene weather. The RENDERING half is strictly render-side,
+// like fx.js and env.js: it reads nothing from the sim and writes nothing back.
+//
+// `rollWeather` and `gripFor` are the other half and they are PURE — plain data
+// out, no THREE, no side effects — which is what lets director.js call them to
+// put the scene's weather on the scenario itself (P2/2D). That matters: grip
+// settles money, so the recorder and the round the player watches must read the
+// same descriptor, and the only way to guarantee that is for the scene to carry
+// it rather than for two callers to re-roll it and hope they agree.
 //
 // The descriptor is rolled from its OWN rng stream ('wx:'+seed), so the same
 // seed always shows the same weather and no existing stream shifts by a draw.
@@ -34,17 +39,17 @@ import { makeRng, clamp } from './lib.js';
    is a tan wall and mist is brighter than the thing it hides. Its amount comes
    from cloud and fog together, so dust hazes strongly on modest cloud. */
 const KINDS = {
-  clear:    { cloud: 0.05, wet: 0,    fog: 0,    key: 1.00, hemi: 1.00, fill: 1.00, exposure: 1.00, envI: 1.00, haze: '#a9b6c4' },
-  fair:     { cloud: 0.30, wet: 0,    fog: 0.06, key: 0.96, hemi: 1.02, fill: 1.00, exposure: 1.00, envI: 1.00, haze: '#a9b6c4' },
-  overcast: { cloud: 0.82, wet: 0.15, fog: 0.22, key: 0.40, hemi: 0.92, fill: 1.02, exposure: 0.93, envI: 0.72, haze: '#8f979d' },
-  drizzle:  { cloud: 0.72, wet: 0.55, fog: 0.26, key: 0.48, hemi: 0.90, fill: 1.00, exposure: 0.93, envI: 0.70, haze: '#8d959c', precip: 'rain', rate: 0.34 },
-  rain:     { cloud: 0.87, wet: 0.85, fog: 0.34, key: 0.34, hemi: 0.80, fill: 0.96, exposure: 0.87, envI: 0.58, haze: '#848c94', precip: 'rain', rate: 0.74 },
-  downpour: { cloud: 0.96, wet: 1.00, fog: 0.50, key: 0.22, hemi: 0.68, fill: 0.90, exposure: 0.80, envI: 0.46, haze: '#767e87', precip: 'rain', rate: 1.00 },
-  mist:     { cloud: 0.50, wet: 0.30, fog: 0.62, key: 0.58, hemi: 1.04, fill: 1.06, exposure: 0.98, envI: 0.86, haze: '#c2cbd2' },
-  fog:      { cloud: 0.62, wet: 0.35, fog: 0.90, key: 0.44, hemi: 0.94, fill: 1.02, exposure: 0.94, envI: 0.74, haze: '#b9c2c9' },
-  snow:     { cloud: 0.80, wet: 0.20, fog: 0.44, key: 0.52, hemi: 1.12, fill: 1.08, exposure: 1.00, envI: 0.92, haze: '#c8d3e0', precip: 'snow', rate: 0.68 },
-  dust:     { cloud: 0.44, wet: 0,    fog: 0.58, key: 0.66, hemi: 0.94, fill: 0.98, exposure: 0.96, envI: 0.76, haze: '#b7986a', precip: 'dust', rate: 0.6 },
-  storm:    { cloud: 1.00, wet: 1.00, fog: 0.46, key: 0.16, hemi: 0.55, fill: 0.82, exposure: 0.72, envI: 0.36, haze: '#5d646c', precip: 'rain', rate: 1.0, lightning: true },
+  clear:    { cloud: 0.05, wet: 0,    grip: 1.00, fog: 0,    key: 1.00, hemi: 1.00, fill: 1.00, exposure: 1.00, envI: 1.00, haze: '#a9b6c4' },
+  fair:     { cloud: 0.30, wet: 0,    grip: 1.00, fog: 0.06, key: 0.96, hemi: 1.02, fill: 1.00, exposure: 1.00, envI: 1.00, haze: '#a9b6c4' },
+  overcast: { cloud: 0.82, wet: 0.15, grip: 0.97, fog: 0.22, key: 0.40, hemi: 0.92, fill: 1.02, exposure: 0.93, envI: 0.72, haze: '#8f979d' },
+  drizzle:  { cloud: 0.72, wet: 0.55, grip: 0.88, fog: 0.26, key: 0.48, hemi: 0.90, fill: 1.00, exposure: 0.93, envI: 0.70, haze: '#8d959c', precip: 'rain', rate: 0.34 },
+  rain:     { cloud: 0.87, wet: 0.85, grip: 0.82, fog: 0.34, key: 0.34, hemi: 0.80, fill: 0.96, exposure: 0.87, envI: 0.58, haze: '#848c94', precip: 'rain', rate: 0.74 },
+  downpour: { cloud: 0.96, wet: 1.00, grip: 0.76, fog: 0.50, key: 0.22, hemi: 0.68, fill: 0.90, exposure: 0.80, envI: 0.46, haze: '#767e87', precip: 'rain', rate: 1.00 },
+  mist:     { cloud: 0.50, wet: 0.30, grip: 0.94, fog: 0.62, key: 0.58, hemi: 1.04, fill: 1.06, exposure: 0.98, envI: 0.86, haze: '#c2cbd2' },
+  fog:      { cloud: 0.62, wet: 0.35, grip: 0.93, fog: 0.90, key: 0.44, hemi: 0.94, fill: 1.02, exposure: 0.94, envI: 0.74, haze: '#b9c2c9' },
+  snow:     { cloud: 0.80, wet: 0.20, grip: 0.70, fog: 0.44, key: 0.52, hemi: 1.12, fill: 1.08, exposure: 1.00, envI: 0.92, haze: '#c8d3e0', precip: 'snow', rate: 0.68 },
+  dust:     { cloud: 0.44, wet: 0,    grip: 0.91, fog: 0.58, key: 0.66, hemi: 0.94, fill: 0.98, exposure: 0.96, envI: 0.76, haze: '#b7986a', precip: 'dust', rate: 0.6 },
+  storm:    { cloud: 1.00, wet: 1.00, grip: 0.74, fog: 0.46, key: 0.16, hemi: 0.55, fill: 0.82, exposure: 0.72, envI: 0.36, haze: '#5d646c', precip: 'rain', rate: 1.0, lightning: true },
 };
 
 /* Weights per environment, because weather has to fit the place — a desert
@@ -107,6 +112,29 @@ export function rollWeather(seed, envId) {
 }
 
 export const CLEAR = rollWeather('', 'grid'); // a usable no-weather default
+
+/* ---------------- grip (P2/2D) ----------------
+   The tyre-friction multiplier a weather kind implies. Pure, and deliberately
+   NOT part of the descriptor `rollWeather` returns: a scenario's
+   `world.weather.grip` means "physics is reading this", and its absence means
+   "no grip effect at all". If every descriptor carried a grip the moment the
+   director attached one to a scenario every scene would silently go low-grip
+   and every pin would move — the opt-in has to be a decision someone makes, not
+   a field that comes along for the ride.
+
+   Keyed per KIND rather than derived from `wet`, because `wet` describes how
+   GLOSSY the road looks and the two genuinely disagree. Snow barely wets
+   asphalt (wet 0.20) and is the slipperiest surface here; dust is bone dry
+   (wet 0) and a layer of grit on hardpan really does cost grip. Deriving grip
+   from wetness would have made snow a 0.95 and dust a no-op, which is backwards
+   on both counts.
+
+   No rng: a pure function of the kind, so it adds no draw to any stream and the
+   same seed keeps dealing the same scene. */
+export function gripFor(wx) {
+  const k = wx && KINDS[wx.kind];
+  return k && typeof k.grip === 'number' ? k.grip : 1;
+}
 
 /* ---------------- wet surfaces ----------------
    The biggest tell that it is raining is not the rain, it is the road. A

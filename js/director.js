@@ -16,6 +16,10 @@ import { makeRng, clamp } from './lib.js';
 import { roadCurve } from './roads.js';
 import { generateWorld } from './worldgen.js';
 import { makeSignalProgram, phaseFor, signalAt, GREEN } from './signals.js';
+// weather.js's roll is pure data (no THREE objects, no side effects), which is
+// what lets the scene carry its own weather — see the `world.weather` note in
+// generateScene for why that has to be the scenario's job and not main.js's.
+import { rollWeather, gripFor } from './weather.js';
 
 export const INCIDENT_TICK = 600; // T = 10 s at 60 Hz — the moment it goes wrong
 export const RESOLVE_TICKS = 1800; // ≤ 30 s of aftermath before the hard cap
@@ -1694,6 +1698,25 @@ export function generateScene(seed, d = 1) {
     return true;
   });
 
+  /* Weather (P2/2D). Rolled HERE rather than in main.js, off the same
+     'wx:'+seed stream and the same env id, so the descriptor is bit-identical
+     to the one main.js used to roll for itself — no player sees different
+     weather because of this move.
+
+     Why it had to move: grip settles money. The recorder runs the scenario
+     headlessly and the round the player watches builds it again, and if the
+     weather were rolled separately by the renderer then the tape and the round
+     could disagree about how slippery the road is. The scene has to carry it.
+     It also retires a latent trap — main.js rolled against `env.current`, the
+     LIVE environment, which is a Settings chip the player can change; that was
+     harmless while weather was decoration and would not have stayed harmless.
+
+     `grip` is written only when the topology asks for it, so absent means the
+     tyres are untouched and every pinned hash holds. Nothing opts in yet —
+     2E's mountain/coastal topologies are what turn it on. */
+  const wx = rollWeather(seed, topo.world.env);
+  const weather = topo.wxGrip ? { ...wx, grip: gripFor(wx) } : wx;
+
   return {
     // Spread the topology's world through instead of re-listing its keys. The
     // enumerated version dropped every key it did not name — including
@@ -1703,7 +1726,7 @@ export function generateScene(seed, d = 1) {
     // stayed green only because the `water` simtest scenario hand-writes
     // world.water rather than going through the director. Defaults stay in
     // front so a topology can still override gravity or walls deliberately.
-    world: { gravity: 9.81, walls: false, ...topo.world, arena: topo.world.arena || 100 },
+    world: { gravity: 9.81, walls: false, ...topo.world, arena: topo.world.arena || 100, weather },
     roads: topo.roads,
     junctions: topo.junctions || [],
     props,

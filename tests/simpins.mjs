@@ -75,6 +75,17 @@ const PINS = {
   // hash moving alongside is expected here and is not evidence of a physics
   // change: no force, material or solver parameter was touched.
   director: ['d84820dd', 'ea7b2a6e'],
+  // NEW in P2/2D. Pins `world.weather.grip` — a wet road under DRIVEN cars, so
+  // both halves of the opt-in are frozen: the friction slip each wheel is BUILT
+  // with, and the brake authority the driver COMMANDS every tick. They are
+  // separate code paths and only the second one made grip directional, so a pin
+  // that covered just the first would certify half a feature.
+  //
+  // Every other pin here sets no grip and none of them moved, which is what
+  // proves the opt-in is an opt-in: `wxGrip` is exactly 1 when absent and
+  // multiplying a float by exactly 1.0 is bit-exact, so the tyres and brakes
+  // every legacy scenario builds are the ones it always built.
+  wxgrip:   ['82c01590', 'b42a8bfb'],
   worldgen: ['20bf2a4d', '418447b5'],
 };
 

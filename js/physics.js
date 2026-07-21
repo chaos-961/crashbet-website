@@ -155,8 +155,12 @@ function findWheels(wrap) {
   return { phys, visual: ground, allTagged: all };
 }
 
-/* ---------------- one car rig ---------------- */
-function buildRig(R, world, spec, entryCat) {
+/* ---------------- one car rig ----------------
+   `wGrip` is the world's weather grip multiplier (P2/2D). It defaults to
+   exactly 1, and multiplying an IEEE-754 float by exactly 1.0 returns that
+   float bit-for-bit, so every scenario without `world.weather.grip` builds the
+   tyres it always did — which is what keeps the pinned hashes frozen. */
+function buildRig(R, world, spec, entryCat, wGrip = 1) {
   const built = buildVehicle(spec.seed, spec.type, spec.paint || null);
   const wrap = built.group;
   const cat = CAT_PHYS[entryCat] || CAT_PHYS.Cars;
@@ -284,7 +288,7 @@ function buildRig(R, world, spec, entryCat) {
     veh.setWheelSuspensionRelaxation(i, cat.sus.r);
     veh.setWheelMaxSuspensionTravel(i, rest * 1.05 * cat.sus.tk);
     veh.setWheelMaxSuspensionForce(i, mass * 9.81 * 0.9);
-    veh.setWheelFrictionSlip(i, cat.grip * gripK);
+    veh.setWheelFrictionSlip(i, cat.grip * gripK * wGrip);
     veh.setWheelSideFrictionStiffness(i, 1);
     wheelMeta.push({
       steer: w.x >= steerXCut, conn: { x: w.x, y: w.y + rest * 0.65, z: w.z }, r: w.r,
@@ -622,6 +626,24 @@ export class CrashSim {
     // loops never run and the water path is byte-for-byte the G4 one, which is
     // why the `water` and `carnage` pins did not move when this landed.
     this.waterV2 = !!(wat && wat.v2);
+    /* P2/2D weather grip. Opt-in with null, the same shape as water and
+       terrain: `world.weather` may carry the scene's whole weather descriptor
+       (the director puts it there so the recorder and the round the player
+       watches cannot read different weather), but ONLY an explicit numeric
+       `grip` reaches the tyres. Absent — which is every scenario that ships
+       today — this is exactly 1 and every wheel is built with the friction it
+       always had, so no pinned hash can move.
+
+       Clamped low at 0.35: below roughly that the driver controller cannot hold
+       a lane at cruise and cars understeer off the road before the incident,
+       which breaks the tick-600 rule rather than making a scene interesting.
+
+       `Number.isFinite`, not `typeof === 'number'`: NaN passes a typeof test,
+       clamp propagates it (Math.min/max of NaN is NaN) and it reaches
+       setWheelFrictionSlip, where Rapier's wasm panics with a bare
+       "unreachable" that names nothing. Measured — this is not hypothetical. */
+    const wx = W.weather;
+    this.wxGrip = wx && Number.isFinite(wx.grip) ? clamp(wx.grip, 0.35, 1) : 1;
     this.waterBasin = wat && typeof wat.x0 === 'number'
       ? { x0: wat.x0, x1: wat.x1, z0: wat.z0, z1: wat.z1, bed: wat.bed == null ? wat.y - 3.5 : wat.bed }
       : null;
@@ -776,7 +798,7 @@ export class CrashSim {
   }
 
   _addCarRig(spec) {
-    const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type));
+    const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type), this.wxGrip);
     rig.stream = makeStream(spec);
     rig.driver = spec.drive ? makeDriver(spec.drive) : null;
     this.root.add(rig.wrap);
@@ -958,8 +980,25 @@ export class CrashSim {
       car.throttleNow = th;         // (never read back into the sim)
       // driven cars get real brake authority (input 1 ≈ firm stop, slam ≈
       // emergency lockup); stream cars keep the legacy scale so the old
-      // scenario hashes never move
-      const brakeK = car.driver ? 0.055 : 0.02;
+      // scenario hashes never move.
+      //
+      // P2/2D: brake authority scales with the world grip, and it has to be
+      // done HERE rather than left to the tyre model. `setWheelBrake` is fed a
+      // fixed force and the raycast controller only clips it at the friction
+      // circle, which this force sits well under — measured, the peak
+      // deceleration is a flat ~13 m/s² from grip 1.0 all the way down to 0.7
+      // and only starts to bind near 0.35. So friction slip alone left wet
+      // roads with dry stopping distances, and the only thing grip perturbed
+      // was lateral scrub: outcomes moved, but CHAOTICALLY rather than in a
+      // direction (0.82 flipped more markets than 0.70). A betting variable
+      // that reshuffles without pointing anywhere is exactly the "unfair
+      // randomness" the product rules forbid — the player must be able to see
+      // rain and reason about it. Scaling the demand restores the monotone
+      // tell: less grip, longer stop.
+      //
+      // Exactly 1 when no weather grip is set, and x*1.0 is bit-exact, so
+      // every legacy scenario brakes with the force it always did.
+      const brakeK = (car.driver ? 0.055 : 0.02) * this.wxGrip;
       for (let i = 0; i < car.wheelMeta.length; i++) {
         const m = car.wheelMeta[i];
         if (m.detached) { car.veh.setWheelEngineForce(i, 0); car.veh.setWheelBrake(i, 0); continue; }
@@ -1080,7 +1119,10 @@ export class CrashSim {
           if (m.dmg > WHEEL_DETACH_AT && m.hasVisual && !car.virtual) this._detachWheel(car, i);
           else if (m.dmg > WHEEL_BENT_AT && m.bent === 0 && m.hasVisual) {
             m.bent = (m.side >= 0 ? 1 : -1) * clamp(0.04 + (m.dmg - WHEEL_BENT_AT) * 0.02, 0.04, 0.15);
-            car.veh.setWheelFrictionSlip(i, car.cat.grip * clamp(car.spec.grip || 1, 0.2, 4) * 0.55);
+            // the bent-wheel penalty re-derives the slip from scratch, so it
+            // has to carry the world grip too — without it a wheel gets its
+            // wet-road penalty REFUNDED at the moment it bends
+            car.veh.setWheelFrictionSlip(i, car.cat.grip * clamp(car.spec.grip || 1, 0.2, 4) * this.wxGrip * 0.55);
           }
         }
       }
@@ -1256,7 +1298,7 @@ export class CrashSim {
     this.root.remove(old.wrap);
     disposeGroup(old.wrap);
     const spec = this.scenario.cars[i];
-    const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type));
+    const rig = buildRig(RAPIER, this.world, spec, this.catOf(spec.type), this.wxGrip);
     rig.stream = makeStream(spec);
     this.root.add(rig.wrap);
     for (const c of rig.colliders) this.colToCar.set(c.handle, rig);
@@ -1619,6 +1661,32 @@ export const TEST_SCENARIOS = {
     // here too — leaving the pin certifying a scene the game never builds.
     // A pin that bypasses part of the generator does not pin the generator.
     return { ...generateScene('pin-1', 4) };
+  })(),
+  // P2/2D: pins world.weather.grip. Both halves of the opt-in have to be
+  // frozen and they are separate code paths — the friction slip every wheel is
+  // BUILT with, and the brake authority the driver COMMANDS each tick. The
+  // carnage-style stream cars would exercise neither: they never brake and
+  // their slip is set once from a spec that has no grip. So this uses driven
+  // cars, and the plan is the one wet roads are actually about — a leader
+  // stopping in-lane with a heavier vehicle closing on it, plus a crossing car
+  // so the lateral case (where the friction circle really does bind) is in the
+  // hash too. grip 0.74 is the `storm` row of weather.js's table, i.e. a value
+  // the game can genuinely deal rather than a synthetic extreme.
+  wxgrip: (() => {
+    const lane = [];
+    for (let x = -90; x <= 30.001; x += 5) lane.push(x, 0);
+    return {
+      world: {
+        gravity: 9.81, arena: 120, walls: true,
+        weather: { kind: 'storm', grip: 0.74 },
+      },
+      props: [],
+      cars: [
+        { seed: '3', type: 'sedan', x: -20, z: 0, heading: 0, speed: 16, drive: { pts: lane, v: 16, end: 'stop' } },
+        { seed: '8', type: 'boxtruck', x: -50, z: 0.3, heading: 0, speed: 21, drive: { pts: lane, v: 21, end: 'coast' } },
+        { seed: '21', type: 'suv', x: 8, z: -34, heading: Math.PI / 2, speed: 22, drive: { pts: [8, -34, 8, -12, 8, 12, 8, 30], v: 22, end: 'coast' } },
+      ],
+    };
   })(),
   // world-building P3: a full generated suburb must replay bit-exact — this
   // also pins the generator itself (layout drift changes the hash)

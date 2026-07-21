@@ -1157,7 +1157,13 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     // same seed always shows the same sky and no existing stream shifts by a
     // draw. Applied BEFORE the terrain because the clouded horizon is baked
     // into the landscape's vertex colours and the two must agree.
-    const wx = rollWeather(seed, env.current);
+    //
+    // P2/2D: the SCENE now carries its descriptor — the director rolls it, so
+    // the recorder that priced the odds and the round being drawn here cannot
+    // read different weather (which matters the moment `world.weather.grip`
+    // reaches the tyres). The roll survives only as the fallback for scenarios
+    // that never went through generateScene, i.e. crash mode and the pins.
+    const wx = sc.world.weather || rollWeather(seed, env.current);
     env.applyWeather(wx);
     weather.set(wx);
     // Terrain (1A). Render-side and opt-in: the scenario may name a preset,
