@@ -253,7 +253,19 @@ export function bakeMerged(meshes, inv, opt = {}) {
   const pos = new Float32Array(n * 3);
   const nor = new Float32Array(n * 3);
   const uv = opt.uv ? new Float32Array(n * 2) : null;
-  const col = opt.color ? new Float32Array(n * 3) : null;
+  // Two different things want a colour attribute out of here and they are not
+  // the same operation. opt.color BAKES each mesh's MATERIAL colour into new
+  // vertex colours (1E, so a hundred one-off material hexes collapse to one
+  // white material). Carrying an EXISTING per-vertex colour attribute is the
+  // other case, and it has to be automatic: mergeByMaterial is the only merge
+  // path in the codebase and it never asked for colours, so geometry that
+  // already had them lost them silently — the material still says
+  // vertexColors:true, so the merged mesh then renders against an undefined
+  // attribute and comes out black. Same family as the indexed-geometry bug in
+  // 1H: plausible enough at a distance that nothing reports it.
+  let anySrcColor = false;
+  for (const o of meshes) if (o.geometry.attributes.color) { anySrcColor = true; break; }
+  const col = (opt.color || anySrcColor) ? new Float32Array(n * 3) : null;
   let w = 0, wu = 0;
   let anyNormal = false;
   for (const o of meshes) {
@@ -263,7 +275,8 @@ export function bakeMerged(meshes, inv, opt = {}) {
     if (nn) anyNormal = true;
     m4.multiplyMatrices(inv, o.matrixWorld);
     m3.getNormalMatrix(m4);
-    const c = opt.color ? o.material.color : null;
+    const sc = g.attributes.color;
+    const c = opt.color && o.material && o.material.color ? o.material.color : null;
     for (let k = 0; k < cnt; k++) {
       const i = idx ? idx.getX(k) : k;
       v.fromBufferAttribute(p, i).applyMatrix4(m4);
@@ -272,7 +285,13 @@ export function bakeMerged(meshes, inv, opt = {}) {
         v.fromBufferAttribute(nn, i).applyMatrix3(m3).normalize();
         nor[w] = v.x; nor[w + 1] = v.y; nor[w + 2] = v.z;
       }
-      if (col) { col[w] = c.r; col[w + 1] = c.g; col[w + 2] = c.b; }
+      // the mesh's own vertex colours win; the material colour is the fallback,
+      // and white is the fallback to that so a mixed list can never go black
+      if (col) {
+        if (sc) { col[w] = sc.getX(i); col[w + 1] = sc.getY(i); col[w + 2] = sc.getZ(i); }
+        else if (c) { col[w] = c.r; col[w + 1] = c.g; col[w + 2] = c.b; }
+        else { col[w] = 1; col[w + 1] = 1; col[w + 2] = 1; }
+      }
       w += 3;
       if (uv) {
         // zeros where a mesh has no uv: a material carrying a map is only ever

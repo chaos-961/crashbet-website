@@ -539,6 +539,11 @@ export class CrashSim {
     this.onGlass = null;   // (car, ev {type,point,r}) — pane cracked / shattered
     this.onDetach = null;  // (car, ev {point,r,speed}) — wheel tore off
     this.onSplash = null;  // (car, ev {point,speed}) — broke the water surface
+    // v2 only: a non-car body broke the surface. A SEPARATE hook rather than a
+    // wider onSplash on purpose — recorder.js resolves that one through
+    // sim.cars.indexOf(car), so handing it a prop would index per[-1] and throw
+    // inside the pre-sim the whole betting game settles against.
+    this.onObjSplash = null; // (obj, ev {point,speed,kind})
     this.onSunk = null;    // (car, ev {point}) — under and stopped
     this.build();
   }
@@ -555,6 +560,12 @@ export class CrashSim {
     // ground is carved away for. bed defaults to 3.5 m under the surface.
     const wat = W.water;
     this.waterY = wat && typeof wat.y === 'number' ? wat.y : null;
+    // Water v2 (1C), opt-in on top of the opt-in: buoyancy and drag reach
+    // dynamic props, torn-off wheels and any other debris body instead of only
+    // this.cars. Absent — which is every scenario that ships today — the extra
+    // loops never run and the water path is byte-for-byte the G4 one, which is
+    // why the `water` and `carnage` pins did not move when this landed.
+    this.waterV2 = !!(wat && wat.v2);
     this.waterBasin = wat && typeof wat.x0 === 'number'
       ? { x0: wat.x0, x1: wat.x1, z0: wat.z0, z1: wat.z1, bed: wat.bed == null ? wat.y - 3.5 : wat.bed }
       : null;
@@ -755,6 +766,43 @@ export class CrashSim {
         if (this.onSunk) this.onSunk(car, { point: { x: t.x, y: t.y, z: t.z } });
       }
     }
+    if (!this.waterV2) return;
+    // Fixed order, same as world creation: props (array order, then each rec's
+    // dyn in build order), then debris. Anything appended later must keep it.
+    for (const rec of this.props) {
+      for (const d of rec.dyn) this._floatBody(d, d.body, 0.8, 0.78, 2.4, 'prop');
+    }
+    // A torn tyre floats — real ones do — so this is the one buoyancy above
+    // neutral in the sim, and a wheel bobbing away downstream is worth it.
+    for (const d of this.debris) this._floatBody(d, d.body, d.r * 2, 1.05, 3.1, 'debris');
+  }
+
+  /* The generic half of _stepWater, used only by v2. Buoyancy here is a
+     mass-independent acceleration (m cancels), exactly as it is for cars — the
+     honest alternative needs a real submerged volume per collider, and nothing
+     in this game is worth that. So `buoy` is a per-CLASS choice about whether
+     that class floats, not a density. Determinism rules are the driver
+     controller's: arithmetic only, thresholds on squared magnitudes. */
+  _floatBody(o, body, span, buoy, drag, kind) {
+    const t = body.translation();
+    const depth = this.waterY - t.y;
+    if (depth <= 0) { o.inWater = false; return; }
+    const v = body.linvel();
+    const v2 = v.x * v.x + v.y * v.y + v.z * v.z;
+    if (!o.inWater) {
+      o.inWater = true;
+      if (this.onObjSplash) {
+        this.onObjSplash(o, { point: { x: t.x, y: this.waterY, z: t.z }, speed: Math.sqrt(v2), kind });
+      }
+    }
+    const sub = depth < span ? depth / span : 1;
+    const m = body.mass();
+    body.applyImpulse({ x: 0, y: m * 9.81 * buoy * sub * STEP, z: 0 }, true);
+    const k = drag * sub * STEP;
+    body.applyImpulse({ x: -v.x * m * k, y: -v.y * m * k * 0.6, z: -v.z * m * k }, true);
+    const av = body.angvel();
+    const tk = m * k * 0.4;
+    body.applyTorqueImpulse({ x: -av.x * tk, y: -av.y * tk, z: -av.z * tk }, true);
   }
 
   stepOnce() {
@@ -1361,6 +1409,47 @@ export const TEST_SCENARIOS = {
     // deck surface at x=−52 is 1.018; start on it, not 1 m under it
     cars: [
       { seed: '7', type: 'sedan', x: -52, y: 1.03, z: -3.4, heading: 0.11, speed: 30, throttle: 1 },
+    ],
+  },
+  // 1C water v2: buoyancy and drag reach dynamic props and torn-off wheels
+  // rather than only this.cars. `water` stays alongside this WITHOUT the flag,
+  // which is what proves the opt-in is really an opt-in.
+  //
+  // A shallow flooded pan rather than a bridge, and that is a deliberate second
+  // attempt. The first version put a head-on on an elevated span so the wheels
+  // would drop into the channel; both cars spawned a few centimetres inside the
+  // ramp, shed a wheel at tick 5 from the ejection alone and never met — the
+  // exact fragility CLAUDE.md already records for the deck and bridge pins.
+  // Here every body starts on flat ground, so the only thing under test is the
+  // water path.
+  //
+  // `bed: 0` is the trick that makes it work. The bed collider's top face and
+  // the surrounding land slabs then both sit at y = 0, so the driving surface
+  // is exactly the flat plane carnage crashes on — same spawn heights, same
+  // energy, no drop — and the only thing the basin changes is that the arena is
+  // now under 60 cm of water. A dug-out pan instead dropped every car a metre
+  // at spawn, and the drag on the submerged chassis bled off so much speed that
+  // the wreck stopped shedding wheels at all: 0 debris bodies, and the half of
+  // this scenario that exists for the debris loop tested nothing.
+  //
+  // The depth is chosen, not picked: _floatBody reads the body's CENTRE, so a
+  // wheel at rest sits at r ≈ 0.4 and the surface has to clear that or the
+  // debris loop runs on nothing. At 0.6 the wheels are properly under and the
+  // chassis rides the line, which is what a flooded road actually looks like.
+  waterv2: {
+    world: {
+      gravity: 9.81, arena: 70, walls: true,
+      water: { y: 0.6, x0: -40, x1: 40, z0: -40, z1: 40, bed: 0, v2: true },
+    },
+    props: [
+      { kind: 'pole', x: 6, z: 0, heading: 0 },
+      { kind: 'boxes', x: -7, z: 5.5, heading: 0.4 },
+    ],
+    // the carnage cast, which is tuned to shed wheels and shatter glass
+    cars: [
+      { seed: '3', type: 'muscle', x: -26, z: 0, heading: 0, speed: 30, throttle: 1, steer: 0 },
+      { seed: '8', type: 'sedan', x: 26, z: 0.5, heading: Math.PI, speed: 28, throttle: 1, steer: 0 },
+      { seed: '21', type: 'suv', x: 0, z: -24, heading: Math.PI / 2, speed: 26, throttle: 1, steer: 0.12 },
     ],
   },
   // crash-quality pass: high-energy wrecks must replay bit-exact too — this

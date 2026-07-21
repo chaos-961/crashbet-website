@@ -909,6 +909,19 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 #povfx.pov-chopper { background: radial-gradient(ellipse at 50% 50%, transparent 66%, rgba(0,0,0,0.34) 100%); }
 #povfx.pov-witness { background: radial-gradient(ellipse at 50% 50%, transparent 58%, rgba(0,0,0,0.42) 100%); }
+/* Underwater (1C). A lens treatment rather than anything in the scene: the
+   alternative is a fullscreen tinted box inside the world, which then has to
+   be sorted against the water surface, the glass and the fx puffs — every one
+   of the transparency ordering bugs, for an effect that is flat by nature.
+   Carries its own display so it works with no POV rig selected. */
+#povfx.uw {
+  display: block;
+  background:
+    linear-gradient(180deg, rgba(22,74,96,0.30) 0%, rgba(9,32,46,0.52) 100%),
+    radial-gradient(ellipse at 50% 45%, transparent 34%, rgba(4,20,30,0.62) 100%);
+  backdrop-filter: saturate(0.72) blur(1.4px);
+  -webkit-backdrop-filter: saturate(0.72) blur(1.4px);
+}
 @media (prefers-reduced-motion: reduce) { #povfx.pov-cctv { animation: none; } }
 @media (max-width: 700px) {
   /* the slip FAB centres on phones — keep the POV chips clear of it, and on

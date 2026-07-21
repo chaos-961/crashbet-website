@@ -1312,7 +1312,7 @@ function buildStrip(sim, endTick) {
   };
   // hooks off for the capture pass, exactly as a seek did: replaying 600 ticks
   // through them would dump a scene of particles and audio into one frame
-  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onSunk = null;
+  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onObjSplash = sim.onSunk = null;
   sim.reset();
   grab(0);
   while (sim.tick < endTick) { sim.stepOnce(); grab(sim.tick); }
@@ -1366,7 +1366,7 @@ function seekPreview(tick) {
   // Step silently. The six sim hooks are render-side (particles, audio, the
   // cinematic push-in) and replaying up to 600 ticks through them would dump
   // a whole scene's worth of effects and sound into a single frame.
-  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onSunk = null;
+  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onObjSplash = sim.onSunk = null;
   while (sim.tick < t) sim.stepOnce();
   sim.syncVisuals(1);
   // re-key fx to the (possibly rebuilt) cars, then re-wrap for cinematics
@@ -1926,6 +1926,15 @@ function frame(now) {
   // the canopies stop with the rain — same reasoning: the freeze is for reading
   // the scene, and a landscape that never settles defeats render-on-demand
   if (!frozen && !reduceMotion && veg.update(dt)) animating = true;
+  // Water (1C). Same freeze rule, and the return value is "is the camera under
+  // the surface" — a dashcam on a car that has just left the causeway goes
+  // under, and the lens has to say so. Toggled rather than assigned because a
+  // POV rig owns the rest of #povfx's class list.
+  if (round && env.hasWater) {
+    const under = env.updateWater(dt, camera, frozen || reduceMotion);
+    if (!frozen && !reduceMotion) animating = true;
+    $('povfx').classList.toggle('uw', under);
+  }
   // OrbitControls.update() re-aims the camera at its target even when the
   // handlers are disabled — never run it while freecam or a POV owns the camera
   const moved = (fly.on || activePov) ? false : controls.update();

@@ -35,6 +35,14 @@ const PINS = {
   // Was bridge 6d6ed6f1/553704f, water b3a3a7d3/1996d13e.
   bridge:   ['41c337c8', 'af80eb9'],
   water:    ['ac116fb4', '9d559754'],
+  // NEW in 1C. Pins world.water.v2 — buoyancy and drag reaching dynamic props
+  // and torn-off wheels instead of only sim.cars. It is a flooded flat pan
+  // (bed = 0, so the driving surface is carnage's own plane under 60 cm of
+  // water) and it deliberately covers BOTH branches of the new loops: 3 of the
+  // 7 dynamic prop bodies ride under the surface and 4 stay above it, and one
+  // wheel tears off and enters at tick 24. `water` sits next to it with no v2
+  // flag and did not move, which is what proves the opt-in is an opt-in.
+  waterv2:  ['6ce9b062', 'aa4fcf44'],
   carnage:  ['98c34be0', '584ce83a'],
   // moved once in G4 (was 516b05b0/bdf645b9) and intentionally: the
   // spawn-overlap net used to exempt any two cars sharing a lane as an

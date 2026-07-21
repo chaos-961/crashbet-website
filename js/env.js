@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { makeRng, matFactory } from './lib.js';
 import { buildTerrain, TERRAIN_FOR_ENV, isTerrain } from './terrain.js';
+import { buildWater, punchBasin } from './water.js';
 
 export const ENVS = [
   { id: 'proving', label: 'Proving Ground' },
@@ -354,55 +355,47 @@ export function initEnv(ctx) {
     ctx.invalidate();
   }
 
-  /* G4 water. Purely visual — the sim carves its own basin out of the ground
-     collider and runs the buoyancy (see physics._stepWater). This just draws
-     the surface, plus dark basin walls so you read depth rather than a flat
-     blue rectangle lying on the grass. setWater(null) removes it. */
-  let waterGrp = null;
+  /* Water (G4, rebuilt in 1C). Purely visual — the sim carves its own basin
+     out of the ground collider and runs the buoyancy (see physics._stepWater);
+     env owns the lifecycle and water.js owns the look. setWater(null) removes
+     it, and destroyRound calls exactly that so a channel never follows you into
+     the showroom.
+
+     It was one flat opaque quad plus four dark planes: a blue rectangle lying
+     on the grass, with nothing in the frame loop touching it. */
+  let water = null;
   function setWater(w) {
-    if (waterGrp) {
-      ctx.scene.remove(waterGrp);
-      waterGrp.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-      waterGrp = null;
-    }
+    if (water) { ctx.scene.remove(water.group); water.dispose(); water = null; }
     if (w) {
-      const g = new THREE.Group();
-      const wx = w.x1 - w.x0, wz = w.z1 - w.z0;
-      const cx = (w.x0 + w.x1) / 2, cz = (w.z0 + w.z1) / 2;
-      const bed = w.bed == null ? w.y - 3.5 : w.bed;
-      const surf = new THREE.Mesh(
-        new THREE.PlaneGeometry(wx, wz),
-        new THREE.MeshStandardMaterial({
-          color: 0x2c4f63, roughness: 0.12, metalness: 0.1,
-          transparent: true, opacity: 0.82,
-        }),
-      );
-      surf.rotation.x = -Math.PI / 2;
-      surf.position.set(cx, w.y, cz);
-      surf.receiveShadow = true;
-      g.add(surf);
-      // basin walls: four inward-facing strips from the waterline down to the
-      // bed, so the channel reads as cut into the ground
-      const wall = new THREE.MeshStandardMaterial({ color: 0x1b2a33, roughness: 0.95 });
-      const h = w.y - bed;
-      const mk = (sw, px, pz, ry) => {
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(sw, h), wall);
-        m.position.set(px, (w.y + bed) / 2, pz);
-        m.rotation.y = ry;
-        g.add(m);
-      };
-      mk(wx, cx, w.z0, 0);
-      mk(wx, cx, w.z1, Math.PI);
-      mk(wz, w.x0, cz, Math.PI / 2);
-      mk(wz, w.x1, cz, -Math.PI / 2);
-      const floor = new THREE.Mesh(new THREE.PlaneGeometry(wx, wz), wall);
-      floor.rotation.x = -Math.PI / 2;
-      floor.position.set(cx, bed, cz);
-      g.add(floor);
-      waterGrp = g;
-      ctx.scene.add(g);
+      water = buildWater(w, { env: current, sky: horizonNow() });
+      // the sea state comes from the same descriptor driving the rain and the
+      // vegetation, so wind is one value across the whole scene
+      water.setWeather(wx, horizonNow());
+      ctx.scene.add(water.group);
     }
+    syncBasinPunch();
     ctx.invalidate();
+  }
+
+  /* The visual ground has to have the same hole in it the collider does, or it
+     is simply drawn over the top of the channel — which is what had been
+     happening. Re-applied after every terrain build, because applyWeather
+     rebuilds the mesh (and its material) whenever the haze moves. */
+  function syncBasinPunch() {
+    const spec = water ? water.spec : null;
+    punchBasin(ground.material, spec);
+    if (terrainMesh) punchBasin(terrainMesh.material, spec);
+  }
+
+  /* Frozen while the round is, exactly like weather and vegetation: the sim's
+     clock is stopped, so still water is the correct fiction, and it lets
+     render-on-demand sleep through the freeze — the longest UI phase and
+     precisely when the player wants a steady frame to read. Returns whether
+     the camera is under the surface so main can put the lens treatment on. */
+  function updateWater(dt, camera, frozen) {
+    if (!water) return false;
+    if (!frozen) water.tick(dt);
+    return water.isUnder(camera.position);
   }
 
   /* Terrain (1A, promoted to the ground in 1F). Opt-in exactly like water:
@@ -466,6 +459,7 @@ export function initEnv(ctx) {
     );
     ctx.scene.add(terrainMesh);
     ground.visible = false; // the landscape is the ground now
+    syncBasinPunch();       // this mesh is new, so its hole is too
   }
   function setTerrain(spec) {
     if (spec === null || spec === undefined) { terrainSpec = null; dropTerrain(); ctx.invalidate(); return; }
@@ -549,6 +543,10 @@ export function initEnv(ctx) {
     }
     rebuildSky();
     buildTerrainNow(); // haze is baked into the vertex colours
+    // and the sea state, for the same reason: startScene sets the water before
+    // it rolls the weather, so without this the channel keeps the LAST round's
+    // wind and a storm falls on a mirror
+    if (water) water.setWeather(wx, horizonNow());
     if (ctx.setExposure) ctx.setExposure(L.exposure);
     ctx.invalidate();
   }
@@ -587,8 +585,9 @@ export function initEnv(ctx) {
   }
 
   return {
-    apply, applyWeather, setFogScale, setGroundRadius, setWater, setTerrain, syncSky, state,
+    apply, applyWeather, setFogScale, setGroundRadius, setWater, updateWater, setTerrain, syncSky, state,
     get current() { return current; },
+    get hasWater() { return !!water; },
     get weather() { return wx; },
     get terrainField() { return terrainMesh ? terrainMesh.userData.field : null; },
     get terrainValue() { return terrainValueNow(); },

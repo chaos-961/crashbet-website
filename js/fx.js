@@ -568,6 +568,26 @@ export function initFX(scene, opts = {}) {
     sfx.splash(ev.speed);
   }
 
+  /* v2 only: a prop or a torn-off wheel broke the surface. Same crown, scaled
+     right down — a cone going in is not a car going in, and reusing onSplash
+     wholesale made a bouncing wheel throw a two-storey plume. No screen shake
+     for the same reason. */
+  function onObjSplash(obj, ev) {
+    const p = ev.point;
+    const k = clamp(ev.speed / 12, 0.1, 1);
+    const n = Math.round(6 + 16 * k);
+    for (let i = 0; i < n; i++) {
+      const a = rng() * Math.PI * 2;
+      const out = 0.25 + rng() * (0.9 + 1.5 * k);
+      const up = 1 + rng() * (1.4 + 2.2 * k);
+      spray.spawn(p.x + Math.cos(a) * rng() * 0.5, p.y + 0.05, p.z + Math.sin(a) * rng() * 0.5,
+        Math.cos(a) * out, up, Math.sin(a) * out,
+        0.35 + rng() * 0.5, 0.05 + rng() * 0.07,
+        rng() < 0.72 ? COL.foam : COL.water, 0.55);
+    }
+    if (ev.speed > 4) sfx.splash(ev.speed * 0.45);
+  }
+
   function onSunk(car, ev) {
     const p = ev.point;
     // the last of the cabin air letting go — slow, small, rising
@@ -806,6 +826,7 @@ export function initFX(scene, opts = {}) {
       sim.onGlass = onGlass;
       sim.onDetach = onDetach;
       sim.onSplash = onSplash;
+      sim.onObjSplash = onObjSplash;
       sim.onSunk = onSunk;
     },
     detachSim() { sim = null; },
