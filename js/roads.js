@@ -26,6 +26,13 @@ const CURB_H = 0.13, CURB_W = 0.32, SIDE_W = 1.7;
 // bridge deck (style bit 3): a parapet wall instead of curbs, plus a solid
 // underside so an elevated run reads as a structure and not floating paper
 const DECK_T = 0.42, RAIL_H = 0.92, RAIL_W = 0.26;
+// substructure (1G): edge girder depth, spacing between pier bents, the deck
+// height below which a pier is not worth drawing, and how far below grade the
+// columns run. FOOT is deliberately well under 0 — on land the ground mesh
+// buries it, and over a water basin (where the ground is punched away) the
+// same column carries on down and founds itself in the bed. One number, both
+// cases, and no need for roads.js to know anything about water.
+const GIRD_D = 0.55, PIER_GAP = 17, PIER_MIN = 1.7, PIER_FOOT = -3.6;
 
 // Elevation v1 (G4): control points may carry a y. It is OPT-IN and defaults
 // to exactly 0, which is what keeps every pinned hash alive — a flat spec
@@ -93,6 +100,45 @@ function basisQuat(f) {
   _M.makeBasis(_X, _Y, _Z);
   _Q.setFromRotationMatrix(_M);
   return [_Q.x, _Q.y, _Q.z, _Q.w];
+}
+
+/* 8-corner solid, quad order copied verbatim from lib.js `hexa`.
+   Corner ring is 0=(-a,-c) 1=(+a,-c) 2=(+a,+c) 3=(-a,+c) in a RIGHT-handed
+   local basis. Copying the quad order is necessary but not sufficient: it only
+   yields outward faces if the basis you feed it is right-handed, and a road
+   frame's is not. `n` here is the LEFT normal, (t.z, -t.x), while
+   tangent × up = (-t.z, t.x) — the exact opposite — so (along, up, across) is
+   left-handed and every face comes out inverted. See pushPost for the fix.
+   Third instance of this trap in the project after roads.js's strips and
+   terrain.js's spokes; it costs nothing to check and is invisible if you do
+   not: positions are correct, the mesh still covers pixels, and no pin moves.
+   Signed volume via the divergence theorem is the test — positive is outward. */
+function pushSolid(out, b, t) {
+  const quads = [
+    [t[3], t[2], t[1], t[0]], // top
+    [b[0], b[1], b[2], b[3]], // bottom
+    [b[2], b[1], t[1], t[2]], // +along
+    [b[0], b[3], t[3], t[0]], // -along
+    [b[3], b[2], t[2], t[3]], // +across
+    [b[1], b[0], t[0], t[1]], // -across
+  ];
+  for (const [p, q, r, s] of quads) out.push(...p, ...q, ...r, ...p, ...r, ...s);
+}
+
+/* A box standing in road space: centred on lateral offset `o`, `halfAlong` by
+   `halfAcross` in plan, running from yTop down to yBot, with the BOTTOM rect
+   scaled by `taper` so a column can flare into its footing. */
+function pushPost(out, f, o, halfAlong, halfAcross, yTop, yBot, taper) {
+  const q = (a, c, y) => [f.x + f.tx * a + f.nx * c, y, f.z + f.tz * a + f.nz * c];
+  const aB = halfAlong * taper, cB = halfAcross * taper;
+  // the ring runs +across → -across, which is the REVERSE of hexa's order. Same
+  // eight points, opposite orientation, and that is what cancels the frame
+  // basis being left-handed. Feeding hexa's own order here renders every pier
+  // inside-out.
+  pushSolid(out,
+    [q(-aB, o + cB, yBot), q(aB, o + cB, yBot), q(aB, o - cB, yBot), q(-aB, o - cB, yBot)],
+    [q(-halfAlong, o + halfAcross, yTop), q(halfAlong, o + halfAcross, yTop),
+      q(halfAlong, o - halfAcross, yTop), q(-halfAlong, o - halfAcross, yTop)]);
 }
 
 function meshFrom(out, mat) {
@@ -176,10 +222,73 @@ export function buildRoad(spec) {
     }
   }
 
+  /* SUBSTRUCTURE (1G) — bridge decks only, and VISUAL ONLY.
+     Nothing here is pushed to `shapes`, so no collider changes and no pinned
+     hash can move; cars are already contained by the parapet colliders and
+     held up by the deck slab. A bridge was a 0.42 m plate floating on air.
+
+     Everything derives from arc length, like the rest of this file — zero
+     randomness, so the same spec still draws the identical mesh.
+
+     The girders run the FULL length rather than just the elevated stretch.
+     Where the deck is at grade they sit below it and the ground hides them,
+     which is the same trick the piers use for their footings and is far less
+     code than finding the elevated sub-range and capping the sweep to it. */
+  if (deck && elev) {
+    const sub = [];
+    const yG = -DECK_T - GIRD_D;
+    for (const s of [1, -1]) {
+      const flip = s < 0;
+      const gO = s * (hw + 0.02 + RAIL_W);        // outer fascia, flush with the parapet
+      const gI = s * (hw + 0.02 + RAIL_W - 0.34); // inner web
+      pushStrip(sub, frames, gO, -DECK_T, gO, yG, flip);
+      pushStrip(sub, frames, gI, yG, gI, -DECK_T, flip);
+      // soffit: pass the offsets ascending and flip, so it faces DOWN on both
+      // sides — the mirrored side would otherwise light from underneath
+      const lo = s > 0 ? gI : gO, hi = s > 0 ? gO : gI;
+      pushStrip(sub, frames, lo, yG, hi, yG, true);
+    }
+
+    // pier bents. getPointAt is arc-length parameterised, so i/nP is evenly
+    // spaced along the deck rather than bunched wherever the spline is dense.
+    const nP = Math.max(1, Math.round(L / PIER_GAP));
+    for (let i = 0; i <= nP; i++) {
+      const f = frameAt(curve, i / nP);
+      if (f.y < PIER_MIN) continue; // at grade there is nothing to hold up
+      const capT = f.y + yG;
+      pushPost(sub, f, 0, 0.5, hw * 0.9, capT, capT - 0.46, 1);        // pier cap
+      for (const s of [1, -1]) {
+        pushPost(sub, f, s * hw * 0.46, 0.38, 0.38, capT - 0.46, PIER_FOOT, 1.3);
+      }
+    }
+
+    // abutments: walk in from each open end to where the deck first lifts clear
+    // of grade and plant a full-width block, so the span is carried into the
+    // bank instead of simply stopping in mid-air
+    if (!spec.loop) {
+      for (const end of [0, 1]) {
+        const step = (end === 0 ? 1 : -1) * (1.2 / L);
+        let u = end;
+        for (let k = 0; k < 240; k++) {
+          const f = frameAt(curve, clamp(u, 0, 1));
+          if (f.y > 0.75) { pushPost(sub, f, 0, 1.0, hw + RAIL_W, f.y - DECK_T, PIER_FOOT, 1.06); break; }
+          u += step;
+          if (u < 0 || u > 1) break;
+        }
+      }
+    }
+
+    const m = meshFrom(sub, M('#8a8d93', { rough: 0.95, env: 0.25 }));
+    m.castShadow = true; // a pier's shadow on the water is most of the read
+    g.add(m);
+  }
+
   g.add(meshFrom(asphalt, M('#3d4046', { rough: 0.96, env: 0.3 })));
   g.add(meshFrom(white, M('#c9ccd1', { rough: 0.8, env: 0.35 })));
   if (gold.length) g.add(meshFrom(gold, M('#d7a83c', { rough: 0.8, env: 0.35 })));
-  g.add(meshFrom(curb, M('#93969c', { rough: 0.92, env: 0.3 })));
+  // a deck road takes the parapet branch and never pushes a curb, so this was
+  // adding an empty mesh — a wasted draw call on every bridge in the game
+  if (curb.length) g.add(meshFrom(curb, M('#93969c', { rough: 0.92, env: 0.3 })));
   if (walk.length) g.add(meshFrom(walk, M('#a9abaf', { rough: 0.94, env: 0.3 })));
   if (rail.length) g.add(meshFrom(rail, M('#9ea1a6', { rough: 0.9, env: 0.32 })));
 
