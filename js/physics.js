@@ -11,10 +11,17 @@ import { makeRng, clamp, disposeGroup } from './lib.js';
 import { makeDeformState, applyImpact, flushDeform } from './deform.js';
 import { buildProp } from './props.js';
 import { buildRoad, buildJunction } from './roads.js';
+// terrain.js is pure (integer-hash noise, zero rng, no THREE state beyond
+// geometry it does not build here), so the sim may sample the SAME height
+// field the visual mesh uses and cannot drift from it.
+import { makeHeightField } from './terrain.js';
 import { generateWorld } from './worldgen.js';
 import { generateScene } from './director.js';
 
 export const STEP = 1 / 60;
+
+// one-entry heightfield memo — see the drivable-terrain block in build()
+let _hfCache = { key: null, heights: null };
 
 /* ---------------- Rapier loader (lazy — 2.2 MB module, only crash mode needs it) ---------------- */
 let RAPIER = null;
@@ -615,6 +622,71 @@ export class CrashSim {
       );
     }
     this.colToObj.set(this.groundCol.handle, { kind: 'ground' });
+
+    /* DRIVABLE TERRAIN (P2/2C) — opt-in on `world.terrain.drivable`, exactly
+       like world.water and world.terrain itself. Absent → not one line of
+       this runs and the world is the flat slab it has always been, which is
+       why every pin survived it.
+
+       Until now the terrain was VISUAL ONLY: the ground is a flat 220 m slab
+       whatever the landscape does, so a car past playR drives straight
+       through the hillside. Measured over 60 recorded scenes: 4 of them put a
+       car inside terrain, worst burial 4.6 m — rare, because it needs a car
+       to escape the whole play area first, but wrong every time it happens.
+       The real point is that it is the enabling piece for relief topologies.
+
+       The heightfield samples the SAME makeHeightField the mesh is built
+       from, so collider and visual cannot drift apart. Inside playR the mask
+       is exactly 0, so this is coplanar with the slab there — deliberate: the
+       slab stays as the catch-all beyond the grid, and two coincident static
+       surfaces at identical height agree rather than fight.
+
+       Layout is row-major `i*(n+1)+j` with i along x and j along z. Measured,
+       not assumed: the column-major reading is exactly the TRANSPOSE, which
+       renders as perfectly plausible terrain that is wrong at every point. */
+    const T = W.terrain;
+    if (T && T.drivable) {
+      // playR must match what env passes the mesh (it spreads the spec over
+      // its own groundR default, so an explicit playR wins in both places)
+      const playR = T.playR || Math.max(90, W.ground || 90);
+      const field = makeHeightField({ ...T, playR });
+      /* Extent is sized off the ARENA, not off rampTo. Sizing it off rampTo
+         reaches only 1.43 × playR, and a relief topology deliberately keeps
+         playR small so the hills are near the action — so the grid stopped
+         well inside the landscape and everything beyond it silently fell
+         through to the flat slab. (That is what the first probe caught: every
+         sample past the extent read exactly 0.00.)
+         Resolution is expressed as a CELL SIZE rather than a fixed grid
+         count, so widening the extent does not quietly coarsen the surface
+         under the cars. */
+      const ext = T.extent || Math.max(field.rampTo * 1.06, (W.arena || 200) / 2 + 24);
+      const n = clamp(Math.round((2 * ext) / (T.cell || 2.0)), 32, 400);
+      /* Memoised on the spec. Sampling is ~1.6 µs per call (fbm with a domain
+         warp), so a 194² grid cost 61 ms — on its own more than the ~30 ms
+         "perfect reset" for ten cars, and a reset happens on every scrub
+         capture. The array is a pure function of this key, so reusing it is
+         bit-identical by construction rather than by luck; a one-entry cache
+         is enough because a reset rebuilds the SAME scenario. */
+      const key = `${T.seed}|${T.preset}|${playR}|${ext}|${n}`;
+      let heights = _hfCache.key === key ? _hfCache.heights : null;
+      if (!heights) {
+        heights = new Float32Array((n + 1) * (n + 1));
+        for (let i = 0; i <= n; i++) {
+          const x = -ext + (2 * ext * i) / n;
+          for (let j = 0; j <= n; j++) {
+            const z = -ext + (2 * ext * j) / n;
+            heights[i * (n + 1) + j] = field.heightAt(x, z);
+          }
+        }
+        _hfCache = { key, heights };
+      }
+      this.terrainCol = this.world.createCollider(
+        RAPIER.ColliderDesc.heightfield(n, n, heights, { x: 2 * ext, y: 1, z: 2 * ext })
+          .setFriction(0.86).setRestitution(0.02),
+        g,
+      );
+      this.colToObj.set(this.terrainCol.handle, { kind: 'ground' });
+    }
     if (W.walls) {
       const half = (W.arena || 80) / 2;
       const wb = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
