@@ -1858,10 +1858,20 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 
 // dev-only contact sheet: ?sheet=1 renders every registry type into one tiled
 // canvas. Runs synchronously at boot so it works even with rAF suspended.
+// `?sheet=scenery` does the same for the scenery registry — with 184 models it
+// is the only practical way to review a batch, and reviewing a batch is how
+// backwards winding and misplaced colliders get caught before they ship.
 function contactSheet() {
+  const which = q0.get('sheet');
+  const scen = which === 'scenery' || which === 'sc';
+  const list = scen
+    // via buildProp, not buildScenery: it stands dynamic-root props back up on
+    // the ground, which is what makes a standalone render sit right
+    ? SCENERY.map((s) => ({ id: s.id, make: (sd) => { const b = buildProp(s.id, sd); return b && b.group; } }))
+    : REG.map((e) => ({ id: e.id, make: (sd) => buildVehicle(sd, e.id).group }));
   const tile = 340, cols = 8;
   const seed = q0.get('seed') || '11';
-  const rows = Math.ceil(REG.length / cols);
+  const rows = Math.ceil(list.length / cols);
   const sheet = document.createElement('canvas');
   sheet.width = cols * tile;
   sheet.height = rows * tile;
@@ -1872,16 +1882,17 @@ function contactSheet() {
   renderer.setSize(tile, tile);
   camera.aspect = 1;
   camera.updateProjectionMatrix();
-  for (let i = 0; i < REG.length; i++) {
-    const e = REG[i];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
     const x = (i % cols) * tile, y = Math.floor(i / cols) * tile;
-    let v = null;
+    let grp = null;
     try {
-      v = buildVehicle(seed, e.id);
-      scene.add(v.group);
+      grp = e.make(seed);
+      if (!grp) throw new Error('builder returned nothing');
+      scene.add(grp);
       camera.position.set(7.4, 4.6, 7.4);
       controls.target.set(0, 0.8, 0);
-      fitCamera(new THREE.Box3().setFromObject(v.group), true);
+      fitCamera(new THREE.Box3().setFromObject(grp), true);
       controls.update();
       renderer.render(scene, camera);
       c2.drawImage(renderer.domElement, x, y, tile, tile);
@@ -1890,7 +1901,7 @@ function contactSheet() {
       c2.fillStyle = '#7a2020';
       c2.fillRect(x, y, tile, tile);
     }
-    if (v) { scene.remove(v.group); disposeGroup(v.group); }
+    if (grp) { scene.remove(grp); disposeGroup(grp); }
     c2.fillStyle = '#ffffff';
     c2.font = 'bold 15px monospace';
     c2.fillText(e.id, x + 10, y + 22);
@@ -1900,7 +1911,7 @@ function contactSheet() {
   window.__sheet = sheet;
   document.body.replaceChildren(sheet);
   sheet.style.cssText = 'max-width:100%;height:auto;display:block';
-  console.log(`SHEET DONE: ${REG.length} types, seed ${seed}`);
+  console.log(`SHEET DONE: ${list.length} ${scen ? 'scenery' : 'vehicle'} types, seed ${seed}`);
 }
 
 // determinism self-test: ?simtest=1 runs every scenario twice, compares hashes

@@ -3175,7 +3175,2648 @@ function asphaltPatch(r, M) {
   return { g, bodies: [] };
 }
 
+/* ================= batch 3 — world-building P1 (§1D) =================
+   Four new categories plus fills. These are INERT until Phase 2 wires them
+   into the dressing tables: the generators pick kinds from hardcoded lists,
+   and the registry auto-propagates to showroom, counts, crosshair labels and
+   the smoke test, so adding entries cannot break a generated scene.
+   Same contract as everything above — zero Math.random(), explicit collider
+   recipes, ground at y 0, forward +X. */
+
+const MARINE = ['#3f6f8c', '#2f5a68', '#c9302c', '#e07b39', '#e8e9eb'];
+const DECKWOOD = ['#8a7355', '#7a6448', '#96805f', '#6d5a42'];
+const RUST = ['#8a5a3a', '#a05a48', '#7c4a34'];
+const STEEL = ['#8d939a', '#7c8288', '#9aa0a7'];
+const SNOWC = ['#eef3f8', '#e4ecf4', '#f5f9fc'];
+
+/* ---- water & coast ---- */
+// Weathered planks over piles. The deck sits at 0.55 so a car can plausibly
+// drive onto it off a slipway — decoration that is also a surface.
+function dock(r, M) {
+  const g = new THREE.Group();
+  const plank = M(r.pick(DECKWOOD), { rough: 0.94 });
+  const DY = 0.55;
+  for (let i = 0; i < 9; i++) {
+    const p = box(M(jitterColor(r, r.pick(DECKWOOD), 0.006, 0.05, 0.06), { rough: 0.94 }), 3.2, 0.07, 0.36);
+    p.position.set(0, DY, -1.62 + i * 0.4);
+    g.add(p);
+  }
+  for (const [x, z] of [[-1.4, -1.5], [-1.4, 1.5], [1.4, -1.5], [1.4, 1.5], [0, -1.5], [0, 1.5]]) {
+    const pile = cyl(M('#6d5a42', { rough: 0.95 }), { r: 0.11, len: DY + 0.5, seg: 7 });
+    pile.position.set(x, (DY - 0.06) / 2 - 0.2, z);
+    g.add(pile);
+  }
+  const beam = M('#6d5a42', { rough: 0.95 });
+  for (const z of [-1.5, 1.5]) {
+    const b = box(beam, 3.0, 0.1, 0.12);
+    b.position.set(0, DY - 0.11, z);
+    g.add(b);
+  }
+  // a bollard so the thing reads as a mooring, not a patio
+  const bol = cyl(M('#3d4147', { rough: 0.6, metal: 0.4, env: 0.7 }), { r: 0.09, len: 0.34, seg: 8 });
+  bol.position.set(1.25, DY + 0.2, 0);
+  g.add(bol);
+  return { g, bodies: fixedBody(g, [boxSh(1.6, 0.06, 1.85, 0, DY - 0.02, 0)], 0.8, 0.05) };
+}
+function jetty(r, M) {
+  const g = new THREE.Group();
+  const DY = 0.42;
+  const deck = box(M(r.pick(DECKWOOD), { rough: 0.94 }), 1.5, 0.09, 5.6);
+  deck.position.y = DY;
+  g.add(deck);
+  for (let i = 0; i < 6; i++) { // plank seams
+    const s = box(M('#5e4a34', { rough: 0.95 }), 1.52, 0.015, 0.035);
+    s.position.set(0, DY + 0.05, -2.4 + i * 0.96);
+    g.add(s);
+  }
+  for (let i = 0; i < 4; i++) {
+    for (const s of [-1, 1]) {
+      const pile = cyl(M('#6d5a42', { rough: 0.95 }), { r: 0.09, len: DY + 0.6, seg: 7 });
+      pile.position.set(s * 0.62, (DY - 0.1) / 2 - 0.22, -2.1 + i * 1.4);
+      g.add(pile);
+    }
+  }
+  for (const s of [-1, 1]) { // handrail down one run
+    const rail = box(M('#7a6448', { rough: 0.93 }), 0.06, 0.06, 5.4);
+    rail.position.set(s * 0.68, DY + 0.72, 0);
+    g.add(rail);
+    for (let i = 0; i < 4; i++) {
+      const post = box(M('#7a6448', { rough: 0.93 }), 0.07, 0.72, 0.07);
+      post.position.set(s * 0.68, DY + 0.36, -2.1 + i * 1.4);
+      g.add(post);
+    }
+  }
+  return { g, bodies: fixedBody(g, [boxSh(0.75, 0.06, 2.8, 0, DY, 0)], 0.8, 0.05) };
+}
+// The piles alone, for the far end of a dock that has rotted away.
+function pierPosts(r, M) {
+  const g = new THREE.Group();
+  const shapes = [];
+  const n = r.int(5, 8);
+  for (let i = 0; i < n; i++) {
+    const h = r.range(0.55, 1.5);
+    const x = -1.6 + (i / (n - 1)) * 3.2 + r.range(-0.12, 0.12);
+    const z = r.range(-0.35, 0.35);
+    const p = cyl(M(jitterColor(r, '#6d5a42', 0.008, 0.06, 0.07), { rough: 0.96 }), { r: r.range(0.08, 0.12), len: h, seg: 7 });
+    p.position.set(x, h / 2, z);
+    p.rotation.set(r.range(-0.06, 0.06), r.range(0, 3), r.range(-0.06, 0.06));
+    g.add(p);
+    if (r.chance(0.35)) { // algae collar at the old waterline
+      const c = cyl(M('#4a6b4a', { rough: 0.95 }), { r: 0.125, len: 0.16, seg: 7 });
+      c.position.set(x, h * 0.28, z);
+      g.add(c);
+    }
+    shapes.push(cylSh(h / 2, 0.11, x, h / 2, z));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.75, 0.08) };
+}
+function mooringBollard(r, M) {
+  const g = new THREE.Group();
+  const iron = M(r.chance(0.5) ? '#3d4147' : r.pick(RUST), { rough: 0.62, metal: 0.35, env: 0.6 });
+  const base = cyl(iron, { r: 0.28, r2: 0.22, len: 0.1, seg: 10 });
+  base.position.y = 0.05;
+  g.add(base);
+  const stem = cyl(iron, { r: 0.16, r2: 0.13, len: 0.42, seg: 10 });
+  stem.position.y = 0.31;
+  g.add(stem);
+  const head = cyl(iron, { r: 0.13, r2: 0.24, len: 0.14, seg: 10 });
+  head.position.y = 0.59;
+  g.add(head);
+  const cap = sphere(iron, 0.12, 1);
+  cap.scale.y = 0.55;
+  cap.position.y = 0.68;
+  g.add(cap);
+  return { g, bodies: fixedBody(g, [cylSh(0.34, 0.2, 0, 0.34, 0)], 0.7, 0.1) };
+}
+function buoy(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#c9302c', '#e3c53a', '#e07b39']);
+  const hull = cyl(M(hex, { rough: 0.5, env: 0.6 }), { r: 0.34, r2: 0.28, len: 0.62, seg: 10 });
+  hull.position.y = 0.31;
+  g.add(hull);
+  const skirt = cyl(M(shade(hex, -0.18), { rough: 0.55 }), { r: 0.3, r2: 0.36, len: 0.14, seg: 10 });
+  skirt.position.y = 0.07;
+  g.add(skirt);
+  const mast = cyl(M('#8d939a', { rough: 0.5, metal: 0.5, env: 0.8 }), { r: 0.03, len: 0.7, seg: 6 });
+  mast.position.y = 0.95;
+  g.add(mast);
+  const cage = cyl(M('#8d939a', { rough: 0.5, metal: 0.5, env: 0.8 }), { r: 0.14, len: 0.02, seg: 8 });
+  cage.position.y = 1.02;
+  g.add(cage);
+  const lamp = sphere(M('#e3c53a', { rough: 0.3, emissive: '#e3c53a', emInt: 0.5 }), 0.07, 1);
+  lamp.position.y = 1.3;
+  g.add(lamp);
+  return { g, bodies: dynGround(g, 1.34, 60, [cylSh(0.32, 0.33, 0, 0.32, 0)], { fr: 0.5, rest: 0.3 }) };
+}
+function rowboat(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#e8e9eb', '#3f6f8c', '#4c8c3f', '#c9302c']);
+  const hull = M(hex, { rough: 0.7 });
+  const inner = M(shade(hex, -0.3), { rough: 0.85 });
+  // An OPEN hull has to be built as a shell, not as a solid. Two earlier
+  // attempts failed the same way for different reasons: a 3-sided cyl gave a
+  // wedge (axis:'x' is itself a z rotation, so writing .rotation.z destroys
+  // it), and nesting a dark `slab` inside a light one hid the interior
+  // completely — you cannot subtract one solid from another here.
+  const floor = slab(hull, {
+    x0: -1.3, x1: 1.3, w: 0.44, wT: 0.62, y0: 0.1, y1: 0.2,
+    nose: 0.34, tail: 0.28, noseB: 0.5, tailB: 0.42,
+  });
+  floor.castShadow = floor.receiveShadow = true;
+  g.add(floor);
+  for (const s of [-1, 1]) { // strakes, canted out to the gunwale
+    const side = box(hull, 2.55, 0.5, 0.07);
+    side.position.set(0, 0.4, s * 0.42);
+    side.rotation.x = -s * 0.3;
+    g.add(side);
+  }
+  for (const [x, w, sgn] of [[-1.32, 0.58, 1], [1.32, 0.46, -1]]) { // transom + stem
+    const end = box(hull, 0.08, 0.46, w);
+    end.position.set(x, 0.38, 0);
+    end.rotation.z = sgn * 0.16; // just enough rake to read; 0.34 stuck out as flaps
+    g.add(end);
+  }
+  const sole = box(inner, 2.3, 0.04, 0.5); // the floorboards you can see into
+  sole.position.y = 0.26;
+  g.add(sole);
+  for (const s of [-1, 1]) { // gunwale rails
+    const rail = box(hull, 2.5, 0.07, 0.08);
+    rail.position.set(0, 0.6, s * 0.5);
+    g.add(rail);
+  }
+  for (const x of [-0.6, 0.35]) { // thwarts
+    const seat = box(inner, 0.26, 0.05, 0.95);
+    seat.position.set(x, 0.5, 0);
+    g.add(seat);
+  }
+  const oar = cyl(M('#96805f', { rough: 0.9 }), { r: 0.035, len: 1.7, axis: 'x', seg: 6 });
+  oar.position.set(0.1, 0.56, 0.3);
+  oar.rotation.y = r.range(-0.2, 0.2);
+  g.add(oar);
+  return { g, bodies: dynGround(g, 0.66, 260, [boxSh(1.45, 0.3, 0.52, 0, 0.34, 0)], { fr: 0.6, rest: 0.1 }) };
+}
+function boatTrailer(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.pick(STEEL), { rough: 0.55, metal: 0.4, env: 0.7 });
+  const rail = box(steel, 3.2, 0.11, 0.11);
+  rail.position.y = 0.5;
+  g.add(rail);
+  for (const s of [-1, 1]) {
+    const side = box(steel, 2.6, 0.09, 0.09);
+    side.position.set(0.1, 0.52, s * 0.52);
+    g.add(side);
+    for (const x of [-0.7, 0.5]) { // bunk boards the hull sits on
+      const bunk = box(M('#5e4a34', { rough: 0.95 }), 1.1, 0.07, 0.14);
+      bunk.position.set(x, 0.62, s * 0.52);
+      g.add(bunk);
+    }
+    const w = P.wheel(M, 0.29, 0.16, { seg: 10 }); // (M, radius, width) — not (M, rng, …)
+    w.position.set(0.25, 0.29, s * 0.72);
+    g.add(w);
+  }
+  const winch = box(steel, 0.16, 0.42, 0.14);
+  winch.position.set(-1.35, 0.72, 0);
+  g.add(winch);
+  const tongue = cyl(steel, { r: 0.06, len: 0.3, axis: 'x', seg: 6 });
+  tongue.position.set(-1.68, 0.5, 0);
+  g.add(tongue);
+  return { g, bodies: dynGround(g, 0.9, 300, [boxSh(1.6, 0.22, 0.62, 0.05, 0.52, 0)], { fr: 0.65, rest: 0.1 }) };
+}
+function lifebuoyStand(r, M) {
+  const g = new THREE.Group();
+  const post = cyl(M('#c9302c', { rough: 0.55 }), { r: 0.05, len: 1.35, seg: 8 });
+  post.position.y = 0.68;
+  g.add(post);
+  const foot = cyl(M('#3d4147', { rough: 0.8 }), { r: 0.22, len: 0.05, seg: 8 });
+  foot.position.y = 0.025;
+  g.add(foot);
+  const ringGeo = new THREE.TorusGeometry(0.28, 0.075, 5, 12);
+  const ring = new THREE.Mesh(ringGeo, M('#e07b39', { rough: 0.5 }));
+  ring.castShadow = true;
+  ring.position.set(0.06, 1.12, 0);
+  ring.rotation.y = Math.PI / 2;
+  g.add(ring);
+  for (let i = 0; i < 4; i++) { // reflective bands
+    const b = box(M('#e8e9eb', { rough: 0.4 }), 0.02, 0.12, 0.16);
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    b.position.set(0.06, 1.12 + Math.sin(a) * 0.28, Math.cos(a) * 0.28);
+    g.add(b);
+  }
+  return { g, bodies: dynGround(g, 1.42, 22, [cylSh(0.68, 0.14, 0, 0.68, 0)], { fr: 0.6, rest: 0.15 }) };
+}
+function fishingHut(r, M) {
+  const g = new THREE.Group();
+  const wall = M(jitterColor(r, r.pick(['#7a6448', '#8a7355', '#5f6f78'])), { rough: 0.93 });
+  const W = 2.2, D = 1.9, H = 1.75;
+  const body = box(wall, W, H, D);
+  body.position.y = H / 2 + 0.28;
+  g.add(body);
+  for (let i = 0; i < 5; i++) { // plank lines
+    const s = box(M('#5e4a34', { rough: 0.95 }), W + 0.02, 0.02, D + 0.02);
+    s.position.y = 0.5 + i * 0.32;
+    g.add(s);
+  }
+  const roof = cyl(M(r.pick(['#4a4e55', '#743a30']), { rough: 0.7, metal: 0.2 }), { r: 1.42, len: D + 0.35, axis: 'z', seg: 3 });
+  roof.rotation.x = Math.PI / 2;
+  roof.rotation.z = Math.PI / 4;
+  roof.scale.set(1, 1, 0.42);
+  roof.position.y = H + 0.28;
+  g.add(roof);
+  const door = box(M(r.pick(DOORS), { rough: 0.8 }), 0.05, 1.0, 0.6);
+  door.position.set(W / 2 + 0.01, 0.78, 0.2);
+  g.add(door);
+  const win = box(M('#1b2836', { rough: 0.32, env: 0.85 }), 0.05, 0.42, 0.5);
+  win.position.set(W / 2 + 0.01, 1.35, -0.5);
+  g.add(win);
+  // stilts, because these sit over water
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const p = cyl(M('#6d5a42', { rough: 0.95 }), { r: 0.09, len: 0.3, seg: 6 });
+    p.position.set(sx * (W / 2 - 0.18), 0.15, sz * (D / 2 - 0.18));
+    g.add(p);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(W / 2, (H + 0.28) / 2, D / 2, 0, (H + 0.28) / 2, 0)], 0.8, 0.05) };
+}
+function culvert(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#9aa0a7', { rough: 0.94 });
+  const R = r.range(0.5, 0.75);
+  const pipe = cyl(conc, { r: R, len: 1.5, axis: 'x', seg: 12, open: true });
+  pipe.material.side = THREE.DoubleSide;
+  pipe.position.y = R;
+  g.add(pipe);
+  const rim = cyl(M(shade('#9aa0a7', -0.1), { rough: 0.94 }), { r: R + 0.09, len: 0.12, axis: 'x', seg: 12 });
+  rim.position.set(0.72, R, 0);
+  g.add(rim);
+  // headwall — the bit that actually reads as infrastructure
+  const wall = box(conc, 0.22, R * 2 + 0.5, R * 2 + 0.9);
+  wall.position.set(0.85, (R * 2 + 0.5) / 2, 0);
+  g.add(wall);
+  const shapes = [
+    boxSh(0.11, R + 0.25, R + 0.45, 0.85, R + 0.25, 0),
+    boxSh(0.75, 0.14, R + 0.12, 0, R * 2 + 0.1, 0), // pipe crown only; the bore stays open
+  ];
+  return { g, bodies: fixedBody(g, shapes, 0.8, 0.05) };
+}
+function outfall(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#8d9096', { rough: 0.95 });
+  const apron = box(conc, 1.8, 0.16, 2.2);
+  apron.position.y = 0.08;
+  g.add(apron);
+  const face = box(conc, 0.3, 1.15, 2.2);
+  face.position.set(-0.75, 0.65, 0);
+  g.add(face);
+  for (const s of [-1, 1]) { // wing walls
+    const w = box(conc, 1.4, 0.85, 0.22);
+    w.position.set(-0.1, 0.5, s * 0.99);
+    w.rotation.y = s * 0.12;
+    g.add(w);
+  }
+  const mouth = cyl(M('#3d4147', { rough: 0.98 }), { r: 0.32, len: 0.34, axis: 'x', seg: 10 });
+  mouth.position.set(-0.62, 0.42, 0);
+  g.add(mouth);
+  const stain = box(M('#4a5a4a', { rough: 0.97 }), 1.2, 0.005, 0.7);
+  stain.position.set(0.25, 0.164, 0);
+  g.add(stain);
+  return { g, bodies: fixedBody(g, [
+    boxSh(0.9, 0.08, 1.1, 0, 0.08, 0),
+    boxSh(0.15, 0.58, 1.1, -0.75, 0.65, 0),
+  ], 0.8, 0.05) };
+}
+function weir(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#a3a8ae', { rough: 0.93 });
+  const crest = box(conc, 0.55, 0.95, 4.4);
+  crest.position.y = 0.475;
+  g.add(crest);
+  const lip = box(M('#b8bdc3', { rough: 0.88 }), 0.7, 0.1, 4.4);
+  lip.position.y = 0.98;
+  g.add(lip);
+  const apron = box(conc, 1.5, 0.14, 4.4);
+  apron.position.set(1.0, 0.07, 0);
+  g.add(apron);
+  for (const s of [-1, 1]) { // abutments
+    const a = box(conc, 0.9, 1.5, 0.4);
+    a.position.set(0.1, 0.75, s * 2.4);
+    g.add(a);
+    const rail = cyl(M('#5c6167', { rough: 0.6, metal: 0.4 }), { r: 0.035, len: 0.55, seg: 6 });
+    rail.position.set(0.1, 1.75, s * 2.4);
+    g.add(rail);
+  }
+  return { g, bodies: fixedBody(g, [
+    boxSh(0.28, 0.5, 2.2, 0, 0.5, 0),
+    boxSh(0.75, 0.07, 2.2, 1.0, 0.07, 0),
+    boxSh(0.45, 0.75, 0.2, 0.1, 0.75, -2.4),
+    boxSh(0.45, 0.75, 0.2, 0.1, 0.75, 2.4),
+  ], 0.85, 0.04) };
+}
+// A groyne is a line of timbers marching into the sea; the fun of it is that
+// the heights step down, so it reads as walking into deeper water.
+function groyne(r, M) {
+  const g = new THREE.Group();
+  const shapes = [];
+  const n = r.int(7, 10);
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const h = r.jitter(1.15 - t * 0.75, 0.1);
+    const z = -2.4 + t * 4.8;
+    const p = box(M(jitterColor(r, '#5e4a34', 0.008, 0.05, 0.06), { rough: 0.96 }), 0.16, h, 0.19);
+    p.position.set(r.range(-0.05, 0.05), h / 2, z);
+    p.rotation.y = r.range(-0.08, 0.08);
+    g.add(p);
+    shapes.push(boxSh(0.09, h / 2, 0.1, 0, h / 2, z));
+  }
+  const wale = box(M('#6d5a42', { rough: 0.95 }), 0.09, 0.14, 4.6); // the plank tying them
+  wale.position.set(0.12, 0.42, 0);
+  g.add(wale);
+  return { g, bodies: fixedBody(g, shapes, 0.8, 0.06) };
+}
+function seawall(r, M) {
+  const g = new THREE.Group();
+  const conc = M(jitterColor(r, '#b0b5ba', 0.004, 0.03, 0.04), { rough: 0.95 });
+  const wall = box(conc, 0.6, 1.5, 5.0);
+  wall.position.y = 0.75;
+  g.add(wall);
+  const cap = box(M('#c2c7cc', { rough: 0.9 }), 0.78, 0.16, 5.0);
+  cap.position.y = 1.58;
+  g.add(cap);
+  // the curved wave return, faked with a stepped stack — cheaper than a lathe
+  for (let i = 0; i < 3; i++) {
+    const s = box(conc, 0.22 - i * 0.05, 0.16, 5.0);
+    s.position.set(-0.34 - i * 0.05, 1.72 + i * 0.16, 0);
+    g.add(s);
+  }
+  for (let i = 0; i < 4; i++) { // panel joints
+    const j = box(M('#9aa0a7', { rough: 0.96 }), 0.62, 1.5, 0.03);
+    j.position.set(0, 0.75, -1.9 + i * 1.27);
+    g.add(j);
+  }
+  const stain = box(M('#7f8a7a', { rough: 0.97 }), 0.62, 0.4, 5.0);
+  stain.position.set(0, 0.2, 0);
+  g.add(stain);
+  return { g, bodies: fixedBody(g, [boxSh(0.35, 1.0, 2.5, -0.05, 1.0, 0)], 0.85, 0.04) };
+}
+function lighthouse(r, M) {
+  const g = new THREE.Group();
+  const white = M('#eef1f4', { rough: 0.7 });
+  const band = M(r.pick(['#c9302c', '#3f6f8c', '#3d4147']), { rough: 0.65 });
+  const H = 5.4;
+  const base = cyl(M('#9aa0a7', { rough: 0.94 }), { r: 1.15, r2: 1.0, len: 0.4, seg: 12 });
+  base.position.y = 0.2;
+  g.add(base);
+  // stacked frusta so the taper is continuous and the bands are real geometry
+  let y = 0.4;
+  for (let i = 0; i < 6; i++) {
+    const r0 = 0.92 - i * 0.09, r1 = 0.92 - (i + 1) * 0.09;
+    const seg = cyl(i % 2 ? band : white, { r: r0, r2: r1, len: H / 6, seg: 12 });
+    seg.position.y = y + H / 12;
+    g.add(seg);
+    y += H / 6;
+  }
+  const gallery = cyl(M('#5c6167', { rough: 0.6, metal: 0.35 }), { r: 0.72, len: 0.1, seg: 12 });
+  gallery.position.y = H + 0.45;
+  g.add(gallery);
+  for (let i = 0; i < 10; i++) { // railing
+    const p = cyl(M('#5c6167', { rough: 0.6 }), { r: 0.02, len: 0.34, seg: 5 });
+    const a = (i / 10) * Math.PI * 2;
+    p.position.set(Math.cos(a) * 0.66, H + 0.67, Math.sin(a) * 0.66);
+    g.add(p);
+  }
+  const lantern = cyl(M('#f2e08a', { rough: 0.25, env: 0.9, emissive: '#ffe9a0', emInt: 0.8 }), { r: 0.42, len: 0.62, seg: 10 });
+  lantern.position.y = H + 0.82;
+  g.add(lantern);
+  const cap = cyl(M('#3d4147', { rough: 0.6 }), { r: 0.5, r2: 0.05, len: 0.5, seg: 10 });
+  cap.position.y = H + 1.35;
+  g.add(cap);
+  const door = box(M(r.pick(DOORS), { rough: 0.8 }), 0.05, 0.9, 0.5);
+  door.position.set(0.9, 0.85, 0);
+  g.add(door);
+  return { g, bodies: fixedBody(g, [cylSh(H / 2 + 0.2, 0.85, 0, H / 2 + 0.2, 0)], 0.7, 0.06) };
+}
+function beachHut(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#3f8fa8', '#e07b39', '#d98cb0', '#4c8c3f', '#e3c53a', '#e8e9eb']);
+  const wall = M(hex, { rough: 0.85 });
+  const W = 1.7, D = 1.5, H = 1.9;
+  const body = box(wall, W, H, D);
+  body.position.y = H / 2 + 0.15;
+  g.add(body);
+  for (let i = 0; i < 6; i++) { // vertical boards
+    const b = box(M(shade(hex, -0.08), { rough: 0.86 }), 0.02, H, 0.03);
+    b.position.set(-W / 2 + 0.14 + i * 0.28, H / 2 + 0.15, D / 2 + 0.01);
+    g.add(b);
+  }
+  const roofM = M('#eef1f4', { rough: 0.8 });
+  const roof = cyl(roofM, { r: 1.18, len: D + 0.3, axis: 'z', seg: 3 });
+  roof.rotation.x = Math.PI / 2;
+  roof.rotation.z = Math.PI / 4;
+  roof.scale.set(1, 1, 0.4);
+  roof.position.y = H + 0.15;
+  g.add(roof);
+  // double stable doors, the signature of the thing
+  for (const s of [-1, 1]) {
+    const d = box(M('#eef1f4', { rough: 0.82 }), 0.05, 1.5, 0.42);
+    d.position.set(W / 2 + 0.015, 0.9, s * 0.24);
+    g.add(d);
+  }
+  const step = box(M('#c9c2b4', { rough: 0.92 }), 0.4, 0.14, 1.0);
+  step.position.set(W / 2 + 0.2, 0.07, 0);
+  g.add(step);
+  return { g, bodies: fixedBody(g, [boxSh(W / 2, (H + 0.15) / 2, D / 2, 0, (H + 0.15) / 2, 0)], 0.8, 0.06) };
+}
+function tideMarker(r, M) {
+  const g = new THREE.Group();
+  const H = 2.4;
+  const post = box(M('#e8e9eb', { rough: 0.75 }), 0.14, H, 0.14);
+  post.position.y = H / 2;
+  g.add(post);
+  const n = 8;
+  for (let i = 0; i < n; i++) { // graduation bands, alternating
+    if (i % 2) continue;
+    const b = box(M('#c9302c', { rough: 0.7 }), 0.15, H / n, 0.15);
+    b.position.y = H / (n * 2) + i * (H / n);
+    g.add(b);
+  }
+  const plate = box(M('#3f6f8c', { rough: 0.6 }), 0.03, 0.3, 0.34);
+  plate.position.set(0.09, H - 0.1, 0);
+  g.add(plate);
+  const foot = cyl(M('#9aa0a7', { rough: 0.94 }), { r: 0.24, len: 0.14, seg: 8 });
+  foot.position.y = 0.07;
+  g.add(foot);
+  return { g, bodies: fixedBody(g, [boxSh(0.08, H / 2, 0.08, 0, H / 2, 0)], 0.7, 0.1) };
+}
+// Riprap: dumped rock armour. One collider box under the whole run — the
+// individual stones are decoration and a per-stone hull would cost 20 shapes
+// for a thing nothing is meant to drive onto.
+function riprap(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(22, 32);
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    const R = r.range(0.16, 0.34);
+    const s = sphere(M(jitterColor(r, r.pick(ROCKS), 0.006, 0.05, 0.06), { rough: 0.96, env: 0.2 }), R, 0);
+    jitterGeo(s, r, R * 0.3);
+    // pile section: high at the back, spilling forward
+    const z = -2.1 + t * 4.2 + r.range(-0.18, 0.18);
+    const x = r.range(-0.75, 0.75);
+    const y = Math.max(0.12, (0.62 - Math.abs(x) * 0.55) * r.range(0.5, 1.05));
+    s.position.set(x, y, z);
+    s.rotation.set(r.range(0, 3), r.range(0, 3), r.range(0, 3));
+    s.scale.y = r.range(0.6, 0.9);
+    g.add(s);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(0.85, 0.34, 2.2, 0, 0.3, 0)], 0.9, 0.03) };
+}
+
+/* ---- mountain & alpine ---- */
+// Scattered boulders. Fixed, not dynamic: a field of loose 400 kg spheres is a
+// physics liability on a scene the director never asked to be a rockslide.
+function boulderField(r, M) {
+  const g = new THREE.Group();
+  const shapes = [];
+  const n = r.int(5, 8);
+  for (let i = 0; i < n; i++) {
+    const R = r.range(0.3, 0.85);
+    const s = sphere(M(jitterColor(r, r.pick(ROCKS), 0.006, 0.05, 0.06), { rough: 0.96, env: 0.2 }), R, 0);
+    jitterGeo(s, r, R * 0.26);
+    const a = (i / n) * Math.PI * 2 + r.range(-0.4, 0.4);
+    const d = r.range(0.5, 2.1);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const sy = r.range(0.6, 0.85);
+    s.scale.set(r.jitter(1, 0.16), sy, r.jitter(1, 0.16));
+    s.rotation.set(r.range(0, 3), r.range(0, 3), r.range(0, 3));
+    s.position.set(x, R * sy * 0.72, z);
+    g.add(s);
+    shapes.push(boxSh(R * 0.76, R * sy * 0.72, R * 0.76, x, R * sy * 0.72, z));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.9, 0.04) };
+}
+// A face, not a hill: near-vertical, ~4 m, meant to be backed into a terrain
+// slope so only the rock reads. One box collider — the crags are decoration.
+function cliffFace(r, M) {
+  const g = new THREE.Group();
+  const H = r.range(3.4, 4.6), W = 5.0;
+  const base = box(M(jitterColor(r, r.pick(ROCKS), 0.005, 0.04, 0.05), { rough: 0.97, env: 0.18 }), 1.5, H, W);
+  jitterGeo(base, r, 0.16);
+  base.position.y = H / 2;
+  g.add(base);
+  // Crags have to break the SILHOUETTE, not just dent the face — a plain box
+  // with divots in it still reads as a plain box. These push past the top edge
+  // and off both ends, and they are jittered hard enough to lose the corners.
+  for (let i = 0; i < r.int(9, 13); i++) {
+    const cw = r.range(0.5, 1.3), ch = r.range(0.6, 1.5);
+    const c = box(M(jitterColor(r, r.pick(ROCKS), 0.006, 0.06, 0.08), { rough: 0.97, env: 0.18 }), cw, ch, r.range(0.8, 2.0));
+    jitterGeo(c, r, 0.22);
+    c.position.set(0.3 + r.range(-0.5, 0.55), r.range(0.5, H + 0.25), r.range(-W / 2 - 0.2, W / 2 + 0.2));
+    c.rotation.set(r.range(-0.3, 0.3), r.range(-0.5, 0.5), r.range(-0.3, 0.3));
+    g.add(c);
+  }
+  for (let i = 0; i < r.int(2, 4); i++) { // a couple of pinnacles over the top
+    const p = box(M(jitterColor(r, r.pick(ROCKS), 0.006, 0.05, 0.06), { rough: 0.97, env: 0.18 }), r.range(0.5, 0.9), r.range(0.7, 1.4), r.range(0.5, 1.0));
+    jitterGeo(p, r, 0.18);
+    p.position.set(r.range(-0.35, 0.35), H + r.range(0.1, 0.5), r.range(-W / 2 + 0.4, W / 2 - 0.4));
+    p.rotation.set(r.range(-0.25, 0.25), r.range(0, 1.5), r.range(-0.25, 0.25));
+    g.add(p);
+  }
+  for (let i = 0; i < r.int(3, 6); i++) { // talus at the foot
+    const R = r.range(0.16, 0.34);
+    const s = sphere(M(r.pick(ROCKS), { rough: 0.96, env: 0.2 }), R, 0);
+    jitterGeo(s, r, R * 0.3);
+    s.position.set(0.9 + r.range(0, 0.5), R * 0.6, r.range(-W / 2, W / 2));
+    s.scale.y = 0.7;
+    g.add(s);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(0.8, H / 2, W / 2, 0, H / 2, 0)], 0.9, 0.03) };
+}
+function rockOutcrop(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(ROCKS);
+  const H = r.range(1.1, 2.0);
+  // tilted strata — two wedge-ish slabs leaning the same way reads as bedrock
+  const tilt = r.range(0.18, 0.42) * r.sign();
+  for (let i = 0; i < 3; i++) {
+    const h = H * (1 - i * 0.22);
+    const s = box(M(jitterColor(r, hex, 0.006, 0.05, 0.06), { rough: 0.97, env: 0.18 }), r.range(0.7, 1.3), h, r.range(0.9, 1.6));
+    jitterGeo(s, r, 0.1);
+    s.position.set(r.range(-0.5, 0.5), h / 2 + i * 0.06, r.range(-0.4, 0.4));
+    s.rotation.set(tilt * r.range(0.6, 1.1), r.range(0, Math.PI), tilt * r.range(-0.4, 0.4));
+    g.add(s);
+  }
+  if (r.chance(0.55)) { // a stubborn tuft in a crack
+    const t = sphere(M(r.pick(GREENS), { rough: 0.9 }), 0.2, 0);
+    jitterGeo(t, r, 0.07);
+    t.scale.y = 0.5;
+    t.position.set(r.range(-0.4, 0.4), H * 0.9, r.range(-0.3, 0.3));
+    g.add(t);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(0.85, H * 0.55, 0.9, 0, H * 0.55, 0)], 0.9, 0.04) };
+}
+function scree(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(30, 44);
+  for (let i = 0; i < n; i++) {
+    const R = r.range(0.07, 0.19);
+    const s = sphere(M(jitterColor(r, r.pick(ROCKS), 0.006, 0.06, 0.08), { rough: 0.97, env: 0.15 }), R, 0);
+    jitterGeo(s, r, R * 0.34);
+    // a fan: wide and low at the front, narrow and piled at the back
+    const t = r.range(0, 1);
+    const spread = 0.4 + t * 1.9;
+    s.position.set(-1.2 + t * 2.4, R * 0.55 + (1 - t) * r.range(0, 0.34), r.range(-spread, spread));
+    s.rotation.set(r.range(0, 3), r.range(0, 3), r.range(0, 3));
+    s.scale.y = r.range(0.5, 0.85);
+    g.add(s);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(1.3, 0.2, 1.7, 0, 0.16, 0)], 0.92, 0.02) };
+}
+function cairn(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(5, 8);
+  let y = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    const R = r.range(0.3, 0.4) * (1 - t * 0.62);
+    const h = R * r.range(0.5, 0.8);
+    const s = sphere(M(jitterColor(r, r.pick(ROCKS), 0.006, 0.05, 0.06), { rough: 0.96, env: 0.2 }), R, 0);
+    jitterGeo(s, r, R * 0.24);
+    s.scale.y = 0.55;
+    s.position.set(r.range(-0.05, 0.05), y + h / 2, r.range(-0.05, 0.05));
+    s.rotation.y = r.range(0, 3);
+    g.add(s);
+    y += h;
+  }
+  return { g, bodies: fixedBody(g, [cylSh(y / 2, 0.34, 0, y / 2, 0)], 0.85, 0.05) };
+}
+function trailMarker(r, M) {
+  const g = new THREE.Group();
+  const H = 1.5;
+  const post = box(M('#7a6448', { rough: 0.93 }), 0.09, H, 0.09);
+  post.position.y = H / 2;
+  g.add(post);
+  const blaze = box(M(r.pick(['#c9302c', '#e3c53a', '#3a76c4']), { rough: 0.6 }), 0.1, 0.2, 0.1);
+  blaze.position.y = H - 0.16;
+  g.add(blaze);
+  const n = r.int(1, 2);
+  for (let i = 0; i < n; i++) { // finger boards
+    const b = box(M('#e8dcc0', { rough: 0.85 }), 0.5, 0.14, 0.03);
+    b.position.set(0.22, H - 0.42 - i * 0.22, 0);
+    b.rotation.y = r.range(-0.5, 0.5);
+    g.add(b);
+  }
+  const rocks = sphere(M(r.pick(ROCKS), { rough: 0.96 }), 0.22, 0);
+  jitterGeo(rocks, r, 0.07);
+  rocks.scale.y = 0.42;
+  rocks.position.y = 0.07;
+  g.add(rocks);
+  return { g, bodies: dynGround(g, H, 40, [boxSh(0.06, H / 2, 0.06, 0, H / 2, 0)], { fr: 0.7, rest: 0.1 }) };
+}
+// The tall striped poles that mark where the road edge is under a metre of
+// snow. Deliberately slender and dynamic — clipping one should cost nothing.
+function snowPole(r, M) {
+  const g = new THREE.Group();
+  const H = r.range(2.2, 2.8);
+  const post = cyl(M('#e8e9eb', { rough: 0.7 }), { r: 0.035, len: H, seg: 6 });
+  post.position.y = H / 2;
+  g.add(post);
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    if (i % 2) continue;
+    const b = cyl(M('#c9302c', { rough: 0.65 }), { r: 0.038, len: H / (n * 1.6), seg: 6 });
+    b.position.y = H - 0.12 - i * (H / n) * 0.62;
+    g.add(b);
+  }
+  const refl = box(M('#f2e08a', { rough: 0.3, emissive: '#f2e08a', emInt: 0.3 }), 0.012, 0.14, 0.07);
+  refl.position.set(0.035, H - 0.3, 0);
+  g.add(refl);
+  return { g, bodies: dynGround(g, H, 8, [cylSh(H / 2, 0.05, 0, H / 2, 0)], { fr: 0.5, rest: 0.2 }) };
+}
+function snowDrift(r, M) {
+  const g = new THREE.Group();
+  const snow = M(r.pick(SNOWC), { rough: 0.72, env: 0.4 });
+  const n = r.int(3, 5);
+  let maxH = 0;
+  for (let i = 0; i < n; i++) {
+    const R = r.range(0.7, 1.35);
+    const s = sphere(snow, R, 1);
+    jitterGeo(s, r, R * 0.1); // gentle — snow is smooth, rock is not
+    const sy = r.range(0.32, 0.5);
+    s.scale.set(r.jitter(1.5, 0.2), sy, r.jitter(0.9, 0.2));
+    s.rotation.y = r.range(0, Math.PI);
+    s.position.set(r.range(-1.0, 1.0), R * sy * 0.5, r.range(-0.5, 0.5));
+    g.add(s);
+    maxH = Math.max(maxH, R * sy);
+  }
+  // the wind-cut lip on the lee side
+  const lip = box(M(r.pick(SNOWC), { rough: 0.7, env: 0.45 }), 2.4, 0.1, 0.3);
+  lip.position.set(0, maxH * 0.9, 0.75);
+  lip.rotation.z = r.range(-0.04, 0.04);
+  g.add(lip);
+  return { g, bodies: fixedBody(g, [boxSh(1.5, maxH * 0.6, 0.9, 0, maxH * 0.6, 0)], 0.35, 0.02) };
+}
+// A gallery is a roofed run of road — the avalanche goes over the top. The
+// collider is the two walls and the deck; the bore stays open so a car drives
+// through, which is the entire point of building one.
+function avalancheGallery(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#a3a8ae', { rough: 0.94 });
+  const W = 6.0, H = 3.6, L = 5.2;
+  for (const s of [-1, 1]) {
+    const wall = box(conc, L, H, 0.4);
+    wall.position.set(0, H / 2, s * (W / 2));
+    g.add(wall);
+  }
+  for (let i = 0; i < 4; i++) { // columns on the open (valley) side
+    const c = box(conc, 0.44, H, 0.5);
+    c.position.set(-L / 2 + 0.6 + i * 1.4, H / 2, W / 2 - 0.1);
+    g.add(c);
+  }
+  const roof = box(conc, L, 0.42, W + 0.5);
+  roof.position.y = H + 0.21;
+  roof.rotation.z = 0;
+  g.add(roof);
+  const slope = box(M('#9aa0a7', { rough: 0.95 }), L, 0.3, W * 0.75); // debris ramp on the uphill roof
+  slope.position.set(0, H + 0.5, -W * 0.2);
+  slope.rotation.x = -0.16;
+  g.add(slope);
+  return { g, bodies: fixedBody(g, [
+    boxSh(L / 2, H / 2, 0.2, 0, H / 2, -W / 2),
+    boxSh(L / 2, H / 2, 0.2, 0, H / 2, W / 2),
+    boxSh(L / 2, 0.21, W / 2 + 0.25, 0, H + 0.21, 0),
+  ], 0.8, 0.05) };
+}
+function rockfallNet(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.pick(STEEL), { rough: 0.5, metal: 0.55, env: 0.8 });
+  const H = 2.6, L = 5.0;
+  const shapes = [];
+  for (let i = 0; i < 4; i++) {
+    const x = -L / 2 + i * (L / 3);
+    const p = cyl(steel, { r: 0.07, len: H, seg: 7 });
+    p.position.set(x, H / 2, 0);
+    p.rotation.z = -0.12; // raked back into the slope
+    g.add(p);
+    shapes.push(cylSh(H / 2, 0.09, x, H / 2, 0));
+    const stay = cyl(steel, { r: 0.02, len: 2.1, seg: 5 }); // anchor cable
+    stay.position.set(x + 0.5, H * 0.55, -0.5);
+    stay.rotation.set(0.5, 0, -0.7);
+    g.add(stay);
+  }
+  const mesh = M('#6f767d', { rough: 0.6, metal: 0.4, env: 0.7 });
+  for (let i = 0; i < 7; i++) { // horizontal cables
+    const c = box(mesh, L, 0.025, 0.025);
+    c.position.set(0, 0.2 + i * (H - 0.3) / 6, 0.02);
+    g.add(c);
+  }
+  for (let i = 0; i < 13; i++) { // verticals
+    const c = box(mesh, 0.02, H - 0.1, 0.02);
+    c.position.set(-L / 2 + i * (L / 12), H / 2, 0.04);
+    g.add(c);
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.15) };
+}
+// Gabion: rock in a wire cage. The cage lines are what sell it — without them
+// it is just a box of stones.
+function gabion(r, M) {
+  const g = new THREE.Group();
+  const W = 2.0, H = 1.0, D = 0.9;
+  const fillHex = r.pick(ROCKS);
+  const core = box(M(shade(fillHex, -0.12), { rough: 0.97, env: 0.15 }), W - 0.06, H - 0.06, D - 0.06);
+  core.position.y = H / 2;
+  g.add(core);
+  for (let i = 0; i < r.int(14, 20); i++) { // stones bulging through the mesh
+    const R = r.range(0.09, 0.17);
+    const s = sphere(M(jitterColor(r, fillHex, 0.006, 0.06, 0.07), { rough: 0.97, env: 0.15 }), R, 0);
+    jitterGeo(s, r, R * 0.3);
+    const face = r.int(0, 2);
+    const px = face === 0 ? r.range(-W / 2, W / 2) : r.sign() * (W / 2 - 0.02);
+    const pz = face === 0 ? r.sign() * (D / 2 - 0.02) : r.range(-D / 2, D / 2);
+    s.position.set(px, r.range(0.1, H - 0.1), pz);
+    s.rotation.set(r.range(0, 3), r.range(0, 3), r.range(0, 3));
+    g.add(s);
+  }
+  const wire = M('#7c8288', { rough: 0.55, metal: 0.6, env: 0.8 });
+  for (let i = 0; i <= 4; i++) { // cage: horizontals
+    const yy = (i / 4) * H;
+    for (const s of [-1, 1]) {
+      const c = box(wire, W, 0.022, 0.022);
+      c.position.set(0, yy, s * D / 2);
+      g.add(c);
+    }
+  }
+  for (let i = 0; i <= 8; i++) { // cage: verticals
+    const xx = -W / 2 + (i / 8) * W;
+    for (const s of [-1, 1]) {
+      const c = box(wire, 0.022, H, 0.022);
+      c.position.set(xx, H / 2, s * D / 2);
+      g.add(c);
+    }
+  }
+  return { g, bodies: fixedBody(g, [boxSh(W / 2, H / 2, D / 2, 0, H / 2, 0)], 0.9, 0.03) };
+}
+function cribWall(r, M) {
+  const g = new THREE.Group();
+  const timber = M(jitterColor(r, '#6d5a42'), { rough: 0.95 });
+  const rows = r.int(4, 6);
+  const L = 3.6;
+  for (let i = 0; i < rows; i++) {
+    const y = 0.16 + i * 0.32;
+    const inset = i * 0.11; // battered back into the slope
+    const front = cyl(timber, { r: 0.14, len: L - inset * 2, axis: 'x', seg: 7 });
+    front.position.set(0, y, 0.45 - inset);
+    g.add(front);
+    if (i % 2 === 0) { // headers tying into the fill
+      for (let k = 0; k < 3; k++) {
+        const h = cyl(M('#5e4a34', { rough: 0.95 }), { r: 0.12, len: 1.0, axis: 'z', seg: 6 });
+        h.position.set(-L / 2 + 0.5 + k * ((L - 1) / 2), y, 0.0 - inset);
+        g.add(h);
+      }
+    }
+  }
+  const fill = box(M(r.pick(ROCKS), { rough: 0.97, env: 0.15 }), L - 0.4, rows * 0.32, 0.7);
+  fill.position.set(0, rows * 0.16, -0.35);
+  g.add(fill);
+  const H = rows * 0.32 + 0.1;
+  return { g, bodies: fixedBody(g, [boxSh(L / 2, H / 2, 0.62, 0, H / 2, 0.05)], 0.85, 0.05) };
+}
+function skiPylon(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.chance(0.5) ? '#e8e9eb' : r.pick(STEEL), { rough: 0.5, metal: 0.5, env: 0.85 });
+  const H = 6.5;
+  const mast = cyl(steel, { r: 0.3, r2: 0.19, len: H, seg: 10 });
+  mast.position.y = H / 2;
+  g.add(mast);
+  const foot = box(M('#a3a8ae', { rough: 0.95 }), 1.1, 0.3, 1.1);
+  foot.position.y = 0.15;
+  g.add(foot);
+  const head = box(steel, 0.34, 0.3, 2.2); // cross-head
+  head.position.y = H + 0.1;
+  g.add(head);
+  for (const s of [-1, 1]) { // sheave trains
+    const arm = box(M('#3d4147', { rough: 0.6, metal: 0.4 }), 0.16, 0.14, 1.1);
+    arm.position.set(0, H - 0.16, s * 0.85);
+    g.add(arm);
+    for (let i = 0; i < 4; i++) {
+      const w = cyl(M('#e3c53a', { rough: 0.5 }), { r: 0.11, len: 0.09, axis: 'x', seg: 8 });
+      w.position.set(0, H - 0.3, s * (0.42 + i * 0.28));
+      g.add(w);
+    }
+  }
+  const ladder = box(M('#5c6167', { rough: 0.6 }), 0.05, H - 0.6, 0.3);
+  ladder.position.set(0.32, H / 2, 0);
+  g.add(ladder);
+  return { g, bodies: fixedBody(g, [cylSh(H / 2, 0.3, 0, H / 2, 0)], 0.6, 0.1) };
+}
+function alpineHut(r, M) {
+  const g = new THREE.Group();
+  const W = 3.0, D = 2.6, H = 2.0;
+  const wall = M(jitterColor(r, '#7a5233'), { rough: 0.93 });
+  const body = box(wall, W, H, D);
+  body.position.y = H / 2 + 0.24;
+  g.add(body);
+  for (let i = 0; i < 6; i++) { // log courses
+    const c = cyl(M(shade('#7a5233', -0.08), { rough: 0.94 }), { r: 0.16, len: W + 0.24, axis: 'x', seg: 7 });
+    c.position.set(0, 0.4 + i * 0.32, D / 2 + 0.02);
+    g.add(c);
+  }
+  const stone = box(M(r.pick(ROCKS), { rough: 0.96 }), W + 0.1, 0.24, D + 0.1); // stone plinth
+  stone.position.y = 0.12;
+  g.add(stone);
+  // steep alpine roof with a deep overhang, weighted with stones
+  const roof = cyl(M('#4a4e55', { rough: 0.8 }), { r: 2.35, len: D + 1.1, axis: 'z', seg: 3 });
+  roof.rotation.x = Math.PI / 2;
+  roof.rotation.z = Math.PI / 4;
+  roof.scale.set(1, 1, 0.5);
+  roof.position.y = H + 0.24;
+  g.add(roof);
+  for (let i = 0; i < r.int(4, 7); i++) {
+    const s = sphere(M(r.pick(ROCKS), { rough: 0.96 }), 0.14, 0);
+    jitterGeo(s, r, 0.05);
+    s.scale.y = 0.6;
+    s.position.set(r.range(-1.1, 1.1) * 0.9 + (r.sign() * 0.5), H + 0.9 + r.range(-0.3, 0.2), r.range(-D / 2, D / 2));
+    g.add(s);
+  }
+  const door = box(M('#5e4a34', { rough: 0.85 }), 0.06, 1.1, 0.62);
+  door.position.set(W / 2 + 0.01, 0.79, 0);
+  g.add(door);
+  for (const z of [-0.75, 0.75]) {
+    const win = box(M('#1b2836', { rough: 0.32, env: 0.85 }), 0.06, 0.44, 0.44);
+    win.position.set(W / 2 + 0.01, 1.55, z);
+    g.add(win);
+    const shutter = box(M('#c9302c', { rough: 0.7 }), 0.04, 0.48, 0.12);
+    shutter.position.set(W / 2 + 0.04, 1.55, z + 0.28);
+    g.add(shutter);
+  }
+  const HT = H + 0.24;
+  return { g, bodies: fixedBody(g, [boxSh(W / 2, HT / 2, D / 2, 0, HT / 2, 0)], 0.8, 0.05) };
+}
+function fallenTree(r, M) {
+  const g = new THREE.Group();
+  const L = r.range(3.4, 5.0);
+  const R = r.range(0.22, 0.34);
+  const bark = M(r.pick(BARK), { rough: 0.94, env: 0.2 });
+  const trunk = cyl(bark, { r: R, r2: R * 0.62, len: L, axis: 'x', seg: 8 });
+  trunk.position.set(0, R * 1.05, 0);
+  // NOT .rotation.z — `axis: 'x'` IS a z rotation, and assigning z here stood
+  // the whole tree back up. Only .y is safe to write on an axis-built cylinder.
+  trunk.rotation.y = r.range(-0.08, 0.08);
+  g.add(trunk);
+  const rootplate = sphere(M(shade(r.pick(BARK), -0.15), { rough: 0.95 }), R * 2.4, 0);
+  jitterGeo(rootplate, r, R * 0.55);
+  rootplate.scale.set(0.34, 1, 1);
+  rootplate.position.set(-L / 2 - 0.1, R * 1.6, 0);
+  g.add(rootplate);
+  for (let i = 0; i < r.int(3, 6); i++) { // snapped limbs
+    const b = cyl(bark, { r: R * r.range(0.14, 0.26), len: r.range(0.5, 1.2), axis: 'x', seg: 5 });
+    b.position.set(r.range(-L * 0.3, L * 0.45), R * r.range(1.2, 2.0), r.range(-0.3, 0.3));
+    b.rotation.set(r.range(-1, 1), r.range(-1.2, 1.2), r.range(-0.9, 0.9));
+    g.add(b);
+  }
+  if (r.chance(0.6)) { // moss along the upper side
+    const moss = box(M('#4a6b4a', { rough: 0.95 }), L * 0.7, 0.03, R * 0.9);
+    moss.position.set(r.range(-0.4, 0.4), R * 2.0, 0);
+    g.add(moss);
+  }
+  return { g, bodies: fixedBody(g, [
+    { kind: 'cyl', hh: L / 2, r: R, pos: [0, R * 1.05, 0], rot: quatArr(0, 0, Math.PI / 2) },
+  ], 0.85, 0.06) };
+}
+function snowFence(r, M) {
+  const g = new THREE.Group();
+  const H = 1.3, L = 4.2;
+  const shapes = [];
+  const slat = M(r.pick(['#b0563a', '#8a6a4a', '#96805f']), { rough: 0.94 });
+  for (let i = 0; i < 5; i++) {
+    const x = -L / 2 + i * (L / 4);
+    const p = box(M('#5e4a34', { rough: 0.94 }), 0.09, H, 0.09);
+    p.position.set(x, H / 2, 0);
+    g.add(p);
+    shapes.push(boxSh(0.06, H / 2, 0.06, x, H / 2, 0));
+  }
+  for (let i = 0; i < 22; i++) { // vertical laths, gappy on purpose
+    const s = box(slat, 0.05, H * 0.86, 0.02);
+    s.position.set(-L / 2 + 0.1 + i * (L - 0.2) / 21, H * 0.47, 0.06);
+    s.rotation.z = r.range(-0.03, 0.03);
+    g.add(s);
+  }
+  for (const y of [H * 0.18, H * 0.78]) { // tie wires
+    const w = box(M('#7c8288', { rough: 0.6, metal: 0.5 }), L, 0.018, 0.018);
+    w.position.set(0, y, 0.08);
+    g.add(w);
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.12) };
+}
+
+/* ---- rural & farm ---- */
+function barn(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#8c3a34', '#a04a3a', '#7c4a34', '#e8dcc0']);
+  const wall = M(jitterColor(r, hex), { rough: 0.9 });
+  const W = 5.4, D = 4.2, H = 3.2;
+  const body = box(wall, W, H, D);
+  body.position.y = H / 2;
+  g.add(body);
+  const trim = M('#eef1f4', { rough: 0.85 });
+  for (const s of [-1, 1]) { // corner boards
+    const c = box(trim, 0.12, H, 0.12);
+    c.position.set(s * (W / 2 - 0.06), H / 2, D / 2 - 0.06);
+    g.add(c);
+  }
+  // gambrel roof: two pitches a side, which is the whole silhouette of a barn
+  const roofM = M(r.pick(['#4a4e55', '#33373d', '#5a4633']), { rough: 0.82 });
+  for (const s of [-1, 1]) {
+    const lower = box(roofM, W + 0.3, 0.14, 1.35);
+    lower.position.set(0, H + 0.42, s * 1.55);
+    lower.rotation.x = s * 0.72;
+    g.add(lower);
+    const upper = box(roofM, W + 0.3, 0.14, 1.5);
+    upper.position.set(0, H + 1.28, s * 0.62);
+    upper.rotation.x = s * 0.34;
+    g.add(upper);
+  }
+  for (const s of [-1, 1]) { // gable end fill
+    const gable = box(wall, 0.12, 1.6, D * 0.7);
+    gable.position.set(s * W / 2, H + 0.75, 0);
+    g.add(gable);
+  }
+  const doorM = M('#eef1f4', { rough: 0.85 });
+  const door = box(doorM, 0.07, 2.2, 2.3);
+  door.position.set(W / 2 + 0.02, 1.1, 0);
+  g.add(door);
+  for (const d of [-0.55, 0.55]) { // the X-braces on the doors
+    for (const sgn of [-1, 1]) {
+      const br = box(M(shade(hex, -0.2), { rough: 0.9 }), 0.03, 2.0, 0.1);
+      br.position.set(W / 2 + 0.06, 1.1, d);
+      br.rotation.x = sgn * 0.52;
+      g.add(br);
+    }
+  }
+  const hayDoor = box(doorM, 0.06, 0.7, 0.8); // loft hatch
+  hayDoor.position.set(W / 2 + 0.02, H + 0.6, 0);
+  g.add(hayDoor);
+  const HT = H + 1.9;
+  return { g, bodies: fixedBody(g, [boxSh(W / 2, H / 2, D / 2, 0, H / 2, 0), boxSh(W / 2, 0.8, D * 0.36, 0, H + 0.8, 0)], 0.8, 0.05) };
+}
+function silo(r, M) {
+  const g = new THREE.Group();
+  const H = r.range(6.0, 8.0), R = 1.35;
+  const metal = M(r.chance(0.6) ? '#c2c7cc' : '#9aa0a7', { rough: 0.42, metal: 0.55, env: 0.95 });
+  const body = cyl(metal, { r: R, len: H, seg: 14 });
+  body.position.y = H / 2;
+  g.add(body);
+  for (let i = 0; i < 8; i++) { // corrugation rings
+    const b = cyl(M(shade('#c2c7cc', -0.08), { rough: 0.5, metal: 0.5, env: 0.9 }), { r: R + 0.03, len: 0.06, seg: 14 });
+    b.position.y = 0.4 + i * (H - 0.8) / 7;
+    g.add(b);
+  }
+  const roof = cyl(M('#8d939a', { rough: 0.5, metal: 0.45, env: 0.9 }), { r: R + 0.1, r2: 0.14, len: 0.95, seg: 14 });
+  roof.position.y = H + 0.47;
+  g.add(roof);
+  const cap = cyl(M('#5c6167', { rough: 0.6 }), { r: 0.2, len: 0.28, seg: 8 });
+  cap.position.y = H + 1.05;
+  g.add(cap);
+  const base = cyl(M('#a3a8ae', { rough: 0.95 }), { r: R + 0.16, len: 0.3, seg: 14 });
+  base.position.y = 0.15;
+  g.add(base);
+  const chute = box(M('#8d939a', { rough: 0.5, metal: 0.45 }), 0.34, H * 0.55, 0.34); // discharge leg
+  chute.position.set(R + 0.15, H * 0.3, 0);
+  g.add(chute);
+  const ladder = box(M('#5c6167', { rough: 0.6 }), 0.05, H, 0.3);
+  ladder.position.set(0, H / 2, R + 0.06);
+  g.add(ladder);
+  return { g, bodies: fixedBody(g, [cylSh(H / 2, R + 0.05, 0, H / 2, 0)], 0.6, 0.08) };
+}
+function windmill(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.pick(STEEL), { rough: 0.55, metal: 0.45, env: 0.8 });
+  const H = 5.2;
+  const shapes = [];
+  // tapered lattice tower — four raked legs plus cross bracing
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const leg = cyl(steel, { r: 0.05, len: H + 0.4, seg: 5 });
+    leg.position.set(sx * 0.42, H / 2, sz * 0.42);
+    leg.rotation.set(sz * -0.1, 0, sx * 0.1);
+    g.add(leg);
+  }
+  shapes.push(boxSh(0.6, H / 2, 0.6, 0, H / 2, 0));
+  for (let i = 0; i < 5; i++) {
+    const y = 0.6 + i * (H - 1.0) / 4;
+    const t = 1 - (y / H) * 0.55;
+    for (const s of [-1, 1]) {
+      const bx = box(steel, 0.9 * t, 0.035, 0.035);
+      bx.position.set(0, y, s * 0.42 * t);
+      g.add(bx);
+      const bz = box(steel, 0.035, 0.035, 0.9 * t);
+      bz.position.set(s * 0.42 * t, y, 0);
+      g.add(bz);
+    }
+  }
+  // the fan: many thin blades on a hub, the reason anyone recognises this
+  const hub = cyl(M('#5c6167', { rough: 0.6, metal: 0.4 }), { r: 0.16, len: 0.2, axis: 'x', seg: 10 });
+  hub.position.set(0.15, H + 0.1, 0);
+  g.add(hub);
+  const bladeM = M(r.pick(['#c2c7cc', '#e8e9eb']), { rough: 0.5, metal: 0.35, env: 0.85 });
+  const n = 16;
+  const spin = r.range(0, Math.PI * 2);
+  for (let i = 0; i < n; i++) {
+    const a = spin + (i / n) * Math.PI * 2;
+    const b = box(bladeM, 0.02, 0.62, 0.14);
+    b.position.set(0.2, H + 0.1 + Math.cos(a) * 0.62, Math.sin(a) * 0.62);
+    b.rotation.set(-a, 0, 0);
+    g.add(b);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.025, 4, 16), bladeM);
+  ring.position.set(0.2, H + 0.1, 0);
+  ring.rotation.y = Math.PI / 2;
+  g.add(ring);
+  const vane = box(bladeM, 0.9, 0.55, 0.03); // tail
+  vane.position.set(-0.75, H + 0.1, 0);
+  g.add(vane);
+  const boom = box(steel, 1.0, 0.06, 0.06);
+  boom.position.set(-0.35, H + 0.1, 0);
+  g.add(boom);
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.1) };
+}
+function trough(r, M) {
+  const g = new THREE.Group();
+  const conc = M(jitterColor(r, '#a3a8ae', 0.004, 0.03, 0.04), { rough: 0.95 });
+  const L = 2.2, W = 0.7, H = 0.55;
+  for (const s of [-1, 1]) {
+    const side = box(conc, L, H, 0.1);
+    side.position.set(0, H / 2, s * (W / 2 - 0.05));
+    g.add(side);
+    const end = box(conc, 0.1, H, W);
+    end.position.set(s * (L / 2 - 0.05), H / 2, 0);
+    g.add(end);
+  }
+  const floor = box(conc, L, 0.1, W);
+  floor.position.y = 0.05;
+  g.add(floor);
+  const water = box(M('#4b90c9', { rough: 0.12, env: 1.6 }), L - 0.2, 0.02, W - 0.2);
+  water.position.y = H - 0.14;
+  g.add(water);
+  const pipe = cyl(M('#7c8288', { rough: 0.5, metal: 0.5, env: 0.8 }), { r: 0.035, len: 0.55, seg: 6 });
+  pipe.position.set(-L / 2 + 0.14, H + 0.2, 0);
+  g.add(pipe);
+  const spout = cyl(M('#7c8288', { rough: 0.5, metal: 0.5 }), { r: 0.03, len: 0.2, axis: 'x', seg: 6 });
+  spout.position.set(-L / 2 + 0.24, H + 0.42, 0);
+  g.add(spout);
+  return { g, bodies: fixedBody(g, [boxSh(L / 2, H / 2, W / 2, 0, H / 2, 0)], 0.8, 0.06) };
+}
+// A grid over a pit. It is FLAT and drivable, so the collider is one thin slab
+// at bar height — a per-bar collider would be a cattle grid for the tyres too.
+function cattleGrid(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#9aa0a7', { rough: 0.95 });
+  const W = 3.6, D = 2.0;
+  for (const s of [-1, 1]) { // the kerbs either side
+    const k = box(conc, 0.3, 0.24, D + 0.4);
+    k.position.set(s * (W / 2 + 0.15), 0.12, 0);
+    g.add(k);
+  }
+  const pit = box(M('#2b2e33', { rough: 0.98 }), W, 0.3, D);
+  pit.position.y = -0.14;
+  g.add(pit);
+  const bar = M('#7c8288', { rough: 0.5, metal: 0.55, env: 0.8 });
+  const n = 13;
+  for (let i = 0; i < n; i++) {
+    const b = cyl(bar, { r: 0.045, len: D, axis: 'z', seg: 8 });
+    b.position.set(-W / 2 + 0.14 + i * (W - 0.28) / (n - 1), 0.075, 0);
+    g.add(b);
+  }
+  for (const s of [-1, 1]) { // frame rails
+    const f = box(bar, W, 0.09, 0.1);
+    f.position.set(0, 0.06, s * (D / 2 - 0.05));
+    g.add(f);
+  }
+  return { g, bodies: fixedBody(g, [
+    boxSh(W / 2, 0.055, D / 2, 0, 0.065, 0), // drivable deck
+    boxSh(0.15, 0.12, D / 2 + 0.2, -(W / 2 + 0.15), 0.12, 0),
+    boxSh(0.15, 0.12, D / 2 + 0.2, W / 2 + 0.15, 0.12, 0),
+  ], 0.85, 0.04) };
+}
+function farmGate(r, M) {
+  const g = new THREE.Group();
+  const H = 1.25, L = 3.2;
+  const wood = M(r.pick(['#96805f', '#7a6448', '#e8e9eb']), { rough: 0.92 });
+  const shapes = [];
+  for (const s of [-1, 1]) {
+    const post = box(M('#5e4a34', { rough: 0.94 }), 0.16, H + 0.35, 0.16);
+    post.position.set(s * (L / 2 + 0.1), (H + 0.35) / 2, 0);
+    g.add(post);
+    shapes.push(boxSh(0.1, (H + 0.35) / 2, 0.1, s * (L / 2 + 0.1), (H + 0.35) / 2, 0));
+  }
+  const swing = r.range(0, 0.9); // hung open by a random amount
+  const leaf = new THREE.Group();
+  for (let i = 0; i < 5; i++) {
+    const rail = box(wood, L, 0.09, 0.05);
+    rail.position.set(L / 2, 0.2 + i * 0.26, 0);
+    leaf.add(rail);
+  }
+  const diag = box(wood, L * 1.02, 0.09, 0.05);
+  diag.position.set(L / 2, 0.72, 0);
+  diag.rotation.z = 0.35;
+  leaf.add(diag);
+  for (const x of [0.06, L - 0.06]) {
+    const st = box(wood, 0.09, H, 0.05);
+    st.position.set(x, H / 2 + 0.06, 0);
+    leaf.add(st);
+  }
+  leaf.position.set(-L / 2 - 0.1, 0, 0);
+  leaf.rotation.y = swing;
+  g.add(leaf);
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.1) };
+}
+function railFence(r, M) {
+  const g = new THREE.Group();
+  const H = 1.15, L = 5.0;
+  const wood = M(jitterColor(r, r.pick(['#96805f', '#7a6448', '#e8e0d0'])), { rough: 0.93 });
+  const shapes = [];
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const x = -L / 2 + i * (L / (n - 1));
+    const p = box(M(shade('#7a6448', -0.06), { rough: 0.94 }), 0.13, H, 0.13);
+    p.position.set(x, H / 2, 0);
+    p.rotation.z = r.range(-0.02, 0.02);
+    g.add(p);
+    shapes.push(boxSh(0.08, H / 2, 0.08, x, H / 2, 0));
+  }
+  for (const y of [H * 0.34, H * 0.72]) {
+    const rail = box(wood, L, 0.1, 0.055);
+    rail.position.set(0, y, 0.06);
+    rail.rotation.z = r.range(-0.008, 0.008);
+    g.add(rail);
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.12) };
+}
+function hayWrap(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#e8e9eb', '#2f5a68', '#3e8948']);
+  const wrap = M(hex, { rough: 0.42, env: 0.7 });
+  const n = r.int(2, 4);
+  const shapes = [];
+  for (let i = 0; i < n; i++) {
+    const z = -((n - 1) / 2) * 1.05 + i * 1.05;
+    const bale = cyl(wrap, { r: 0.62, len: 0.98, axis: 'z', seg: 14 });
+    bale.position.set(r.range(-0.04, 0.04), 0.62, z);
+    g.add(bale);
+    for (const e of [-0.49, 0.49]) { // the dished ends of a wrapped bale
+      const cap = cyl(M(shade(hex, -0.1), { rough: 0.45, env: 0.6 }), { r: 0.52, len: 0.04, axis: 'z', seg: 14 });
+      cap.position.set(0, 0.62, z + e);
+      g.add(cap);
+    }
+    shapes.push({ kind: 'cyl', hh: 0.49, r: 0.62, pos: [0, 0.62, z], rot: quatArr(Math.PI / 2, 0, 0) });
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.55, 0.1) };
+}
+function orchardRow(r, M) {
+  const g = new THREE.Group();
+  const shapes = [];
+  const n = r.int(3, 4);
+  for (let i = 0; i < n; i++) {
+    const z = -((n - 1) / 2) * 1.9 + i * 1.9;
+    const h = r.range(1.5, 2.0);
+    trunk(g, M, r, h, 0.1).position.set(0, h / 2, z);
+    const R = r.range(0.7, 0.95);
+    const c = canopy(M, r, r.pick(GREENS), R, { squash: 0.82 });
+    c.position.set(0, h + R * 0.5, z);
+    g.add(c);
+    if (r.chance(0.6)) { // fruit
+      const fruit = M(r.pick(['#c9302c', '#e07b39', '#c9a03a']), { rough: 0.55 });
+      for (let k = 0; k < r.int(3, 6); k++) {
+        const f = sphere(fruit, 0.06, 0);
+        const a = r.range(0, Math.PI * 2);
+        f.position.set(Math.cos(a) * R * 0.75, h + R * r.range(0.2, 0.8), z + Math.sin(a) * R * 0.75);
+        g.add(f);
+      }
+    }
+    const stake = box(M('#7a6448', { rough: 0.93 }), 0.05, h * 0.75, 0.05);
+    stake.position.set(0.16, h * 0.375, z);
+    g.add(stake);
+    shapes.push(cylSh(h / 2, 0.14, 0, h / 2, z));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.1) };
+}
+function vineyardRow(r, M) {
+  const g = new THREE.Group();
+  const L = 5.0, H = 1.5;
+  const shapes = [];
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const x = -L / 2 + i * (L / (n - 1));
+    const p = box(M('#6d5a42', { rough: 0.94 }), 0.07, H, 0.07);
+    p.position.set(x, H / 2, 0);
+    g.add(p);
+    shapes.push(boxSh(0.05, H / 2, 0.05, x, H / 2, 0));
+  }
+  for (const y of [H * 0.42, H * 0.7, H * 0.94]) { // trellis wires
+    const w = box(M('#8d939a', { rough: 0.6, metal: 0.5 }), L, 0.014, 0.014);
+    w.position.set(0, y, 0);
+    g.add(w);
+  }
+  const leafM = M(r.pick(GREENS), { rough: 0.9 });
+  for (let i = 0; i < 14; i++) { // the canopy along the wire
+    const c = sphere(leafM, r.range(0.16, 0.26), 0);
+    jitterGeo(c, r, 0.06);
+    c.scale.set(1, 0.8, 0.55);
+    c.position.set(-L / 2 + 0.2 + i * (L - 0.4) / 13, r.range(H * 0.5, H * 0.85), r.range(-0.06, 0.06));
+    g.add(c);
+  }
+  for (let i = 0; i < 4; i++) { // trunks, gnarly and short
+    const t = cyl(M('#5e4a34', { rough: 0.95 }), { r: 0.05, len: H * 0.4, seg: 6 });
+    t.position.set(-L / 2 + 0.6 + i * 1.2, H * 0.2, 0);
+    t.rotation.z = r.range(-0.14, 0.14);
+    g.add(t);
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.12) };
+}
+function tractorShed(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.pick(['#8d939a', '#5f6f78', '#7c4a34']), { rough: 0.6, metal: 0.25, env: 0.6 });
+  const W = 4.6, D = 3.4, H = 2.9;
+  // open-fronted: three walls and a roof on posts, so it reads as a shelter
+  const back = box(steel, W, H, 0.14);
+  back.position.set(0, H / 2, -D / 2);
+  g.add(back);
+  for (const s of [-1, 1]) {
+    const side = box(steel, 0.14, H, D);
+    side.position.set(s * W / 2, H / 2, 0);
+    g.add(side);
+  }
+  for (let i = 0; i < 7; i++) { // corrugation
+    const c = box(M(shade('#8d939a', -0.07), { rough: 0.62 }), 0.03, H, 0.05);
+    c.position.set(-W / 2 + 0.3 + i * (W - 0.6) / 6, H / 2, -D / 2 + 0.08);
+    g.add(c);
+  }
+  const roof = box(M('#5c6167', { rough: 0.7, metal: 0.3 }), W + 0.4, 0.12, D + 0.5);
+  roof.position.set(0, H + 0.2, 0.1);
+  roof.rotation.x = -0.1;
+  g.add(roof);
+  const beam = box(steel, W, 0.2, 0.16);
+  beam.position.set(0, H - 0.1, D / 2);
+  g.add(beam);
+  return { g, bodies: fixedBody(g, [
+    boxSh(W / 2, H / 2, 0.1, 0, H / 2, -D / 2),
+    boxSh(0.1, H / 2, D / 2, -W / 2, H / 2, 0),
+    boxSh(0.1, H / 2, D / 2, W / 2, H / 2, 0),
+    boxSh(W / 2 + 0.2, 0.08, D / 2 + 0.25, 0, H + 0.2, 0.1),
+  ], 0.7, 0.06) };
+}
+function grainHopper(r, M) {
+  const g = new THREE.Group();
+  const metal = M(r.pick(['#c2c7cc', '#9aa0a7', '#3e8948']), { rough: 0.45, metal: 0.5, env: 0.9 });
+  const shapes = [];
+  const LEG = 1.6;
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const leg = box(M('#7c8288', { rough: 0.55, metal: 0.5 }), 0.1, LEG, 0.1);
+    leg.position.set(sx * 0.72, LEG / 2, sz * 0.72);
+    g.add(leg);
+  }
+  shapes.push(boxSh(0.85, LEG / 2, 0.85, 0, LEG / 2, 0));
+  const cone = cyl(metal, { r: 0.28, r2: 1.15, len: 1.0, seg: 12 });
+  cone.position.y = LEG + 0.5;
+  g.add(cone);
+  const barrel = cyl(metal, { r: 1.15, len: 1.5, seg: 12 });
+  barrel.position.y = LEG + 1.75;
+  g.add(barrel);
+  const lid = cyl(M('#5c6167', { rough: 0.6 }), { r: 1.2, r2: 0.3, len: 0.4, seg: 12 });
+  lid.position.y = LEG + 2.7;
+  g.add(lid);
+  shapes.push(cylSh(0.75, 1.15, 0, LEG + 1.75, 0));
+  const gate = box(M('#e07b39', { rough: 0.6 }), 0.4, 0.24, 0.4); // slide gate
+  gate.position.y = LEG - 0.02;
+  g.add(gate);
+  const ladder = box(M('#5c6167', { rough: 0.6 }), 0.05, 2.6, 0.26);
+  ladder.position.set(1.18, LEG + 1.4, 0);
+  g.add(ladder);
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.08) };
+}
+function weatherStation(r, M) {
+  const g = new THREE.Group();
+  const H = 2.6;
+  const mast = cyl(M('#c2c7cc', { rough: 0.45, metal: 0.55, env: 0.9 }), { r: 0.045, len: H, seg: 8 });
+  mast.position.y = H / 2;
+  g.add(mast);
+  const tri = M('#9aa0a7', { rough: 0.55, metal: 0.4 });
+  for (let i = 0; i < 3; i++) { // tripod feet
+    const a = (i / 3) * Math.PI * 2;
+    const leg = cyl(tri, { r: 0.025, len: 0.85, seg: 5 });
+    leg.position.set(Math.cos(a) * 0.28, 0.34, Math.sin(a) * 0.28);
+    leg.rotation.set(Math.sin(a) * 0.6, 0, -Math.cos(a) * 0.6);
+    g.add(leg);
+  }
+  // anemometer: three cups on arms
+  const hub = cyl(M('#3d4147', { rough: 0.6 }), { r: 0.035, len: 0.1, seg: 8 });
+  hub.position.y = H + 0.06;
+  g.add(hub);
+  const spin = r.range(0, Math.PI * 2);
+  for (let i = 0; i < 3; i++) {
+    const a = spin + (i / 3) * Math.PI * 2;
+    const arm = box(M('#e8e9eb', { rough: 0.5 }), 0.2, 0.015, 0.015);
+    arm.position.set(Math.cos(a) * 0.1, H + 0.06, Math.sin(a) * 0.1);
+    arm.rotation.y = -a;
+    g.add(arm);
+    const cup = sphere(M('#e8e9eb', { rough: 0.5 }), 0.05, 0);
+    cup.position.set(Math.cos(a) * 0.2, H + 0.06, Math.sin(a) * 0.2);
+    g.add(cup);
+  }
+  const vane = box(M('#c9302c', { rough: 0.55 }), 0.26, 0.16, 0.02);
+  vane.position.set(-0.16, H - 0.2, 0);
+  vane.rotation.y = r.range(0, Math.PI);
+  g.add(vane);
+  const shield = cyl(M('#eef1f4', { rough: 0.6 }), { r: 0.11, len: 0.24, seg: 10 }); // radiation shield
+  shield.position.set(0.1, H * 0.55, 0);
+  g.add(shield);
+  const bx = box(M('#c2c7cc', { rough: 0.5, metal: 0.3 }), 0.2, 0.28, 0.14); // logger
+  bx.position.set(0.14, 0.7, 0);
+  g.add(bx);
+  const panel = box(M('#1b2836', { rough: 0.25, env: 0.9 }), 0.34, 0.02, 0.24); // solar
+  panel.position.set(-0.2, 1.35, 0);
+  panel.rotation.z = -0.45;
+  g.add(panel);
+  return { g, bodies: dynGround(g, H, 46, [cylSh(H / 2, 0.16, 0, H / 2, 0)], { fr: 0.6, rest: 0.12 }) };
+}
+function feedBin(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#3e8948', '#c9302c', '#c2c7cc', '#e07b39']);
+  const body = cyl(M(hex, { rough: 0.55, env: 0.6 }), { r: 0.46, len: 0.9, seg: 12 });
+  body.position.y = 0.55;
+  g.add(body);
+  const taper = cyl(M(shade(hex, -0.12), { rough: 0.6 }), { r: 0.2, r2: 0.46, len: 0.4, seg: 12 });
+  taper.position.y = 0.2;
+  g.add(taper);
+  const ring = cyl(M('#5c6167', { rough: 0.6, metal: 0.4 }), { r: 0.22, len: 0.06, seg: 10 });
+  ring.position.y = 0.03;
+  g.add(ring);
+  const lid = cyl(M(shade(hex, 0.12), { rough: 0.5 }), { r: 0.5, r2: 0.3, len: 0.2, seg: 12 });
+  lid.position.y = 1.08;
+  g.add(lid);
+  const handle = cyl(M('#3d4147', { rough: 0.6 }), { r: 0.02, len: 0.24, axis: 'x', seg: 5 });
+  handle.position.y = 1.2;
+  g.add(handle);
+  return { g, bodies: dynGround(g, 1.2, 55, [cylSh(0.55, 0.46, 0, 0.6, 0)], { fr: 0.6, rest: 0.14 }) };
+}
+function irrigationReel(r, M) {
+  const g = new THREE.Group();
+  const frame = M(r.pick(['#3a76c4', '#c9302c', '#9aa0a7']), { rough: 0.55, metal: 0.35, env: 0.7 });
+  const chassis = box(frame, 2.4, 0.22, 1.2);
+  chassis.position.y = 0.62;
+  g.add(chassis);
+  for (const s of [-1, 1]) {
+    const w = P.wheel(M, 0.34, 0.18, { seg: 10 });
+    w.position.set(0.3, 0.34, s * 0.74);
+    g.add(w);
+  }
+  const tongue = box(frame, 1.0, 0.14, 0.14);
+  tongue.position.set(-1.6, 0.5, 0);
+  g.add(tongue);
+  const jack = cyl(M('#5c6167', { rough: 0.6 }), { r: 0.04, len: 0.5, seg: 6 });
+  jack.position.set(-2.0, 0.25, 0);
+  g.add(jack);
+  // the drum, which is the whole object
+  const drum = cyl(M('#e8e9eb', { rough: 0.5 }), { r: 0.78, len: 1.0, axis: 'z', seg: 14 });
+  drum.position.set(0.15, 1.5, 0);
+  g.add(drum);
+  const hose = cyl(M('#2b2e33', { rough: 0.85 }), { r: 0.74, len: 0.88, axis: 'z', seg: 14 });
+  hose.position.set(0.15, 1.5, 0);
+  g.add(hose);
+  for (const s of [-1, 1]) { // flanges
+    const f = cyl(M(shade('#e8e9eb', -0.12), { rough: 0.5 }), { r: 0.82, len: 0.06, axis: 'z', seg: 14 });
+    f.position.set(0.15, 1.5, s * 0.5);
+    g.add(f);
+    const up = box(frame, 0.16, 1.0, 0.14);
+    up.position.set(0.15, 1.05, s * 0.56);
+    g.add(up);
+  }
+  const boom = box(frame, 0.14, 0.14, 1.4);
+  boom.position.set(-1.1, 0.9, 0);
+  g.add(boom);
+  return { g, bodies: fixedBody(g, [
+    boxSh(1.2, 0.3, 0.6, 0, 0.62, 0),
+    { kind: 'cyl', hh: 0.5, r: 0.8, pos: [0.15, 1.5, 0], rot: quatArr(Math.PI / 2, 0, 0) },
+  ], 0.65, 0.08) };
+}
+function chickenCoop(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#a04a3a', '#7a6448', '#4c8c3f', '#e8dcc0']);
+  const wall = M(jitterColor(r, hex), { rough: 0.92 });
+  const W = 1.5, D = 1.1, H = 0.95;
+  const body = box(wall, W, H, D);
+  body.position.y = H / 2 + 0.32;
+  g.add(body);
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) { // stilt legs
+    const l = box(M('#5e4a34', { rough: 0.94 }), 0.08, 0.34, 0.08);
+    l.position.set(sx * (W / 2 - 0.1), 0.17, sz * (D / 2 - 0.1));
+    g.add(l);
+  }
+  const roof = cyl(M(r.pick(['#4a4e55', '#743a30']), { rough: 0.8 }), { r: 1.0, len: D + 0.3, axis: 'z', seg: 3 });
+  roof.rotation.x = Math.PI / 2;
+  roof.rotation.z = Math.PI / 4;
+  roof.scale.set(1, 1, 0.42);
+  roof.position.y = H + 0.32;
+  g.add(roof);
+  const hatch = box(M('#5e4a34', { rough: 0.9 }), 0.04, 0.3, 0.26);
+  hatch.position.set(W / 2 + 0.01, 0.55, 0.2);
+  g.add(hatch);
+  const ramp = box(M('#96805f', { rough: 0.93 }), 0.7, 0.05, 0.26); // pop-hole ramp
+  ramp.position.set(W / 2 + 0.35, 0.24, 0.2);
+  ramp.rotation.z = 0.42;
+  g.add(ramp);
+  const mesh = box(M('#7c8288', { rough: 0.6, metal: 0.5 }), 0.03, 0.34, 0.4); // run window
+  mesh.position.set(-W / 2 - 0.01, 0.85, -0.2);
+  g.add(mesh);
+  const HT = H + 0.32;
+  return { g, bodies: dynGround(g, HT + 0.35, 120, [boxSh(W / 2, HT / 2, D / 2, 0, HT / 2, 0)], { fr: 0.7, rest: 0.1 }) };
+}
+
+/* ---- industrial ---- */
+const CONTAINER = ['#c9302c', '#3a76c4', '#3e8948', '#e07b39', '#8d939a', '#c9a03a', '#7c4a34'];
+// One container, corrugated. `containerBody` is shared with the stack so the
+// two cannot drift apart — the stack is the same object three times.
+//
+// `near` is a real LOD decision, not laziness. Nothing here auto-batches, so
+// every rib is a draw call: at one rib per 0.3 m a three-high stack came out at
+// 177 meshes, more than three times the heaviest building in the library. A
+// stack is read from across a yard, so its ribs coarsen and its top castings go
+// — the single container, which you can walk up to, keeps the full detail.
+function containerBody(g, M, r, hex, L, H, D, ox, oy, oz, near = true) {
+  const skin = M(jitterColor(r, hex, 0.005, 0.04, 0.05), { rough: 0.72, metal: 0.2, env: 0.5 });
+  const body = box(skin, L, H, D);
+  body.position.set(ox, oy + H / 2, oz);
+  g.add(body);
+  const rib = M(shade(hex, -0.14), { rough: 0.74, metal: 0.2 });
+  const n = Math.max(3, Math.round(L / (near ? 0.62 : 1.25)));
+  for (let i = 0; i < n; i++) { // corrugation, the read that makes it a container
+    for (const s of [-1, 1]) {
+      const c = box(rib, near ? 0.08 : 0.14, H - 0.24, 0.03);
+      c.position.set(ox - L / 2 + 0.2 + i * (L - 0.4) / (n - 1), oy + H / 2, oz + s * (D / 2 + 0.005));
+      g.add(c);
+    }
+  }
+  const frame = M(shade(hex, -0.3), { rough: 0.7, metal: 0.3 });
+  for (const sy of [-1, 1]) { // top and bottom rails
+    for (const sz of [-1, 1]) {
+      const rl = box(frame, L + 0.04, 0.11, 0.11);
+      rl.position.set(ox, oy + H / 2 + sy * (H / 2 - 0.05), oz + sz * (D / 2 - 0.04));
+      g.add(rl);
+    }
+  }
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) { // corner castings
+    const cc = box(M('#3d4147', { rough: 0.6, metal: 0.4 }), 0.16, 0.16, 0.16);
+    cc.position.set(ox + sx * (L / 2 - 0.06), oy + 0.08, oz + sz * (D / 2 - 0.06));
+    g.add(cc);
+    if (!near) continue;
+    const ct = cc.clone();
+    ct.position.y = oy + H - 0.08;
+    g.add(ct);
+  }
+  // doors on the +X end: two leaves, with locking bars up close
+  const doorM = M(shade(hex, -0.08), { rough: 0.72, metal: 0.2 });
+  for (const s of [-1, 1]) {
+    const d = box(doorM, 0.05, H - 0.2, D / 2 - 0.08);
+    d.position.set(ox + L / 2 + 0.02, oy + H / 2, oz + s * D / 4);
+    g.add(d);
+    if (!near) continue;
+    for (const b of [-0.1, 0.1]) {
+      const bar = cyl(M('#3d4147', { rough: 0.6, metal: 0.45 }), { r: 0.025, len: H - 0.3, seg: 6 });
+      bar.position.set(ox + L / 2 + 0.05, oy + H / 2, oz + s * D / 4 + b);
+      g.add(bar);
+    }
+  }
+}
+function shippingContainer(r, M) {
+  const g = new THREE.Group();
+  const L = r.chance(0.4) ? 6.1 : 3.0, H = 2.6, D = 2.44;
+  containerBody(g, M, r, r.pick(CONTAINER), L, H, D, 0, 0, 0);
+  return { g, bodies: fixedBody(g, [boxSh(L / 2, H / 2, D / 2, 0, H / 2, 0)], 0.7, 0.05) };
+}
+function containerStack(r, M) {
+  const g = new THREE.Group();
+  const L = 6.1, H = 2.6, D = 2.44;
+  const shapes = [];
+  const n = r.int(2, 3);
+  const used = [];
+  for (let i = 0; i < n; i++) {
+    let hex = r.pick(CONTAINER);
+    if (used.includes(hex)) hex = r.pick(CONTAINER); // one retry, so stacks read as mixed
+    used.push(hex);
+    const ox = r.range(-0.22, 0.22); // never perfectly aligned in a real yard
+    const oz = r.range(-0.1, 0.1);
+    containerBody(g, M, r, hex, L, H, D, ox, i * H, oz, false);
+    shapes.push(boxSh(L / 2, H / 2, D / 2, ox, i * H + H / 2, oz));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.05) };
+}
+function gantryCrane(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.pick(['#e3c53a', '#3a76c4', '#c9302c', '#9aa0a7']), { rough: 0.55, metal: 0.4, env: 0.75 });
+  const dark = M('#5c6167', { rough: 0.6, metal: 0.4 });
+  const SPAN = 7.0, H = 5.5;
+  const shapes = [];
+  for (const sz of [-1, 1]) {
+    for (const sx of [-1, 1]) {
+      const leg = box(steel, 0.26, H, 0.26);
+      leg.position.set(sx * 0.5, H / 2, sz * (SPAN / 2));
+      g.add(leg);
+    }
+    shapes.push(boxSh(0.75, H / 2, 0.3, 0, H / 2, sz * (SPAN / 2)));
+    for (let i = 0; i < 3; i++) { // leg lacing
+      const b = box(steel, 1.1, 0.08, 0.08);
+      b.position.set(0, 1.2 + i * 1.6, sz * (SPAN / 2));
+      g.add(b);
+    }
+    const sill = box(dark, 1.7, 0.3, 0.5); // rail bogie
+    sill.position.set(0, 0.15, sz * (SPAN / 2));
+    g.add(sill);
+    for (const sx of [-1, 1]) {
+      const w = cyl(dark, { r: 0.19, len: 0.16, axis: 'z', seg: 10 });
+      w.position.set(sx * 0.62, 0.19, sz * (SPAN / 2));
+      g.add(w);
+    }
+  }
+  const girder = box(steel, 0.5, 0.65, SPAN + 1.0);
+  girder.position.y = H + 0.32;
+  g.add(girder);
+  shapes.push(boxSh(0.25, 0.33, SPAN / 2 + 0.5, 0, H + 0.32, 0));
+  const walk = box(dark, 0.9, 0.06, SPAN + 1.0);
+  walk.position.set(0.6, H + 0.05, 0);
+  g.add(walk);
+  // trolley + hook, parked somewhere along the span
+  const tz = r.range(-SPAN / 2 + 0.6, SPAN / 2 - 0.6);
+  const trolley = box(dark, 0.7, 0.34, 0.9);
+  trolley.position.set(0, H - 0.12, tz);
+  g.add(trolley);
+  const rope = cyl(M('#3d4147', { rough: 0.7 }), { r: 0.02, len: r.range(1.2, 3.2), seg: 5 });
+  const dropLen = rope.geometry.parameters.height;
+  rope.position.set(0, H - 0.3 - dropLen / 2, tz);
+  g.add(rope);
+  const hook = box(M('#e3c53a', { rough: 0.5 }), 0.28, 0.3, 0.28);
+  hook.position.set(0, H - 0.3 - dropLen - 0.1, tz);
+  g.add(hook);
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.08) };
+}
+function conveyor(r, M) {
+  const g = new THREE.Group();
+  const frame = M(r.pick(['#e3c53a', '#9aa0a7', '#3a76c4']), { rough: 0.55, metal: 0.4, env: 0.7 });
+  const L = 5.2, RISE = 2.6;
+  const ang = Math.atan2(RISE, L);
+  const SPAN = Math.hypot(L, RISE);
+  const MID = RISE / 2 + 0.55; // centre height of the inclined run
+  // The trough deck. Everything that rides the incline is stacked in explicit
+  // order — deck, then belt clearly PROUD of it, then rails above that. The
+  // first pass buried a 9 cm belt inside a 22 cm deck, so all you saw was
+  // yellow rails and the thing read as loose scaffolding poles.
+  const deck = box(M('#5c6167', { rough: 0.75, metal: 0.3 }), SPAN, 0.26, 0.9);
+  deck.position.set(0, MID - 0.16, 0);
+  deck.rotation.z = ang;
+  g.add(deck);
+  const belt = box(M('#2b2e33', { rough: 0.92 }), SPAN + 0.16, 0.14, 0.76);
+  belt.position.set(0, MID + 0.04, 0);
+  belt.rotation.z = ang;
+  g.add(belt);
+  for (const s of [-1, 1]) { // side rails standing proud of the belt
+    const rl = box(frame, SPAN, 0.2, 0.09);
+    rl.position.set(0, MID + 0.16, s * 0.44);
+    rl.rotation.z = ang;
+    g.add(rl);
+  }
+  for (const s of [-1, 1]) { // head and tail drums, on the belt's own axis
+    const cx = s * (SPAN / 2) * Math.cos(ang), cy = MID + 0.04 + s * (SPAN / 2) * Math.sin(ang);
+    const drum = cyl(M('#3d4147', { rough: 0.6, metal: 0.4 }), { r: 0.22, len: 0.86, axis: 'z', seg: 10 });
+    drum.position.set(cx, cy, 0);
+    g.add(drum);
+  }
+  // one A-frame, not four poles: two legs under the high end plus a brace
+  const hiX = (SPAN / 2) * Math.cos(ang) - 0.7;
+  const hiY = MID + hiX * Math.tan(ang);
+  for (const s of [-1, 1]) {
+    const leg = box(frame, 0.14, hiY, 0.14);
+    leg.position.set(hiX, hiY / 2, s * 0.42);
+    g.add(leg);
+  }
+  const brace = box(frame, 0.1, 0.1, 0.95);
+  brace.position.set(hiX, hiY * 0.45, 0);
+  g.add(brace);
+  const skid = box(frame, 1.1, 0.3, 1.0); // and a chunky skid under the low end
+  skid.position.set(-L / 2 + 0.2, 0.15, 0);
+  g.add(skid);
+  const hopIn = cyl(M('#8d939a', { rough: 0.55, metal: 0.35 }), { r: 0.24, r2: 0.62, len: 0.6, seg: 10 });
+  hopIn.position.set(-(SPAN / 2) * Math.cos(ang) + 0.2, MID - (SPAN / 2) * Math.sin(ang) + 0.42, 0);
+  g.add(hopIn);
+  return { g, bodies: fixedBody(g, [
+    boxSh(L / 2, 0.32, 0.5, 0, MID, 0),
+    boxSh(0.3, hiY / 2, 0.55, hiX, hiY / 2, 0),
+    boxSh(0.55, 0.15, 0.5, -L / 2 + 0.2, 0.15, 0),
+  ], 0.7, 0.06) };
+}
+// Three-sided concrete bay with a heap of aggregate in it. The heap is real
+// geometry, not a texture, because the whole point is the slumped angle.
+function aggregateBay(r, M) {
+  const g = new THREE.Group();
+  const conc = M(jitterColor(r, '#a3a8ae', 0.004, 0.03, 0.04), { rough: 0.96 });
+  const W = 3.6, D = 2.8, H = 1.5;
+  const back = box(conc, 0.32, H, D);
+  back.position.set(-W / 2, H / 2, 0);
+  g.add(back);
+  for (const s of [-1, 1]) {
+    const side = box(conc, W, H, 0.32);
+    side.position.set(0, H / 2, s * (D / 2));
+    g.add(side);
+  }
+  // The heap. Placed on a deterministic lattice rather than by pure rejection
+  // sampling: a random scatter of 16 lumps in a 3.6 × 2.8 bay leaves holes and
+  // reads as litter, and a heap has to look like a single mass of material.
+  const heapHex = r.pick(['#9aa0a7', '#c9b58a', '#7c6a52', '#5c6167']);
+  const cols = 5, rowsZ = 4;
+  for (let ix = 0; ix < cols; ix++) {
+    for (let iz = 0; iz < rowsZ; iz++) {
+      const tx = ix / (cols - 1), tz = iz / (rowsZ - 1);
+      // a wedge: piled against the back wall, running out toward the open side
+      const peak = (1 - tx) * (1 - Math.abs(tz - 0.5) * 0.9);
+      const layers = peak > 0.55 ? 2 : 1;
+      for (let k = 0; k < layers; k++) {
+        const R = r.range(0.3, 0.52);
+        const s = sphere(M(jitterColor(r, heapHex, 0.006, 0.05, 0.06), { rough: 0.97, env: 0.15 }), R, 0);
+        jitterGeo(s, r, R * 0.26);
+        s.position.set(
+          -W / 2 + 0.45 + tx * (W - 1.0) + r.range(-0.18, 0.18),
+          R * 0.45 + k * R * 0.7 + peak * 0.5,
+          -D / 2 + 0.45 + tz * (D - 0.9) + r.range(-0.16, 0.16),
+        );
+        s.rotation.set(r.range(0, 3), r.range(0, 3), r.range(0, 3));
+        s.scale.y = r.range(0.55, 0.8);
+        g.add(s);
+      }
+    }
+  }
+  return { g, bodies: fixedBody(g, [
+    boxSh(0.16, H / 2, D / 2, -W / 2, H / 2, 0),
+    boxSh(W / 2, H / 2, 0.16, 0, H / 2, -D / 2),
+    boxSh(W / 2, H / 2, 0.16, 0, H / 2, D / 2),
+    boxSh(W * 0.4, 0.5, D / 2 - 0.3, -W * 0.1, 0.5, 0), // the heap itself
+  ], 0.85, 0.04) };
+}
+function fuelTank(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#c2c7cc', '#9aa0a7', '#e8e9eb']);
+  const metal = M(hex, { rough: 0.4, metal: 0.55, env: 0.95 });
+  const R = 1.1, L = 3.6;
+  const body = cyl(metal, { r: R, len: L, axis: 'x', seg: 14 });
+  body.position.y = R + 0.5;
+  g.add(body);
+  for (const s of [-1, 1]) { // dished ends
+    const cap = sphere(M(shade(hex, -0.05), { rough: 0.42, metal: 0.5, env: 0.9 }), R, 1);
+    cap.scale.x = 0.34;
+    cap.position.set(s * L / 2, R + 0.5, 0);
+    g.add(cap);
+  }
+  for (const s of [-1, 1]) { // saddle cradles
+    const sad = box(M('#7c8288', { rough: 0.6, metal: 0.3 }), 0.3, 0.5, R * 1.8);
+    sad.position.set(s * (L / 2 - 0.7), 0.25, 0);
+    g.add(sad);
+  }
+  const hatch = cyl(M('#5c6167', { rough: 0.6 }), { r: 0.26, len: 0.16, seg: 10 });
+  hatch.position.set(0, R * 2 + 0.55, 0);
+  g.add(hatch);
+  const rail = M('#e3c53a', { rough: 0.55 });
+  for (const s of [-1, 1]) { // walkway rail on top
+    const rl = box(rail, L * 0.7, 0.04, 0.04);
+    rl.position.set(0, R * 2 + 0.95, s * 0.35);
+    g.add(rl);
+    for (let i = 0; i < 3; i++) {
+      const p = cyl(rail, { r: 0.02, len: 0.42, seg: 5 });
+      p.position.set(-L * 0.3 + i * L * 0.3, R * 2 + 0.76, s * 0.35);
+      g.add(p);
+    }
+  }
+  const band = box(M('#c9302c', { rough: 0.6 }), 0.5, 0.3, R * 2.05); // hazard placard band
+  band.position.set(-L / 2 + 0.5, R + 0.5, 0);
+  g.add(band);
+  const pipe = cyl(M('#7c8288', { rough: 0.5, metal: 0.5 }), { r: 0.07, len: 0.9, seg: 8 });
+  pipe.position.set(L / 2 - 0.3, 0.45, 0.7);
+  g.add(pipe);
+  return { g, bodies: fixedBody(g, [
+    { kind: 'cyl', hh: L / 2, r: R, pos: [0, R + 0.5, 0], rot: quatArr(0, 0, Math.PI / 2) },
+    boxSh(L / 2, 0.25, R, 0, 0.25, 0),
+  ], 0.6, 0.08) };
+}
+function pipeRack(r, M) {
+  const g = new THREE.Group();
+  const frame = M('#e3c53a', { rough: 0.6, metal: 0.3 });
+  const W = 3.4, H = 1.9, D = 1.2;
+  const shapes = [];
+  for (const sz of [-1, 1]) {
+    for (const sx of [-1, 1]) {
+      const p = box(frame, 0.1, H, 0.1);
+      p.position.set(sx * (W / 2 - 0.1), H / 2, sz * (D / 2 - 0.1));
+      g.add(p);
+    }
+    for (let i = 0; i < 3; i++) {
+      const b = box(frame, W - 0.2, 0.07, 0.07);
+      b.position.set(0, 0.45 + i * 0.65, sz * (D / 2 - 0.1));
+      g.add(b);
+    }
+  }
+  shapes.push(boxSh(W / 2, H / 2, D / 2, 0, H / 2, 0));
+  const pipeHex = ['#8d939a', '#3a76c4', '#c9302c', '#3e8948'];
+  for (let row = 0; row < 3; row++) {
+    const R = [0.16, 0.12, 0.09][row];
+    const y = 0.55 + row * 0.65;
+    const n = Math.floor((D - 0.3) / (R * 2.1));
+    for (let i = 0; i < n; i++) {
+      const p = cyl(M(r.pick(pipeHex), { rough: 0.5, metal: 0.45, env: 0.8 }), { r: R, len: W + r.range(-0.5, 0.9), axis: 'x', seg: 10 });
+      p.position.set(r.range(-0.3, 0.3), y + R, -D / 2 + 0.2 + i * (R * 2.1));
+      g.add(p);
+    }
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.08) };
+}
+function drumRack(r, M) {
+  const g = new THREE.Group();
+  const frame = M(r.pick(['#3a76c4', '#e3c53a', '#9aa0a7']), { rough: 0.55, metal: 0.4 });
+  const W = 2.6, H = 1.9, D = 0.95;
+  const shapes = [];
+  for (const sz of [-1, 1]) {
+    for (const sx of [-1, 1]) {
+      const p = box(frame, 0.09, H, 0.09);
+      p.position.set(sx * (W / 2 - 0.06), H / 2, sz * (D / 2 - 0.06));
+      g.add(p);
+    }
+  }
+  for (const y of [0.06, 0.94, 1.84]) {
+    const shelf = box(frame, W, 0.07, D);
+    shelf.position.y = y;
+    g.add(shelf);
+  }
+  shapes.push(boxSh(W / 2, H / 2, D / 2, 0, H / 2, 0));
+  const drumHex = ['#3a76c4', '#c9302c', '#3e8948', '#e3c53a', '#5c6167'];
+  for (let lvl = 0; lvl < 2; lvl++) {
+    for (let i = 0; i < 3; i++) {
+      if (r.chance(0.18)) continue; // gaps — a full rack looks fake
+      const hex = r.pick(drumHex);
+      const d = cyl(M(hex, { rough: 0.5, metal: 0.25, env: 0.6 }), { r: 0.29, len: 0.82, seg: 12 });
+      const y = 0.1 + lvl * 0.88 + 0.41;
+      const x = -W / 2 + 0.42 + i * 0.85;
+      d.position.set(x, y, 0);
+      g.add(d);
+      for (const rr of [-0.24, 0.24]) { // rolling hoops
+        const hoop = cyl(M(shade(hex, -0.18), { rough: 0.55 }), { r: 0.305, len: 0.06, seg: 12 });
+        hoop.position.set(x, y + rr, 0);
+        g.add(hoop);
+      }
+    }
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.08) };
+}
+function generatorSet(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#e3c53a', '#3e8948', '#c9302c', '#9aa0a7']);
+  const skin = M(hex, { rough: 0.55, metal: 0.25, env: 0.6 });
+  const W = 2.4, H = 1.35, D = 1.05;
+  const body = box(skin, W, H, D);
+  body.position.y = H / 2 + 0.16;
+  g.add(body);
+  const skid = box(M('#3d4147', { rough: 0.7, metal: 0.35 }), W + 0.15, 0.16, D + 0.12);
+  skid.position.y = 0.08;
+  g.add(skid);
+  for (const s of [-1, 1]) { // access doors
+    const d = box(M(shade(hex, -0.1), { rough: 0.58 }), 0.75, H - 0.3, 0.03);
+    d.position.set(s * 0.42, H / 2 + 0.16, D / 2 + 0.02);
+    g.add(d);
+    const hinge = box(M('#3d4147', { rough: 0.6 }), 0.04, H - 0.34, 0.05);
+    hinge.position.set(s * 0.79, H / 2 + 0.16, D / 2 + 0.03);
+    g.add(hinge);
+  }
+  const louvre = M('#3d4147', { rough: 0.75 });
+  for (let i = 0; i < 6; i++) { // radiator grille
+    const l = box(louvre, 0.03, 0.6, D - 0.2);
+    l.position.set(-W / 2 - 0.01, H / 2 + 0.16, 0);
+    l.position.y = 0.5 + i * 0.11;
+    g.add(l);
+  }
+  const stack = cyl(M('#5c6167', { rough: 0.65, metal: 0.4 }), { r: 0.09, len: 0.75, seg: 8 });
+  stack.position.set(W / 2 - 0.35, H + 0.55, -D / 4);
+  g.add(stack);
+  const rain = cyl(M('#3d4147', { rough: 0.65 }), { r: 0.12, len: 0.06, seg: 8 });
+  rain.position.set(W / 2 - 0.35, H + 0.95, -D / 4);
+  g.add(rain);
+  const panel = box(M('#2b2e33', { rough: 0.4, env: 0.7 }), 0.03, 0.44, 0.34);
+  panel.position.set(W / 2 + 0.01, H * 0.7, D / 4);
+  g.add(panel);
+  return { g, bodies: fixedBody(g, [boxSh(W / 2 + 0.07, (H + 0.16) / 2, D / 2 + 0.06, 0, (H + 0.16) / 2, 0)], 0.75, 0.06) };
+}
+function floodlightTower(r, M) {
+  const g = new THREE.Group();
+  const frame = M(r.pick(['#e3c53a', '#9aa0a7']), { rough: 0.55, metal: 0.4, env: 0.75 });
+  const H = 6.2;
+  const mast = cyl(frame, { r: 0.13, r2: 0.09, len: H, seg: 8 });
+  mast.position.y = H / 2 + 0.4;
+  g.add(mast);
+  const base = box(M('#3d4147', { rough: 0.7 }), 1.5, 0.24, 1.1); // trailer skid
+  base.position.y = 0.12;
+  g.add(base);
+  for (const s of [-1, 1]) { // outriggers
+    const o = box(frame, 0.12, 0.1, 1.5);
+    o.position.set(s * 0.55, 0.24, 0);
+    g.add(o);
+    const foot = cyl(M('#5c6167', { rough: 0.65 }), { r: 0.14, len: 0.14, seg: 8 });
+    foot.position.set(s * 0.55, 0.07, s * 0.6);
+    g.add(foot);
+  }
+  const head = box(frame, 1.5, 0.1, 0.14);
+  head.position.y = H + 0.4;
+  g.add(head);
+  const lampBody = M('#3d4147', { rough: 0.5, metal: 0.35 });
+  const lens = M('#f2f6ff', { rough: 0.2, env: 1.1, emissive: '#ffffff', emInt: 0.9 });
+  for (let i = 0; i < 4; i++) {
+    const x = -0.6 + i * 0.4;
+    const can = box(lampBody, 0.3, 0.3, 0.24);
+    can.position.set(x, H + 0.25, 0.06);
+    can.rotation.x = 0.3;
+    g.add(can);
+    const face = box(lens, 0.26, 0.26, 0.03);
+    face.position.set(x, H + 0.19, 0.2);
+    face.rotation.x = 0.3;
+    g.add(face);
+  }
+  return { g, bodies: fixedBody(g, [
+    boxSh(0.78, 0.2, 0.8, 0, 0.18, 0),
+    cylSh(H / 2, 0.14, 0, H / 2 + 0.4, 0),
+  ], 0.65, 0.08) };
+}
+function chainLinkFence(r, M) {
+  const g = new THREE.Group();
+  const H = 2.2, L = 5.0;
+  const post = M('#8d939a', { rough: 0.5, metal: 0.55, env: 0.85 });
+  const shapes = [];
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const x = -L / 2 + i * (L / (n - 1));
+    const p = cyl(post, { r: 0.05, len: H, seg: 7 });
+    p.position.set(x, H / 2, 0);
+    g.add(p);
+    shapes.push(cylSh(H / 2, 0.07, x, H / 2, 0));
+  }
+  for (const y of [0.1, H - 0.05]) { // top and bottom rails
+    const rl = cyl(post, { r: 0.035, len: L, axis: 'x', seg: 6 });
+    rl.position.set(0, y, 0);
+    g.add(rl);
+  }
+  // The mesh: diagonals both ways is what separates chain-link from a cage.
+  // Each bar is placed by its two ENDPOINTS and clipped to the panel, rather
+  // than given a guessed length — the first pass used a flat 1.5×H and the bars
+  // speared metres past the end posts and down through the ground.
+  const wire = M('#9aa0a7', { rough: 0.55, metal: 0.5, env: 0.8 });
+  const Y0 = 0.14, Y1 = H - 0.14, RUN = 1.0; // 45°: one metre across per metre up
+  for (const dir of [-1, 1]) {
+    const step = 0.3;
+    for (let x0 = -L / 2 - (Y1 - Y0) * RUN; x0 <= L / 2; x0 += step) {
+      // walk the bottom end past the panel so the top-corner triangles fill in
+      let ax = x0, ay = Y0, bx = x0 + dir * (Y1 - Y0) * RUN, by = Y1;
+      if (ax < -L / 2) { ay += (-L / 2 - ax) / RUN; ax = -L / 2; }
+      if (ax > L / 2) continue;
+      if (bx > L / 2) { by -= (bx - L / 2) / RUN; bx = L / 2; }
+      if (bx < -L / 2) { by -= (-L / 2 - bx) / RUN; bx = -L / 2; }
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len < 0.2) continue;
+      const w = box(wire, 0.014, len, 0.014);
+      w.position.set((ax + bx) / 2, (ay + by) / 2, 0.02 * dir);
+      w.rotation.z = Math.atan2(bx - ax, by - ay) * -1;
+      g.add(w);
+    }
+  }
+  if (r.chance(0.55)) { // barbed arm on top, angled out
+    for (let i = 0; i < n; i++) {
+      const x = -L / 2 + i * (L / (n - 1));
+      const arm = cyl(post, { r: 0.025, len: 0.4, seg: 5 });
+      arm.position.set(x, H + 0.16, 0.1);
+      arm.rotation.x = -0.6;
+      g.add(arm);
+    }
+    for (let k = 0; k < 3; k++) {
+      const bw = cyl(wire, { r: 0.01, len: L, axis: 'x', seg: 4 });
+      bw.position.set(0, H + 0.1 + k * 0.11, 0.06 + k * 0.07);
+      g.add(bw);
+    }
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.15) };
+}
+function gateArm(r, M) {
+  const g = new THREE.Group();
+  const cab = M(r.pick(['#e3c53a', '#c9302c', '#9aa0a7']), { rough: 0.55, metal: 0.3, env: 0.65 });
+  const body = box(cab, 0.36, 1.0, 0.32);
+  body.position.y = 0.5;
+  g.add(body);
+  const base = box(M('#5c6167', { rough: 0.7 }), 0.5, 0.1, 0.46);
+  base.position.y = 0.05;
+  g.add(base);
+  const lamp = cyl(M('#e07b39', { rough: 0.35, emissive: '#e07b39', emInt: 0.6 }), { r: 0.07, len: 0.12, seg: 8 });
+  lamp.position.y = 1.08;
+  g.add(lamp);
+  // the boom, raised or lowered — a raised arm is a scene beat all by itself
+  const up = r.chance(0.4);
+  const boom = new THREE.Group();
+  const L = 3.4;
+  const shaft = box(M('#e8e9eb', { rough: 0.6 }), L, 0.09, 0.09);
+  shaft.position.x = L / 2;
+  boom.add(shaft);
+  for (let i = 0; i < 6; i++) { // hazard stripes
+    if (i % 2) continue;
+    const s = box(M('#c9302c', { rough: 0.6 }), L / 6, 0.1, 0.1);
+    s.position.x = L / 12 + i * (L / 6);
+    boom.add(s);
+  }
+  const tip = box(M('#e8e9eb', { rough: 0.5, emissive: '#ffffff', emInt: 0.3 }), 0.1, 0.12, 0.12);
+  tip.position.x = L;
+  boom.add(tip);
+  boom.position.set(0.18, 0.88, 0);
+  boom.rotation.z = up ? 1.45 : 0;
+  g.add(boom);
+  const shapes = [boxSh(0.2, 0.5, 0.18, 0, 0.5, 0)];
+  if (!up) shapes.push(boxSh(L / 2, 0.06, 0.06, 0.18 + L / 2, 0.88, 0));
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.12) };
+}
+// Flat and drivable by design — the deck plate is the collider and it sits a
+// few cm proud, exactly like the real thing.
+function weighbridge(r, M) {
+  const g = new THREE.Group();
+  const W = 6.0, D = 3.0;
+  const deck = box(M('#7c8288', { rough: 0.72, metal: 0.35, env: 0.5 }), W, 0.14, D);
+  deck.position.y = 0.07;
+  g.add(deck);
+  for (let i = 0; i < 9; i++) { // tread plate ribs
+    const rb = box(M('#8d939a', { rough: 0.7, metal: 0.35 }), 0.05, 0.02, D - 0.1);
+    rb.position.set(-W / 2 + 0.4 + i * (W - 0.8) / 8, 0.15, 0);
+    g.add(rb);
+  }
+  const conc = M('#a3a8ae', { rough: 0.95 });
+  for (const s of [-1, 1]) { // approach kerbs
+    const k = box(conc, W + 0.6, 0.16, 0.3);
+    k.position.set(0, 0.08, s * (D / 2 + 0.2));
+    g.add(k);
+  }
+  const cabinet = box(M('#eef1f4', { rough: 0.6 }), 0.5, 1.25, 0.42);
+  cabinet.position.set(-W / 2 - 0.6, 0.62, D / 2 + 0.5);
+  g.add(cabinet);
+  const disp = box(M('#2b2e33', { rough: 0.3, env: 0.8, emissive: '#c9302c', emInt: 0.4 }), 0.05, 0.3, 0.3);
+  disp.position.set(-W / 2 - 0.35, 0.9, D / 2 + 0.5);
+  g.add(disp);
+  const pole = cyl(M('#8d939a', { rough: 0.5, metal: 0.5 }), { r: 0.05, len: 2.4, seg: 8 });
+  pole.position.set(W / 2 + 0.5, 1.2, -D / 2 - 0.4);
+  g.add(pole);
+  return { g, bodies: fixedBody(g, [
+    boxSh(W / 2, 0.08, D / 2, 0, 0.07, 0),
+    boxSh(W / 2 + 0.3, 0.08, 0.15, 0, 0.08, -(D / 2 + 0.2)),
+    boxSh(W / 2 + 0.3, 0.08, 0.15, 0, 0.08, D / 2 + 0.2),
+    boxSh(0.25, 0.62, 0.21, -W / 2 - 0.6, 0.62, D / 2 + 0.5),
+  ], 0.85, 0.04) };
+}
+function transformer(r, M) {
+  const g = new THREE.Group();
+  const skin = M(r.pick(['#7f8a7a', '#9aa0a7', '#5f6f78']), { rough: 0.62, metal: 0.3, env: 0.6 });
+  const W = 1.5, H = 1.5, D = 1.1;
+  const pad = box(M('#a3a8ae', { rough: 0.95 }), W + 0.4, 0.14, D + 0.4);
+  pad.position.y = 0.07;
+  g.add(pad);
+  const body = box(skin, W, H, D);
+  body.position.y = H / 2 + 0.14;
+  g.add(body);
+  for (let i = 0; i < 9; i++) { // radiator fins down one flank
+    const f = box(M(shade('#7f8a7a', -0.1), { rough: 0.65 }), 0.04, H - 0.35, 0.22);
+    f.position.set(-W / 2 - 0.05, H / 2 + 0.14, -D / 2 + 0.15 + i * (D - 0.3) / 8);
+    g.add(f);
+  }
+  for (const z of [-0.3, 0, 0.3]) { // HV bushings
+    const b = cyl(M('#c9c2b4', { rough: 0.4, env: 0.8 }), { r: 0.08, r2: 0.05, len: 0.42, seg: 8 });
+    b.position.set(0.2, H + 0.36, z);
+    g.add(b);
+    for (let k = 0; k < 3; k++) {
+      const sk = cyl(M('#c9c2b4', { rough: 0.4 }), { r: 0.13 - k * 0.015, len: 0.03, seg: 8 });
+      sk.position.set(0.2, H + 0.22 + k * 0.11, z);
+      g.add(sk);
+    }
+  }
+  const warn = box(M('#e3c53a', { rough: 0.5 }), 0.03, 0.26, 0.22);
+  warn.position.set(W / 2 + 0.01, H * 0.75, 0);
+  g.add(warn);
+  return { g, bodies: fixedBody(g, [boxSh(W / 2 + 0.2, (H + 0.14) / 2, D / 2 + 0.2, 0, (H + 0.14) / 2, 0)], 0.75, 0.05) };
+}
+function substation(r, M) {
+  const g = new THREE.Group();
+  const steel = M('#8d939a', { rough: 0.5, metal: 0.5, env: 0.85 });
+  const W = 4.4, H = 4.0;
+  const shapes = [];
+  // two A-frame gantries carrying a busbar — the classic yard silhouette
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = cyl(steel, { r: 0.08, len: H, seg: 6 });
+      leg.position.set(sx * (W / 2), H / 2, sz * 0.4);
+      leg.rotation.x = -sz * 0.1;
+      g.add(leg);
+    }
+    shapes.push(boxSh(0.16, H / 2, 0.5, sx * (W / 2), H / 2, 0));
+    for (let i = 0; i < 3; i++) {
+      const b = box(steel, 0.06, 0.06, 0.85);
+      b.position.set(sx * (W / 2), 0.9 + i * 1.2, 0);
+      g.add(b);
+    }
+  }
+  const bus = box(steel, W + 0.5, 0.1, 0.1);
+  bus.position.y = H;
+  g.add(bus);
+  const ins = M('#c9c2b4', { rough: 0.4, env: 0.8 });
+  for (let i = 0; i < 3; i++) { // insulator strings hanging off the bus
+    const x = -1.4 + i * 1.4;
+    for (let k = 0; k < 5; k++) {
+      const d = cyl(ins, { r: 0.09, len: 0.05, seg: 8 });
+      d.position.set(x, H - 0.15 - k * 0.14, 0);
+      g.add(d);
+    }
+    const conductor = cyl(M('#5c6167', { rough: 0.6, metal: 0.5 }), { r: 0.02, len: 1.4, seg: 5 });
+    conductor.position.set(x, H - 1.5, 0);
+    g.add(conductor);
+    // the switch stack under each phase
+    const stack = cyl(ins, { r: 0.11, len: 1.1, seg: 8 });
+    stack.position.set(x, 1.0, 0);
+    g.add(stack);
+    const blade = box(M('#8d939a', { rough: 0.5, metal: 0.55 }), 0.06, 0.5, 0.06);
+    blade.position.set(x, 1.8, 0);
+    blade.rotation.z = r.range(-0.7, 0);
+    g.add(blade);
+    const base = box(M('#5c6167', { rough: 0.65 }), 0.34, 0.5, 0.34);
+    base.position.set(x, 0.25, 0);
+    g.add(base);
+    shapes.push(boxSh(0.2, 0.75, 0.2, x, 0.75, 0));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.1) };
+}
+function ventStack(r, M) {
+  const g = new THREE.Group();
+  const metal = M(r.pick(['#c2c7cc', '#9aa0a7']), { rough: 0.45, metal: 0.55, env: 0.9 });
+  const H = r.range(3.6, 5.0), R = 0.34;
+  const pipe = cyl(metal, { r: R, len: H, seg: 12 });
+  pipe.position.y = H / 2 + 0.2;
+  g.add(pipe);
+  const base = cyl(M('#5c6167', { rough: 0.65, metal: 0.4 }), { r: R + 0.16, len: 0.4, seg: 12 });
+  base.position.y = 0.2;
+  g.add(base);
+  for (let i = 0; i < 3; i++) { // flange joints
+    const f = cyl(M(shade('#c2c7cc', -0.1), { rough: 0.5, metal: 0.5 }), { r: R + 0.07, len: 0.08, seg: 12 });
+    f.position.y = 0.9 + i * (H - 1.2) / 2;
+    g.add(f);
+  }
+  const cowl = cyl(metal, { r: R + 0.14, r2: R + 0.02, len: 0.34, seg: 12 });
+  cowl.position.y = H + 0.35;
+  g.add(cowl);
+  const cap = cyl(M('#5c6167', { rough: 0.6 }), { r: R + 0.2, len: 0.06, seg: 12 });
+  cap.position.y = H + 0.58;
+  g.add(cap);
+  for (let i = 0; i < 3; i++) { // cap standoffs
+    const a = (i / 3) * Math.PI * 2;
+    const s = cyl(M('#5c6167', { rough: 0.6 }), { r: 0.02, len: 0.2, seg: 5 });
+    s.position.set(Math.cos(a) * (R + 0.1), H + 0.47, Math.sin(a) * (R + 0.1));
+    g.add(s);
+  }
+  const band = box(M('#c9302c', { rough: 0.6 }), R * 2.1, 0.24, R * 2.1);
+  band.position.y = 1.6;
+  g.add(band);
+  for (let i = 0; i < 3; i++) { // guy wires
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    const w = cyl(M('#7c8288', { rough: 0.6, metal: 0.5 }), { r: 0.015, len: H * 0.95, seg: 4 });
+    w.position.set(Math.cos(a) * H * 0.22, H * 0.55, Math.sin(a) * H * 0.22);
+    w.rotation.set(Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45);
+    g.add(w);
+  }
+  return { g, bodies: fixedBody(g, [cylSh(H / 2 + 0.2, R + 0.16, 0, H / 2 + 0.2, 0)], 0.6, 0.1) };
+}
+
+/* ---- infrastructure fills ----
+   The bridge pier and pylon exist as PLACEABLE props deliberately: roads.js
+   builds an elevated deck but nothing holds it up, so a causeway currently
+   flies. §1G wires these under generated spans; until then they are ordinary
+   scenery an author can drop wherever a deck needs a leg. */
+function bridgePier(r, M) {
+  const g = new THREE.Group();
+  const conc = M(jitterColor(r, '#a8adb3', 0.004, 0.03, 0.04), { rough: 0.95 });
+  const H = r.range(2.6, 4.4);
+  const foot = box(M('#9aa0a7', { rough: 0.96 }), 2.2, 0.4, 1.6);
+  foot.position.y = 0.2;
+  g.add(foot);
+  const shaft = box(conc, 1.3, H, 0.95);
+  shaft.position.y = H / 2 + 0.4;
+  g.add(shaft);
+  for (const s of [-1, 1]) { // the chamfered noses that shed a current
+    const nose = cyl(conc, { r: 0.48, len: H, seg: 3 });
+    nose.rotation.y = s > 0 ? 0 : Math.PI;
+    nose.scale.z = 0.55;
+    nose.position.set(s * 0.65, H / 2 + 0.4, 0);
+    g.add(nose);
+  }
+  const head = box(conc, 2.9, 0.45, 1.25); // pier cap, wider than the shaft
+  head.position.y = H + 0.62;
+  g.add(head);
+  for (const x of [-0.9, 0, 0.9]) { // bearing pads
+    const b = box(M('#3d4147', { rough: 0.8 }), 0.34, 0.12, 0.5);
+    b.position.set(x, H + 0.9, 0);
+    g.add(b);
+  }
+  for (let i = 0; i < 3; i++) { // form-tie lines, the tell of poured concrete
+    const l = box(M(shade('#a8adb3', -0.07), { rough: 0.96 }), 1.32, 0.02, 0.97);
+    l.position.y = 1.0 + i * (H - 1.0) / 3;
+    g.add(l);
+  }
+  return { g, bodies: fixedBody(g, [
+    boxSh(1.1, 0.2, 0.8, 0, 0.2, 0),
+    boxSh(0.72, H / 2, 0.5, 0, H / 2 + 0.4, 0),
+    boxSh(1.45, 0.22, 0.62, 0, H + 0.62, 0),
+  ], 0.8, 0.05) };
+}
+function bridgePylon(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#c2c7cc', { rough: 0.9 });
+  const H = r.range(7.0, 9.5);
+  // an A-pylon: two raked legs meeting near the top, with a crossbeam
+  const shapes = [];
+  for (const s of [-1, 1]) {
+    const leg = box(conc, 0.6, H, 0.75);
+    leg.position.set(s * 0.75, H / 2, 0);
+    leg.rotation.z = -s * 0.085;
+    g.add(leg);
+    shapes.push(boxSh(0.4, H / 2, 0.42, s * 0.55, H / 2, 0));
+  }
+  const cross = box(conc, 2.4, 0.6, 0.8);
+  cross.position.y = H * 0.62;
+  g.add(cross);
+  const head = box(conc, 1.0, 1.6, 0.8);
+  head.position.y = H + 0.6;
+  g.add(head);
+  shapes.push(boxSh(0.5, 0.8, 0.4, 0, H + 0.6, 0));
+  const cable = M('#8d939a', { rough: 0.5, metal: 0.55, env: 0.85 });
+  for (let i = 0; i < 4; i++) { // stay cables fanning down both sides
+    for (const s of [-1, 1]) {
+      const len = 3.2 + i * 1.5;
+      const c = cyl(cable, { r: 0.035, len, seg: 5 });
+      const lean = 0.42 + i * 0.13;
+      c.position.set(s * Math.sin(lean) * len / 2, H + 0.9 - Math.cos(lean) * len / 2 - i * 0.3, 0);
+      c.rotation.z = s * lean;
+      g.add(c);
+    }
+  }
+  const foot = box(M('#9aa0a7', { rough: 0.96 }), 3.4, 0.5, 1.6);
+  foot.position.y = 0.25;
+  g.add(foot);
+  return { g, bodies: fixedBody(g, shapes, 0.75, 0.06) };
+}
+function transmissionTower(r, M) {
+  const g = new THREE.Group();
+  const steel = M(r.pick(STEEL), { rough: 0.55, metal: 0.5, env: 0.85 });
+  const H = r.range(9, 12);
+  const shapes = [boxSh(0.9, H / 2, 0.9, 0, H / 2, 0)];
+  const legR = (y) => 1.15 - (y / H) * 0.82; // taper
+  for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+    const leg = cyl(steel, { r: 0.07, len: H * 1.02, seg: 5 });
+    leg.position.set(sx * legR(H / 2), H / 2, sz * legR(H / 2));
+    leg.rotation.set(-sz * 0.075, 0, sx * 0.075);
+    g.add(leg);
+  }
+  // 6 bands, not 8: a lattice is inherently mesh-hungry (nothing batches) and
+  // this is already the heaviest model in the library at ~66 draw calls
+  const bands = 6;
+  for (let i = 0; i < bands; i++) {
+    const y = 0.7 + i * (H - 1.2) / (bands - 1);
+    const t = legR(y);
+    for (const s of [-1, 1]) {
+      const bx = box(steel, t * 2, 0.05, 0.05);
+      bx.position.set(0, y, s * t);
+      g.add(bx);
+      const bz = box(steel, 0.05, 0.05, t * 2);
+      bz.position.set(s * t, y, 0);
+      g.add(bz);
+      const dg = box(steel, t * 2.1, 0.04, 0.04); // X bracing
+      dg.position.set(0, y + (H - 1.2) / (bands - 1) / 2, s * t);
+      dg.rotation.z = (i % 2 ? 1 : -1) * 0.55;
+      g.add(dg);
+    }
+  }
+  const ins = M('#c9c2b4', { rough: 0.4, env: 0.8 });
+  for (let arm = 0; arm < 3; arm++) { // cross-arms, longest at the bottom
+    const y = H * (0.6 + arm * 0.16);
+    const half = 2.4 - arm * 0.5;
+    const a = box(steel, half * 2, 0.09, 0.09);
+    a.position.y = y;
+    g.add(a);
+    for (const s of [-1, 1]) {
+      const brace = box(steel, half, 0.05, 0.05);
+      brace.position.set(s * half * 0.5, y - 0.45, 0);
+      brace.rotation.z = -s * 0.7;
+      g.add(brace);
+      for (let k = 0; k < 3; k++) { // insulator string
+        const d = cyl(ins, { r: 0.07, len: 0.05, seg: 7 });
+        d.position.set(s * (half - 0.1), y - 0.12 - k * 0.13, 0);
+        g.add(d);
+      }
+    }
+  }
+  const peak = cyl(steel, { r: 0.05, len: 0.8, seg: 5 });
+  peak.position.y = H + 0.4;
+  g.add(peak);
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.1) };
+}
+// A portal, not a tunnel: the mouth and the wing walls. The bore is left open
+// so a road can actually run into it.
+function tunnelPortal(r, M) {
+  const g = new THREE.Group();
+  const conc = M(jitterColor(r, '#a3a8ae', 0.004, 0.03, 0.04), { rough: 0.95 });
+  const BORE = 3.4, H = 4.6, T = 0.7;
+  const shapes = [];
+  for (const s of [-1, 1]) { // jambs
+    const j = box(conc, T, H, 1.5);
+    j.position.set(0, H / 2, s * (BORE / 2 + 0.75));
+    g.add(j);
+    shapes.push(boxSh(T / 2, H / 2, 0.75, 0, H / 2, s * (BORE / 2 + 0.75)));
+  }
+  const lintel = box(conc, T, 1.3, BORE + 3.0);
+  lintel.position.y = H - 0.35;
+  g.add(lintel);
+  shapes.push(boxSh(T / 2, 0.65, (BORE + 3.0) / 2, 0, H - 0.35, 0));
+  // arch springing, faked with stepped voussoir blocks
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 6) * Math.PI;
+    const b = box(M(shade('#a3a8ae', -0.06), { rough: 0.95 }), T + 0.1, 0.4, 0.55);
+    b.position.set(0, H - 1.1 + Math.sin(a) * 0.55, Math.cos(a) * (BORE / 2 + 0.1));
+    b.rotation.x = -a + Math.PI / 2;
+    g.add(b);
+  }
+  for (const s of [-1, 1]) { // wing walls splaying out
+    const w = box(conc, 1.9, H * 0.62, 0.45);
+    w.position.set(0.9, H * 0.31, s * (BORE / 2 + 1.7));
+    w.rotation.y = -s * 0.42;
+    g.add(w);
+    shapes.push(boxSh(0.95, H * 0.31, 0.4, 0.9, H * 0.31, s * (BORE / 2 + 1.9)));
+  }
+  const cap = box(M('#8d939a', { rough: 0.94 }), T + 0.25, 0.24, BORE + 3.3);
+  cap.position.y = H + 0.42;
+  g.add(cap);
+  return { g, bodies: fixedBody(g, shapes, 0.8, 0.05) };
+}
+function jerseyRun(r, M) {
+  const g = new THREE.Group();
+  const conc = M(jitterColor(r, '#c9ced4', 0.004, 0.03, 0.04), { rough: 0.94 });
+  const n = r.int(3, 5);
+  const SEG = 2.4;
+  const shapes = [];
+  for (let i = 0; i < n; i++) {
+    const x = -((n - 1) / 2) * SEG + i * SEG;
+    // the profile: wide toe, sloped face, narrow top — three stacked boxes
+    const toe = box(conc, SEG - 0.06, 0.16, 0.6);
+    toe.position.set(x, 0.08, 0);
+    g.add(toe);
+    const mid = cyl(conc, { r: 0.3, r2: 0.19, len: SEG - 0.06, axis: 'x', seg: 4 });
+    mid.rotation.x = Math.PI / 4;
+    mid.scale.set(1, 1, 0.62);
+    mid.position.set(x, 0.44, 0);
+    g.add(mid);
+    const top = box(conc, SEG - 0.06, 0.42, 0.22);
+    top.position.set(x, 0.74, 0);
+    g.add(top);
+    if (i < n - 1) { // the pin joint between segments
+      const pin = box(M('#5c6167', { rough: 0.6, metal: 0.4 }), 0.06, 0.5, 0.16);
+      pin.position.set(x + SEG / 2, 0.6, 0);
+      g.add(pin);
+    }
+    if (r.chance(0.4)) { // scuff
+      const sc = box(M('#3d4147', { rough: 0.96 }), r.range(0.3, 0.9), 0.14, 0.02);
+      sc.position.set(x + r.range(-0.6, 0.6), r.range(0.4, 0.7), 0.3);
+      g.add(sc);
+    }
+    shapes.push(boxSh((SEG - 0.06) / 2, 0.48, 0.3, x, 0.48, 0));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.75, 0.1) };
+}
+function heightBar(r, M) {
+  const g = new THREE.Group();
+  const H = 3.6, W = 4.4;
+  const post = M(r.pick(['#e3c53a', '#9aa0a7']), { rough: 0.55, metal: 0.4, env: 0.75 });
+  const shapes = [];
+  for (const s of [-1, 1]) {
+    const p = cyl(post, { r: 0.09, len: H, seg: 8 });
+    p.position.set(0, H / 2, s * (W / 2));
+    g.add(p);
+    const base = box(M('#5c6167', { rough: 0.7 }), 0.4, 0.1, 0.4);
+    base.position.set(0, 0.05, s * (W / 2));
+    g.add(base);
+    shapes.push(cylSh(H / 2, 0.11, 0, H / 2, s * (W / 2)));
+  }
+  // the goalpost bar, hung on chains so it swings if struck
+  const bar = box(M('#e3c53a', { rough: 0.6 }), 0.14, 0.3, W);
+  bar.position.y = H - 0.55;
+  g.add(bar);
+  for (let i = 0; i < 6; i++) { // hazard chevrons
+    if (i % 2) continue;
+    const c = box(M('#c9302c', { rough: 0.6 }), 0.16, 0.31, W / 6);
+    c.position.set(0, H - 0.55, -W / 2 + W / 12 + i * (W / 6));
+    g.add(c);
+  }
+  for (const s of [-1, 1]) {
+    const chain = cyl(M('#5c6167', { rough: 0.65, metal: 0.5 }), { r: 0.02, len: 0.38, seg: 5 });
+    chain.position.set(0, H - 0.21, s * (W / 2 - 0.15));
+    g.add(chain);
+  }
+  const plate = box(M('#e8e9eb', { rough: 0.5 }), 0.03, 0.42, 0.55);
+  plate.position.set(0.09, H - 1.2, 0);
+  g.add(plate);
+  shapes.push(boxSh(0.08, 0.16, W / 2, 0, H - 0.55, 0));
+  return { g, bodies: fixedBody(g, shapes, 0.6, 0.12) };
+}
+function tempLights(r, M) {
+  const g = new THREE.Group();
+  const H = 2.5;
+  const mast = cyl(M('#e3c53a', { rough: 0.6 }), { r: 0.05, len: H, seg: 8 });
+  mast.position.y = H / 2 + 0.14;
+  g.add(mast);
+  // the ballast trolley these sit on — that is what makes them temporary
+  const cart = box(M('#3d4147', { rough: 0.7 }), 0.8, 0.16, 0.7);
+  cart.position.y = 0.14;
+  g.add(cart);
+  for (const s of [-1, 1]) {
+    const w = cyl(M('#2b2e33', { rough: 0.9 }), { r: 0.12, len: 0.07, axis: 'z', seg: 8 });
+    w.position.set(-0.28, 0.12, s * 0.32);
+    g.add(w);
+  }
+  for (let i = 0; i < 2; i++) { // ballast slabs
+    const b = box(M('#5c6167', { rough: 0.8 }), 0.55, 0.07, 0.5);
+    b.position.set(0.1, 0.26 + i * 0.08, 0);
+    g.add(b);
+  }
+  const head = box(M('#3d4147', { rough: 0.6 }), 0.26, 0.82, 0.3);
+  head.position.set(0, H + 0.14, 0);
+  g.add(head);
+  const cols = [['#c9302c', 0.28], ['#e3c53a', 0], ['#3e8948', -0.28]];
+  for (const [hex, dy] of cols) {
+    const lens = cyl(M(hex, { rough: 0.3, env: 0.9, emissive: hex, emInt: 0.55 }), { r: 0.09, len: 0.05, axis: 'x', seg: 10 });
+    lens.position.set(0.16, H + 0.14 + dy, 0);
+    g.add(lens);
+    const hood = cyl(M('#2b2e33', { rough: 0.7 }), { r: 0.11, len: 0.1, axis: 'x', seg: 10, open: true });
+    hood.material.side = THREE.DoubleSide;
+    hood.position.set(0.21, H + 0.17 + dy, 0);
+    g.add(hood);
+  }
+  const panel = box(M('#1b2836', { rough: 0.3, env: 0.8 }), 0.1, 0.3, 0.24); // solar
+  panel.position.set(-0.12, H * 0.55, 0);
+  panel.rotation.z = 0.5;
+  g.add(panel);
+  return { g, bodies: dynGround(g, H + 0.6, 110, [
+    boxSh(0.42, 0.16, 0.38, 0, 0.2, 0),
+    cylSh(H / 2, 0.08, 0, H / 2 + 0.14, 0),
+  ], { fr: 0.7, rest: 0.1 }) };
+}
+function gritBin(r, M) {
+  const g = new THREE.Group();
+  const hex = r.pick(['#e3c53a', '#3e8948', '#c9302c']);
+  const W = 1.15, H = 0.7, D = 0.75;
+  const body = box(M(hex, { rough: 0.6, env: 0.5 }), W, H, D);
+  body.position.y = H / 2;
+  g.add(body);
+  // the lid slopes forward — that is the whole silhouette of a grit bin
+  const lid = box(M(shade(hex, 0.1), { rough: 0.55 }), W + 0.08, 0.09, D + 0.16);
+  lid.position.set(0, H + 0.06, 0.03);
+  lid.rotation.x = -0.14;
+  g.add(lid);
+  const handle = box(M('#3d4147', { rough: 0.6 }), 0.3, 0.05, 0.05);
+  handle.position.set(0, H + 0.13, 0.36);
+  g.add(handle);
+  for (const s of [-1, 1]) { // moulded ribs
+    const rb = box(M(shade(hex, -0.08), { rough: 0.62 }), 0.05, H - 0.12, D + 0.01);
+    rb.position.set(s * 0.36, H / 2, 0);
+    g.add(rb);
+  }
+  const label = box(M('#e8e9eb', { rough: 0.5 }), 0.44, 0.2, 0.02);
+  label.position.set(0, H * 0.55, D / 2 + 0.01);
+  g.add(label);
+  return { g, bodies: dynGround(g, H + 0.12, 130, [boxSh(W / 2, H / 2, D / 2, 0, H / 2, 0)], { fr: 0.7, rest: 0.08 }) };
+}
+function stormDrain(r, M) {
+  const g = new THREE.Group();
+  const conc = M('#9aa0a7', { rough: 0.95 });
+  // kerb-side gully: the kerb block, the throat, and the grate in the channel
+  const kerb = box(conc, 1.6, 0.3, 0.28);
+  kerb.position.set(0, 0.15, -0.3);
+  g.add(kerb);
+  const throat = box(M('#2b2e33', { rough: 0.98 }), 0.85, 0.13, 0.06);
+  throat.position.set(0, 0.11, -0.17);
+  g.add(throat);
+  const frame = box(M('#5c6167', { rough: 0.7, metal: 0.35 }), 0.95, 0.06, 0.58);
+  frame.position.set(0, 0.03, 0.05);
+  g.add(frame);
+  const void_ = box(M('#1a1c20', { rough: 0.99 }), 0.78, 0.05, 0.42);
+  void_.position.set(0, 0.035, 0.05);
+  g.add(void_);
+  const bar = M('#6f767d', { rough: 0.65, metal: 0.4 });
+  for (let i = 0; i < 7; i++) { // grate bars
+    const b = box(bar, 0.05, 0.05, 0.44);
+    b.position.set(-0.36 + i * 0.12, 0.055, 0.05);
+    g.add(b);
+  }
+  const apron = box(M('#8d939a', { rough: 0.96 }), 1.5, 0.03, 0.9);
+  apron.position.set(0, 0.012, 0.1);
+  g.add(apron);
+  const silt = box(M('#6b6a5c', { rough: 0.98 }), 0.7, 0.01, 0.16); // the debris that always collects
+  silt.position.set(r.range(-0.2, 0.2), 0.03, 0.32);
+  g.add(silt);
+  return { g, bodies: fixedBody(g, [
+    boxSh(0.8, 0.15, 0.14, 0, 0.15, -0.3),
+    boxSh(0.48, 0.035, 0.29, 0, 0.045, 0.05),
+  ], 0.85, 0.03) };
+}
+function roofTank(r, M) {
+  const g = new THREE.Group();
+  const wood = M(r.pick(['#7a6448', '#6d5a42', '#96805f']), { rough: 0.94 });
+  const R = 0.95, TH = 1.5, LEG = 1.3;
+  const shapes = [];
+  for (let i = 0; i < 6; i++) { // splayed timber legs
+    const a = (i / 6) * Math.PI * 2;
+    const leg = box(M('#5e4a34', { rough: 0.94 }), 0.11, LEG, 0.11);
+    leg.position.set(Math.cos(a) * R * 0.75, LEG / 2, Math.sin(a) * R * 0.75);
+    leg.rotation.set(Math.sin(a) * 0.12, 0, -Math.cos(a) * 0.12);
+    g.add(leg);
+  }
+  for (const y of [0.4, 1.0]) { // cross bracing
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(R * 0.8, 0.025, 4, 12), M('#5e4a34', { rough: 0.94 }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = y;
+    g.add(ring);
+  }
+  shapes.push(cylSh(LEG / 2, R * 0.85, 0, LEG / 2, 0));
+  const n = 18; // stave-built, which is why these read as barrels not drums
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const st = box(M(jitterColor(r, '#7a6448', 0.006, 0.05, 0.06), { rough: 0.94 }), 0.1, TH, 0.35);
+    st.position.set(Math.cos(a) * R, LEG + TH / 2, Math.sin(a) * R);
+    st.rotation.y = -a;
+    g.add(st);
+  }
+  for (const y of [LEG + 0.2, LEG + TH / 2, LEG + TH - 0.2]) { // hoops
+    const h = new THREE.Mesh(new THREE.TorusGeometry(R + 0.05, 0.035, 4, 16), M('#5c6167', { rough: 0.6, metal: 0.45 }));
+    h.rotation.x = Math.PI / 2;
+    h.position.y = y;
+    g.add(h);
+  }
+  const roof = cyl(M('#4a4e55', { rough: 0.8 }), { r: R + 0.14, r2: 0.1, len: 0.55, seg: 12 });
+  roof.position.y = LEG + TH + 0.28;
+  g.add(roof);
+  const pipe = cyl(M('#7c8288', { rough: 0.55, metal: 0.5 }), { r: 0.06, len: LEG + 0.4, seg: 7 });
+  pipe.position.set(R * 0.9, (LEG + 0.4) / 2, 0);
+  g.add(pipe);
+  shapes.push(cylSh(TH / 2, R + 0.05, 0, LEG + TH / 2, 0));
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.08) };
+}
+
+/* ---- nature density kinds ----
+   Authored as §1E instancing candidates: low mesh count, no colliders worth
+   having, and built so one buffer can stand in for thousands. They are also
+   perfectly usable as ordinary props today. */
+function treeCluster(r, M) {
+  const g = new THREE.Group();
+  const shapes = [];
+  const n = r.int(3, 5);
+  const pine = r.chance(0.5);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + r.range(-0.5, 0.5);
+    const d = i === 0 ? 0 : r.range(0.7, 1.7);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const h = r.range(2.2, 3.8) * (i === 0 ? 1.15 : 1);
+    trunk(g, M, r, h * 0.42, 0.11).position.set(x, h * 0.21, z);
+    if (pine) {
+      for (let k = 0; k < 3; k++) {
+        const R = (0.95 - k * 0.24) * (h / 3.2);
+        const c = cyl(M(r.pick(PINES), { rough: 0.9, env: 0.25 }), { r: R, r2: 0.02, len: h * 0.34, seg: 7 });
+        c.position.set(x, h * 0.36 + k * h * 0.22, z);
+        g.add(c);
+      }
+    } else {
+      const R = r.range(0.85, 1.2) * (h / 3.2);
+      const c = canopy(M, r, r.pick(GREENS), R, { squash: 0.88 });
+      c.position.set(x, h * 0.45 + R * 0.5, z);
+      g.add(c);
+    }
+    shapes.push(cylSh(h * 0.25, 0.16, x, h * 0.25, z));
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.7, 0.1) };
+}
+function bramble(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(7, 10);
+  for (let i = 0; i < n; i++) {
+    const R = r.range(0.3, 0.6);
+    const m = sphere(M(jitterColor(r, r.pick(['#3f7d3a', '#4c8c3f', '#568f4e']), 0.006, 0.05, 0.06), { rough: 0.93, env: 0.2 }), R, 0);
+    jitterGeo(m, r, R * 0.34); // rougher than a bush — brambles are not tidy
+    // a mound, not a pancake: lumps near the centre sit HIGHER, so the mass has
+    // a crown. Squashing every lump and scattering them flat read as spilled
+    // leaves, which is what the first pass looked like.
+    const d = r.range(0, 1);
+    m.scale.set(r.jitter(1.1, 0.2), r.jitter(0.8, 0.2), r.jitter(1.0, 0.2));
+    m.rotation.set(r.range(0, 0.6), r.range(0, 3), r.range(0, 0.6));
+    const a = r.range(0, Math.PI * 2);
+    m.position.set(Math.cos(a) * d * 0.85, R * 0.5 + (1 - d) * r.range(0.15, 0.5), Math.sin(a) * d * 0.7);
+    g.add(m);
+  }
+  for (let i = 0; i < r.int(3, 6); i++) { // canes arcing out of the mass
+    const c = cyl(M('#6d5a42', { rough: 0.94 }), { r: 0.018, len: r.range(0.5, 1.0), seg: 4 });
+    c.position.set(r.range(-0.8, 0.8), r.range(0.35, 0.75), r.range(-0.6, 0.6));
+    c.rotation.set(r.range(-1.2, 1.2), r.range(0, 3), r.range(-1.2, 1.2));
+    g.add(c);
+  }
+  return { g, bodies: fixedBody(g, [boxSh(0.95, 0.3, 0.75, 0, 0.28, 0)], 0.6, 0.15) };
+}
+function ferns(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(4, 7);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + r.range(-0.4, 0.4);
+    const cx = Math.cos(a) * r.range(0, 0.5), cz = Math.sin(a) * r.range(0, 0.5);
+    const hex = r.pick(['#3f7d3a', '#4c8c3f', '#568f4e', '#6fb04c']);
+    const fronds = r.int(5, 8);
+    for (let k = 0; k < fronds; k++) {
+      const fa = (k / fronds) * Math.PI * 2 + r.range(-0.3, 0.3);
+      const len = r.range(0.4, 0.7);
+      const f = box(M(hex, { rough: 0.92, env: 0.2 }), len, 0.02, 0.11);
+      // A shuttlecock, not a starburst. The rise has to beat the reach or the
+      // whole thing lies flat on the ground, which is what the first pass did:
+      // a frond leaving at 0.35–0.7 rad barely clears the grass it sits in.
+      const rise = r.range(0.85, 1.15);
+      f.position.set(
+        cx + Math.cos(fa) * len * 0.4 * Math.cos(rise),
+        0.1 + len * 0.45 * Math.sin(rise),
+        cz + Math.sin(fa) * len * 0.4 * Math.cos(rise),
+      );
+      f.rotation.set(0, -fa, -rise);
+      g.add(f);
+    }
+  }
+  return { g, bodies: [] };
+}
+function tallGrass(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(26, 40);
+  const hexes = ['#7ba85a', '#8fae5a', '#a3b06a', '#6fb04c'];
+  for (let i = 0; i < n; i++) {
+    const h = r.range(0.35, 0.85);
+    const b = box(M(r.pick(hexes), { rough: 0.93, env: 0.2 }), 0.035, h, 0.012);
+    b.position.set(r.range(-0.85, 0.85), h / 2, r.range(-0.85, 0.85));
+    b.rotation.set(r.range(-0.28, 0.28), r.range(0, Math.PI), r.range(-0.28, 0.28));
+    g.add(b);
+  }
+  return { g, bodies: [] };
+}
+function cattails(r, M) {
+  const g = new THREE.Group();
+  const n = r.int(12, 20);
+  for (let i = 0; i < n; i++) {
+    const h = r.range(0.9, 1.5);
+    const x = r.range(-0.7, 0.7), z = r.range(-0.7, 0.7);
+    const lean = r.range(-0.12, 0.12), leanZ = r.range(-0.12, 0.12);
+    const stem = cyl(M(r.pick(['#6fb04c', '#7ba85a', '#8fae5a']), { rough: 0.92 }), { r: 0.012, len: h, seg: 4 });
+    stem.position.set(x, h / 2, z);
+    stem.rotation.set(lean, 0, leanZ);
+    g.add(stem);
+    if (r.chance(0.55)) { // the brown head — not every stem has one
+      const head = cyl(M('#7c4a34', { rough: 0.9 }), { r: 0.038, len: 0.22, seg: 6 });
+      head.position.set(x + leanZ * -h * 0.45, h * 0.94, z + lean * h * 0.45);
+      head.rotation.set(lean, 0, leanZ);
+      g.add(head);
+    }
+    if (r.chance(0.6)) { // a blade off the base
+      const blade = box(M('#568f4e', { rough: 0.92 }), 0.02, h * 0.7, 0.05);
+      blade.position.set(x + r.range(-0.06, 0.06), h * 0.35, z + r.range(-0.06, 0.06));
+      blade.rotation.set(r.range(-0.4, 0.4), r.range(0, 3), r.range(-0.4, 0.4));
+      g.add(blade);
+    }
+  }
+  return { g, bodies: [] };
+}
+function driftwood(r, M) {
+  const g = new THREE.Group();
+  const bleached = ['#b8ae9a', '#a89e8a', '#c4bba8', '#9a9080'];
+  const n = r.int(2, 4);
+  const shapes = [];
+  for (let i = 0; i < n; i++) {
+    const L = r.range(0.9, 2.2), R = r.range(0.07, 0.16);
+    const x = r.range(-0.5, 0.5), z = r.range(-0.6, 0.6), yaw = r.range(0, Math.PI);
+    const log = cyl(M(jitterColor(r, r.pick(bleached), 0.005, 0.04, 0.05), { rough: 0.96, env: 0.15 }), { r: R, r2: R * 0.7, len: L, axis: 'x', seg: 6 });
+    log.position.set(x, R, z);
+    log.rotation.y = yaw; // .set() would wipe the z rotation `axis: 'x'` put there
+    g.add(log);
+    for (let k = 0; k < r.int(0, 2); k++) { // stubs of broken branches
+      const b = cyl(M(r.pick(bleached), { rough: 0.96 }), { r: R * 0.45, len: r.range(0.16, 0.4), axis: 'x', seg: 5 });
+      b.position.set(x + Math.cos(yaw) * r.range(-L / 3, L / 3), R * r.range(1.1, 1.7), z - Math.sin(yaw) * r.range(-L / 3, L / 3));
+      b.rotation.set(r.range(-1, 1), r.range(0, 3), r.range(-1, 1));
+      g.add(b);
+    }
+    shapes.push({ kind: 'cyl', hh: L / 2, r: R, pos: [x, R, z], rot: quatArr(0, yaw, Math.PI / 2) });
+  }
+  return { g, bodies: fixedBody(g, shapes, 0.8, 0.1) };
+}
+
 const NAT = 'Nature', SUB = 'Suburbia', CITY = 'Street & City', TRAF = 'Signs & Traffic';
+const WAT = 'Water & Coast', ALP = 'Mountain & Alpine', FARM = 'Rural & Farm', IND = 'Industrial';
 export const SCENERY = [
   { id: 'tree_round', label: 'Tree', icon: '🌳', cat: NAT, build: treeRound },
   { id: 'tree_oak', label: 'Oak Tree', icon: '🌳', cat: NAT, build: treeOak },
@@ -3287,6 +5928,98 @@ export const SCENERY = [
   { id: 'pallet', label: 'Loaded Pallet', icon: '📦', cat: TRAF, build: pallet },
   { id: 'cell_tower', label: 'Cell Tower', icon: '📡', cat: TRAF, build: cellTower },
   { id: 'asphalt_patch', label: 'Asphalt Patch', icon: '⬛', cat: CITY, build: asphaltPatch },
+
+  // batch 3 — world-building P1 (§1D). Inert until the P2 dressing tables
+  // name them; the registry propagates everything else on its own.
+  { id: 'dock', label: 'Dock', icon: '🛶', cat: WAT, build: dock },
+  { id: 'jetty', label: 'Jetty', icon: '🌉', cat: WAT, build: jetty },
+  { id: 'pier_posts', label: 'Pier Posts', icon: '🪵', cat: WAT, build: pierPosts },
+  { id: 'mooring_bollard', label: 'Mooring Bollard', icon: '⚓', cat: WAT, build: mooringBollard },
+  { id: 'buoy', label: 'Buoy', icon: '🛟', cat: WAT, build: buoy },
+  { id: 'rowboat', label: 'Rowboat', icon: '🚣', cat: WAT, build: rowboat },
+  { id: 'boat_trailer', label: 'Boat Trailer', icon: '🚚', cat: WAT, build: boatTrailer },
+  { id: 'lifebuoy_stand', label: 'Lifebuoy Stand', icon: '🛟', cat: WAT, build: lifebuoyStand },
+  { id: 'fishing_hut', label: 'Fishing Hut', icon: '🎣', cat: WAT, build: fishingHut },
+  { id: 'culvert', label: 'Culvert', icon: '🕳️', cat: WAT, build: culvert },
+  { id: 'outfall', label: 'Outfall', icon: '🌊', cat: WAT, build: outfall },
+  { id: 'weir', label: 'Weir', icon: '💦', cat: WAT, build: weir },
+  { id: 'groyne', label: 'Groyne', icon: '🪵', cat: WAT, build: groyne },
+  { id: 'seawall', label: 'Seawall', icon: '🧱', cat: WAT, build: seawall },
+  { id: 'lighthouse', label: 'Lighthouse', icon: '🗼', cat: WAT, build: lighthouse },
+  { id: 'beach_hut', label: 'Beach Hut', icon: '🏖️', cat: WAT, build: beachHut },
+  { id: 'tide_marker', label: 'Tide Marker', icon: '📏', cat: WAT, build: tideMarker },
+  { id: 'riprap', label: 'Riprap', icon: '🪨', cat: WAT, build: riprap },
+
+  { id: 'boulder_field', label: 'Boulder Field', icon: '🪨', cat: ALP, build: boulderField },
+  { id: 'cliff_face', label: 'Cliff Face', icon: '⛰️', cat: ALP, build: cliffFace },
+  { id: 'rock_outcrop', label: 'Rock Outcrop', icon: '🗻', cat: ALP, build: rockOutcrop },
+  { id: 'scree', label: 'Scree Slope', icon: '🪨', cat: ALP, build: scree },
+  { id: 'cairn', label: 'Cairn', icon: '🗿', cat: ALP, build: cairn },
+  { id: 'trail_marker', label: 'Trail Marker', icon: '🥾', cat: ALP, build: trailMarker },
+  { id: 'snow_pole', label: 'Snow Pole', icon: '🎿', cat: ALP, build: snowPole },
+  { id: 'snow_drift', label: 'Snow Drift', icon: '❄️', cat: ALP, build: snowDrift },
+  { id: 'avalanche_gallery', label: 'Avalanche Gallery', icon: '🏔️', cat: ALP, build: avalancheGallery },
+  { id: 'rockfall_net', label: 'Rockfall Net', icon: '🕸️', cat: ALP, build: rockfallNet },
+  { id: 'gabion', label: 'Gabion Basket', icon: '🧺', cat: ALP, build: gabion },
+  { id: 'crib_wall', label: 'Crib Wall', icon: '🪵', cat: ALP, build: cribWall },
+  { id: 'ski_pylon', label: 'Ski-Lift Pylon', icon: '🚡', cat: ALP, build: skiPylon },
+  { id: 'alpine_hut', label: 'Alpine Hut', icon: '🏚️', cat: ALP, build: alpineHut },
+  { id: 'fallen_tree', label: 'Fallen Tree', icon: '🪵', cat: ALP, build: fallenTree },
+  { id: 'snow_fence', label: 'Snow Fence', icon: '🚧', cat: ALP, build: snowFence },
+
+  { id: 'barn', label: 'Barn', icon: '🛖', cat: FARM, build: barn },
+  { id: 'silo', label: 'Grain Silo', icon: '🌾', cat: FARM, build: silo },
+  { id: 'windmill', label: 'Wind Pump', icon: '🌬️', cat: FARM, build: windmill },
+  { id: 'trough', label: 'Water Trough', icon: '🪣', cat: FARM, build: trough },
+  { id: 'cattle_grid', label: 'Cattle Grid', icon: '🐄', cat: FARM, build: cattleGrid },
+  { id: 'farm_gate', label: 'Farm Gate', icon: '🚪', cat: FARM, build: farmGate },
+  { id: 'rail_fence', label: 'Post & Rail Fence', icon: '🪵', cat: FARM, build: railFence },
+  { id: 'hay_wrap', label: 'Wrapped Bales', icon: '🎳', cat: FARM, build: hayWrap },
+  { id: 'orchard_row', label: 'Orchard Row', icon: '🍎', cat: FARM, build: orchardRow },
+  { id: 'vineyard_row', label: 'Vineyard Row', icon: '🍇', cat: FARM, build: vineyardRow },
+  { id: 'tractor_shed', label: 'Tractor Shed', icon: '🚜', cat: FARM, build: tractorShed },
+  { id: 'grain_hopper', label: 'Grain Hopper', icon: '⏳', cat: FARM, build: grainHopper },
+  { id: 'weather_station', label: 'Weather Station', icon: '🌡️', cat: FARM, build: weatherStation },
+  { id: 'feed_bin', label: 'Feed Bin', icon: '🪣', cat: FARM, build: feedBin },
+  { id: 'irrigation_reel', label: 'Irrigation Reel', icon: '💧', cat: FARM, build: irrigationReel },
+  { id: 'chicken_coop', label: 'Chicken Coop', icon: '🐔', cat: FARM, build: chickenCoop },
+
+  { id: 'container', label: 'Shipping Container', icon: '📦', cat: IND, build: shippingContainer },
+  { id: 'container_stack', label: 'Container Stack', icon: '🧱', cat: IND, build: containerStack },
+  { id: 'gantry_crane', label: 'Gantry Crane', icon: '🏗️', cat: IND, build: gantryCrane },
+  { id: 'conveyor', label: 'Conveyor', icon: '⛓️', cat: IND, build: conveyor },
+  { id: 'aggregate_bay', label: 'Aggregate Bay', icon: '⛏️', cat: IND, build: aggregateBay },
+  { id: 'fuel_tank', label: 'Fuel Tank', icon: '🛢️', cat: IND, build: fuelTank },
+  { id: 'pipe_rack', label: 'Pipe Rack', icon: '🪈', cat: IND, build: pipeRack },
+  { id: 'drum_rack', label: 'Drum Rack', icon: '🛢️', cat: IND, build: drumRack },
+  { id: 'generator_set', label: 'Generator Set', icon: '⚡', cat: IND, build: generatorSet },
+  { id: 'floodlight_tower', label: 'Floodlight Tower', icon: '🔦', cat: IND, build: floodlightTower },
+  { id: 'chainlink_fence', label: 'Chain-Link Fence', icon: '🔗', cat: IND, build: chainLinkFence },
+  { id: 'gate_arm', label: 'Gate Arm', icon: '⛔', cat: IND, build: gateArm },
+  { id: 'weighbridge', label: 'Weighbridge', icon: '⚖️', cat: IND, build: weighbridge },
+  { id: 'transformer', label: 'Transformer', icon: '🔌', cat: IND, build: transformer },
+  { id: 'substation', label: 'Substation', icon: '🗼', cat: IND, build: substation },
+  { id: 'vent_stack', label: 'Vent Stack', icon: '🏭', cat: IND, build: ventStack },
+
+  // infrastructure fills
+  { id: 'bridge_pier', label: 'Bridge Pier', icon: '🌉', cat: CITY, build: bridgePier },
+  { id: 'bridge_pylon', label: 'Bridge Pylon', icon: '🌉', cat: CITY, build: bridgePylon },
+  { id: 'transmission_tower', label: 'Transmission Tower', icon: '🗼', cat: IND, build: transmissionTower },
+  { id: 'tunnel_portal', label: 'Tunnel Portal', icon: '🚇', cat: CITY, build: tunnelPortal },
+  { id: 'jersey_run', label: 'Jersey Barriers', icon: '🚧', cat: TRAF, build: jerseyRun },
+  { id: 'height_bar', label: 'Height Restrictor', icon: '📏', cat: TRAF, build: heightBar },
+  { id: 'temp_lights', label: 'Temporary Lights', icon: '🚦', cat: TRAF, build: tempLights },
+  { id: 'grit_bin', label: 'Grit Bin', icon: '🧂', cat: CITY, build: gritBin },
+  { id: 'storm_drain', label: 'Storm Drain', icon: '🕳️', cat: CITY, build: stormDrain },
+  { id: 'roof_tank', label: 'Roof Water Tank', icon: '🛢️', cat: CITY, build: roofTank },
+
+  // nature density kinds — §1E instancing candidates
+  { id: 'tree_cluster', label: 'Tree Cluster', icon: '🌲', cat: NAT, build: treeCluster },
+  { id: 'bramble', label: 'Bramble', icon: '🌿', cat: NAT, build: bramble },
+  { id: 'ferns', label: 'Ferns', icon: '🌿', cat: NAT, build: ferns },
+  { id: 'tall_grass', label: 'Tall Grass', icon: '🌾', cat: NAT, build: tallGrass },
+  { id: 'cattails', label: 'Cattails', icon: '🌾', cat: NAT, build: cattails },
+  { id: 'driftwood', label: 'Driftwood', icon: '🪵', cat: NAT, build: driftwood },
 ];
 
 export const isScenery = (kind) => SCENERY.some((s) => s.id === kind);
