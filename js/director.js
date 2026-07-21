@@ -15,6 +15,7 @@
 import { makeRng, clamp } from './lib.js';
 import { roadCurve } from './roads.js';
 import { generateWorld } from './worldgen.js';
+import { makeSignalProgram, phaseFor, signalAt, GREEN } from './signals.js';
 
 export const INCIDENT_TICK = 600; // T = 10 s at 60 Hz — the moment it goes wrong
 export const RESOLVE_TICKS = 1800; // ≤ 30 s of aftermath before the hard cap
@@ -245,6 +246,10 @@ function topoIntersection(rTopo, rDress) {
   const junctions = [{
     x: 0, z: 0, reach: REACH, style: 1 | 2 | 4 | 8, // bars · walks · box · arrows
     arms: [{ a: 0, w: 8 }, { a: Math.PI, w: 8 }, { a: -Math.PI / 2, w: 7 }, { a: Math.PI / 2, w: 7 }],
+    // where a car must wait, matching the bar buildJunction paints at hx+3.2
+    // (hx = 3.5 for the EW arms against the 7 m cross street, 4.0 for NS)
+    stopR: { ew: 7.3, ns: 7.8 },
+    signal: null, // filled in at the END of this function — see below
   }];
   const mk = (x0, z0, x1, z1, w, road) => {
     const pts = [];
@@ -259,11 +264,22 @@ function topoIntersection(rTopo, rDress) {
     mk(1.75, A, 1.75, -A, 7, 'ns'),   // 3: S→N
   ];
   const props = [];
-  const S = (kind, x, z, heading) => props.push({ kind, x, z, heading, seed: String(rDress.int(1, 9999)) });
-  // signals on opposing corners (cosmetic state for now — G3 parameterizes),
-  // street furniture on the other two
-  S('traffic_light', 7.5, 6.8, Math.PI);
-  S('traffic_light', -7.5, -6.8, 0);
+  const S = (kind, x, z, heading, sig) =>
+    props.push({ kind, x, z, heading, seed: String(rDress.int(1, 9999)), ...(sig ? { sig } : {}) });
+  /* One signal per APPROACH, each tagged with the arm it governs (P2/2I).
+     There were two, both on the EW street, both showing a lamp picked once at
+     build time — so an intersection could and often did display two conflicting
+     greens that never changed. Four heads means a player sees red on one street
+     and green on the other at a glance, which is the whole read.
+
+     A head faces the traffic it governs, and this prop's lamps face along its
+     own +x, so heading = the direction the lamps look = OPPOSITE the travel
+     direction of the approach it serves. Masts sit at radius ~11.8, clear of
+     the junction apron (reach 9.6) and past the 3.2 m lane scrub. */
+  S('traffic_light', 9.5, 7.0, Math.PI, { j: 0, arm: 'ew' });    // W approach, travelling +x
+  S('traffic_light', -9.5, -7.0, 0, { j: 0, arm: 'ew' });        // E approach, travelling −x
+  S('traffic_light', -7.0, 9.5, -Math.PI / 2, { j: 0, arm: 'ns' }); // N approach, travelling +z
+  S('traffic_light', 7.0, -9.5, Math.PI / 2, { j: 0, arm: 'ns' });  // S approach, travelling −z
   S('traffic_light_ped', 6.8, -7.4, Math.PI / 2);
   S('lamp_cobra', -7.2, 7.4, 0);
   S('hydrant', 9.5, -8.6, rDress.range(0, 6.28));
@@ -272,6 +288,10 @@ function topoIntersection(rTopo, rDress) {
   if (rTopo.chance(0.7)) S('tree_oak', 14 + rTopo.range(0, 4), -12 - rTopo.range(0, 4), rTopo.range(0, 6.28));
   if (rTopo.chance(0.7)) S('tree_oak', -14 - rTopo.range(0, 4), 12 + rTopo.range(0, 4), rTopo.range(0, 6.28));
   if (rTopo.chance(0.5)) S('trash_can', 8.6, 9.4, 0);
+  // Signal program is drawn LAST, after every dressing decision above, so
+  // adding it cannot shift which trees or bins this topology deals.
+  // generateScene then phases it onto the incident (see phaseFor).
+  junctions[0].signal = makeSignalProgram(rTopo, [['ew'], ['ns']]);
   return {
     name: 'intersection',
     world: { arena: A * 2 + 20, env: 'city', ground: A + 22 },
@@ -1368,7 +1388,11 @@ export function generateScene(seed, d = 1) {
   // Same-lane rule: only join a lane whose existing cars move at (nearly) the
   // same speed — a parked actor or a speeding aggressor makes the whole lane
   // off-limits, otherwise the ambient car would plow into it pre-incident.
-  const castMax = Math.min(8, 3 + (d >> 1) + rInc.int(0, 1));
+  // P2/2J: 3–8 → 4–11. The scene reads as a road with traffic on it rather
+  // than four cars in a diorama, and signals give the extra bodies somewhere
+  // sensible to be (queued at a red) instead of merely more chances to
+  // collide before tick 600 — which the sweep is the gate on.
+  const castMax = Math.min(10, 4 + (d >> 1) + rInc.int(0, 1));
   const lanesFor = usable.length ? usable : topo.lanes;
   let guard = 0;
   while (made.cars.length < castMax && lanesFor.length && guard++ < 40) {
@@ -1392,6 +1416,201 @@ export function generateScene(seed, d = 1) {
     // incident it reacts only at panic range (late brakers still pile in)
     amb.drive.acc = INCIDENT_TICK;
     made.cars.push(amb);
+  }
+
+  /* ---- traffic signals (P2/2I) ----
+     Two jobs, and the order matters.
+
+     1. PHASE the program so the incident's own arm is genuinely green at
+        INCIDENT_TICK. Every template is choreographed to land at tick 600 and
+        `place()` budgets each run-up at free-flow cruise, so an actor meeting
+        a red mid-approach would arrive late and the markets would be priced
+        against a scene that never happened. Phasing the signal instead of
+        exempting the actors means the light a player reads is the light the
+        sim obeys.
+     2. Hand STOP LINES to ambient traffic only, and only on the cross street.
+        Two reasons, both learned from the invariants this file already
+        protects: a stopped car on the ACTOR'S lane is a stationary obstacle
+        the actor is budgeted to drive straight through, which is a pre-600
+        rear-end; and essential cars carry no `acc`, so they would not slow
+        for a queue even if one formed. Cross-street queueing is also the more
+        legible picture — one street flowing, one street waiting. */
+  const jSig = (topo.junctions || []).findIndex((j) => j && j.signal);
+  if (jSig >= 0) {
+    const J = topo.junctions[jSig];
+    const actorArm = lane && lane.road ? lane.road : null;
+
+    /* A QUEUE at the red (P2/2J). Ambient cars are anchored at a random point
+       along their lane, so almost none of them were anywhere near the
+       junction when the freeze hit — the lights worked and nobody was there
+       to obey them. These are anchored ON the stop line instead, staggered
+       back a car-gap each, so they arrive together and stack up behind the
+       bar. The leader brakes for the red and the rest hold station on it
+       through the ACC that already exists.
+       Cross street only, for the same reason the stop lines are: a queue on
+       the ACTOR'S approach is a wall of stationary metal in front of a car
+       whose run-up was budgeted at free-flow cruise. */
+    // arc distance at which a polyline first enters the stop radius of the
+    // junction. Shared by the queue placement and the stop-line assignment —
+    // a lane and a drive path are the same flat [x,z,…] shape.
+    const stopSAlong = (pts, jx, jz, R) => {
+      let s = 0;
+      for (let i = 0; i + 3 < pts.length; i += 2) {
+        const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+        const seg = Math.hypot(bx - ax, bz - az);
+        if (Math.hypot(bx - jx, bz - jz) <= R) {
+          // refine to the crossing point so the bar lands where it is painted
+          const lo = Math.hypot(ax - jx, az - jz);
+          const f = lo > R && lo > 1e-6 ? clamp((lo - R) / Math.max(1e-6, lo - Math.hypot(bx - jx, bz - jz)), 0, 1) : 0;
+          return s + seg * f;
+        }
+        s += seg;
+      }
+      return -1;
+    };
+    /* PHASE the program onto the moment the actors are actually IN the
+       junction, which is not always tick 600. `stall` parks its victim 111 m
+       past the crossing, so the aggressor is through the box at tick ~218 and
+       carries on; phasing to 600 left it running its own red at 218 while
+       ambient traffic legitimately crossed on green, and it T-boned them.
+       Essential cars carry no stop lines by design, so the signal has to be
+       arranged around them rather than the other way round.
+       Entry tick is exact rather than simulated: place() guarantees arc =
+       s0 + v·t, and drive.pts is already sliced to the spawn, so the car
+       reaches the bar at 60·s/v. */
+    const entryTick = (c) => {
+      const arm = c._lane && c._lane.road;
+      if (!arm) return null;
+      const R = (J.stopR && J.stopR[arm]) || 7.5;
+      const s = stopSAlong(c.drive.pts, J.x || 0, J.z || 0, R);
+      if (s < 0) return null;                       // path never reaches it
+      const v = c._v || c.drive.v || 0;
+      if (v < 0.5) return null;                     // parked: never traverses
+      return { arm, t: Math.round((60 * s) / v) };
+    };
+    const essential = [];
+    for (let i = 0; i < made.cars.length; i++) {
+      const c = made.cars[i];
+      if (!c || !c.drive || !keep.has(i)) continue;
+      const e = entryTick(c);
+      if (e && e.t <= INCIDENT_TICK) essential.push(e);
+    }
+    /* SEARCH the offset rather than pin one. An intersection incident almost
+       always involves actors from BOTH arms — that is what makes it an
+       intersection incident — so phaseFor, which can only satisfy a single
+       (arm, tick), left 74% of junctions unable to bind and falling back to
+       cosmetic. But a two-stage cycle can perfectly well be green for `ew` at
+       tick 250 and green for `ns` at tick 590; it just needs the right offset.
+       The offset space is one period (~550–780) and each test is a handful of
+       integer comparisons, so this is a cheap exhaustive search — and a fixed
+       step in a fixed order keeps it deterministic. */
+    const covered = (p, arm, t) => {
+      for (let k = Math.max(0, t - 8); k <= t + 100; k += 10) {
+        if (signalAt(p, arm, k) !== GREEN) return false;
+      }
+      return true;
+    };
+    let obeyable = false;
+    if (essential.length === 0) {
+      // nothing crosses before the freeze: any phase is safe, so pick the one
+      // that puts the actor's own street on green at the incident
+      if (actorArm) J.signal = phaseFor(J.signal, actorArm, INCIDENT_TICK);
+      obeyable = true;
+    } else {
+      for (let off = 0; off < J.signal.period; off += 5) {
+        const p = { ...J.signal, offset: off };
+        let ok = true;
+        for (const e of essential) if (!covered(p, e.arm, e.t)) { ok = false; break; }
+        if (ok) { J.signal = p; obeyable = true; break; }
+      }
+    }
+    /* If no offset satisfies every actor — two crossing entries further apart
+       than a green can span — ambient traffic reverts to ignoring the signal
+       entirely. That is the proven pre-signal behaviour the conflict scrub was
+       built against, so it is safe; the lights still animate, they just stop
+       being binding for that scene. Half-obeying is what produced the
+       pre-incident hits, so the fallback is all-or-nothing on purpose. */
+    J.obeyed = obeyable;
+
+    /* Queue on whichever arm is actually RED at the freeze — read straight off
+       the finished program rather than inferred from the actor's street, which
+       after the offset search is no longer guaranteed to be the green one. */
+    const crossArm = ['ew', 'ns'].find((a) => signalAt(J.signal, a, INCIDENT_TICK) !== GREEN) || null;
+    if (obeyable && crossArm && made.cars.length < castMax + 3) {
+      const essLanes0 = new Set(made.cars.filter((c, i) => c && keep.has(i)).map((c) => c._lane));
+      const qLanes = usable.filter((l) => l.road === crossArm && !essLanes0.has(l));
+      if (qLanes.length) {
+        const ql = rInc.pick(qLanes);
+        const R = (J.stopR && J.stopR[crossArm]) || 7.5;
+        const sLine = stopSAlong(ql.pts, J.x || 0, J.z || 0, R);
+        /* Every queue car aims at the SAME point — the bar — but at staggered
+           arrival ticks, starting just after this arm goes red. The leader
+           pulls up and stops; each follower arrives behind it and holds
+           station on the ACC that already exists. Aiming them all at tick 600
+           instead (and spacing them back along the lane) put every one of them
+           still rolling to a stop as the freeze hit, so the queue the player
+           was meant to see was a set of cars gently decelerating. */
+        let redStart = INCIDENT_TICK;
+        while (redStart > 80 && signalAt(J.signal, crossArm, redStart - 1) !== GREEN) redStart--;
+        const qN = sLine > 40 ? 2 + rInc.int(0, 2) : 0;
+        const qv0 = Math.min(ql.v * 0.95, laneMaxV(ql, sLine));
+        /* Stagger by DISTANCE, not by a flat tick count. Cars aimed at the
+           same point arrive spaced by v·Δt, and the spawn-overlap net culls
+           any non-essential pair closer than 8 m — so a fixed 30-tick gap
+           gave 6 m at 12 m/s and the net quietly ate the queue down to two
+           cars every time. Solving Δt for a 9 m gap clears the net outright,
+           which is better than widening an exemption that exists to catch
+           real spawn overlaps. */
+        const dt = Math.max(24, Math.ceil((60 * 9) / Math.max(2, qv0)));
+        for (let k = 0; k < qN; k++) {
+          const tArrive = redStart + 25 + k * dt;
+          if (tArrive > INCIDENT_TICK - 10) break;
+          const qv = qv0;
+          if (qv < MIN_V * 0.8) break;
+          const qc = place(ql, sLine, qv, tArrive);
+          if (!qc || qc._v < qv * 0.6) break;
+          qc.drive.acc = INCIDENT_TICK; // full attention: this is a queue
+          made.cars.push(qc);
+        }
+      }
+    }
+    /* Stop lines go to ambient traffic on EVERY arm, not just the cross one.
+       Governing half a junction is worse than governing none: the conflict
+       scrub staggers crossing arrivals using free-flow timing, and a car that
+       waits at a red then goes arrives nowhere near when the scrub assumed.
+       With only the cross street obeying, an ambient car on the actor's arm
+       would sail through on ITS red while cross traffic legitimately moved on
+       green — four pre-incident hits in a 75-scene sweep, all on the
+       intersection, all between ticks 204 and 297. With every ambient car
+       obeying, the signal itself is the conflict resolution, which is the
+       whole reason signalized junctions exist.
+
+       The one exclusion is a lane an ESSENTIAL car is also on. Template cars
+       carry no `acc` and no stops by design — their choreography is budgeted
+       at free-flow cruise — so a stopped ambient car ahead of one is a wall
+       it will drive straight into. */
+    const essentialLanes = new Set();
+    for (let i = 0; i < made.cars.length; i++) {
+      const c = made.cars[i];
+      if (c && keep.has(i) && c._lane) essentialLanes.add(c._lane);
+    }
+    for (let i = 0; obeyable && i < made.cars.length; i++) {
+      const c = made.cars[i];
+      if (!c || !c.drive || keep.has(i)) continue;     // essential cars: untouched
+      const arm = c._lane && c._lane.road;
+      if (!arm) continue;
+      if (essentialLanes.has(c._lane)) continue;       // never queue in front of an actor
+      const R = (J.stopR && J.stopR[arm]) || 7.5;
+      const s = stopSAlong(c.drive.pts, J.x || 0, J.z || 0, R);
+      /* `until`: signals stop binding a few seconds after the incident. The
+         recorder settles a scene by DISPLACEMENT, and a signal cycles about
+         3.5 times over the 2400-tick cap — so obedient traffic is perpetually
+         being restarted by a fresh green and the scene never comes to rest.
+         (Ran-to-cap went 6.7% → 10.7% and broke the sweep's 10% budget.)
+         Past this point ambient cars ignore the lights, finish their path and
+         coast to a stop, which is also what people do after a crash. */
+      if (s > 4) c.drive.stops = [{ s, j: jSig, arm, until: INCIDENT_TICK + 150 }];
+    }
   }
 
   // spawn-overlap safety net: no two cars may materialize inside each other,

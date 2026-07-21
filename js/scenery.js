@@ -1005,6 +1005,13 @@ function trafficLight(r, M) {
   brace.position.set(0.62, 4.55, 0);
   brace.rotation.z = 1.05;
   g.add(brace);
+  /* The draw stays even though a signalled light overrides it: it is the
+     aspect shown wherever nothing drives the signal (the showroom, the
+     contact sheet, a light placed as plain dressing), and removing it would
+     shift this prop's build stream for no gain.
+     P2/2I: each lamp is TAGGED (`sigLamp` 0=red 1=amber 2=green) and opted out
+     of merging, because main.js merges prop groups by material and a merged
+     lamp cannot be lit independently of the pole it fused with. */
   const lit = r.int(0, 2);
   const makeHead = (hx, hy) => {
     const head = box(M('#22252a', { rough: 0.7 }), 0.2, 0.82, 0.3);
@@ -1013,6 +1020,8 @@ function trafficLight(r, M) {
     ['#e04338', '#e8a02e', '#3ecf5a'].forEach((hex, i) => {
       const lamp = cyl(M(hex, { rough: 0.3, env: 1.1, emissive: hex, emInt: i === lit ? 1.7 : 0.12 }), { r: 0.095, len: 0.05, axis: 'x', seg: 10 });
       lamp.position.set(hx + 0.11, hy + 0.26 - i * 0.26, 0);
+      lamp.userData.sigLamp = i;
+      lamp.userData.noMerge = true;
       g.add(lamp);
       const visor = box(M('#16181c', { rough: 0.8 }), 0.12, 0.03, 0.22);
       visor.position.set(hx + 0.15, hy + 0.37 - i * 0.26, 0);

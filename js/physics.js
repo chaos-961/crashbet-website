@@ -15,6 +15,7 @@ import { buildRoad, buildJunction } from './roads.js';
 // geometry it does not build here), so the sim may sample the SAME height
 // field the visual mesh uses and cannot drift from it.
 import { makeHeightField } from './terrain.js';
+import { signalAt, GREEN, AMBER } from './signals.js';
 import { generateWorld } from './worldgen.js';
 import { generateScene } from './director.js';
 
@@ -376,6 +377,14 @@ function makeDriver(drive) {
     end: drive.end || 'stop',
     cmds: drive.cmds || [],
     acc: drive.acc || 0, // ambient car-following; >1 = full-attention tick bound (see driveTick)
+    /* Signal stop lines, COPIED rather than referenced. `drive.stops` lives on
+       the scenario, and the scenario is shared between the headless recorder
+       sim and the live one — latching "I am through this junction" onto the
+       spec would let the pre-sim hand its progress to the round the player
+       watches, which is the one thing that must never happen. */
+    stops: (drive.stops || []).map((s) => ({
+      s: s.s, j: s.j, arm: s.arm, until: s.until == null ? Infinity : s.until, done: false,
+    })),
     seg: 0, ci: 0,
     vt: drive.v || 0, bias: 0, off: false, noBrake: false, brakeMax: 1,
     done: false,
@@ -417,7 +426,8 @@ function driveTick(sim, car, tick) {
   }
   // remaining path length from our projected position to the terminus
   const segLen = d.cum[d.seg + 1] - d.cum[d.seg];
-  const remainPath = Math.max(0, d.total - (d.cum[d.seg] + segFrac * segLen));
+  const arcNow = d.cum[d.seg] + segFrac * segLen;
+  const remainPath = Math.max(0, d.total - arcNow);
   // goal point: walk the lookahead distance along the polyline from our projection
   const L = clamp(0.55 * Math.abs(v) + 2.5, 3.5, 13);
   let gx = P[d.n * 2 - 2], gz = P[d.n * 2 - 1];
@@ -520,12 +530,51 @@ function driveTick(sim, car, tick) {
       if (cap < vt) vt = cap;
     }
   }
+  /* SIGNAL STOP LINES (P2/2I). Same anticipatory shape as the end-of-path
+     brake above — v² = 2·a·s onto the bar — so a car eases up to a red and
+     holds instead of stamping on it. Arithmetic only, and the signal is a
+     pure function of the tick, so this stays bit-deterministic.
+
+     AMBER is a dilemma zone, not a second red: a car already too close to
+     stop comfortably must GO. Braking regardless is how you manufacture the
+     rear-end this whole file exists to prevent, and it would land before tick
+     600 where nothing is allowed to touch. */
+  let holdAtLine = false;
+  if (d.stops.length && sim && sim.signals) {
+    for (let k = 0; k < d.stops.length; k++) {
+      const st = d.stops[k];
+      if (st.done) continue;
+      if (tick > st.until) { st.done = true; continue; } // see `until` in director.js
+      const dist = st.s - arcNow;
+      /* Latch on being GENUINELY through (a car length past), never on being
+         merely close. Releasing at "almost there" is how the first version
+         let a car ease up to the bar and then, the moment it got within
+         20 cm, drop the constraint and accelerate straight through the red —
+         it came to rest 4 m into the junction. Holding down to −1.2 m instead
+         means a nose over the line still gets pinned. */
+      if (dist < -1.2) { st.done = true; continue; }
+      if (dist > 110) continue;                       // not yet its problem
+      const state = signalAt(sim.signals[st.j], st.arm, tick);
+      if (state === GREEN) continue;
+      const av = Math.abs(v);
+      // can we still pull up? (0.55 m of slack for the nose)
+      const needed = (av * av) / (2 * 3.2);
+      if (state === AMBER && needed > dist - 0.55) continue;
+      const vLim = Math.sqrt(2 * 3.2 * Math.max(0, dist - 0.55));
+      if (vLim < vt) vt = vLim;
+      if (dist < 2.2) holdAtLine = true;
+    }
+  }
   // speed control
   const dv = vt - v;
   let throttle = clamp(dv * 0.42, 0, 1);
   let brake = 0;
   if (dv < -0.8 && !d.noBrake) brake = clamp(-dv * 0.5, 0, d.brakeMax);
   if (d.done && d.end === 'stop' && Math.abs(v) < 0.4) { throttle = 0; brake = 1; }
+  // waiting at a red: hold hard rather than creep. The anticipatory limit
+  // alone decays asymptotically, leaving a car idling forward at ~0.6 m/s —
+  // which over a 200-tick red walks it into the middle of the junction.
+  if (holdAtLine && Math.abs(v) < 1.2) { throttle = 0; brake = 1; }
   return { steer, throttle, brake };
 }
 
@@ -705,10 +754,15 @@ export class CrashSim {
     // share the scene root (and therefore wetness, merging and disposal).
     // No body is created here, which is why adding them cannot move a pin.
     this.junctions = [];
+    // signal programs, indexed alongside junctions. Plain data evaluated by a
+    // pure function of the tick — nothing here carries state between steps,
+    // so a scrub that jumps backwards gets the same lights the forward run had.
+    this.signals = [];
     for (const spec of (this.scenario.junctions || [])) {
       const built = buildJunction(spec);
       this.root.add(built.group);
       this.junctions.push({ spec, group: built.group });
+      this.signals.push(spec.signal || null);
     }
     this.props = [];
     for (const spec of (this.scenario.props || [])) this._addPropRig(spec);

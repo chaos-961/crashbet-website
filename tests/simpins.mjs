@@ -62,7 +62,19 @@ const PINS = {
   // from this very scenario leaves all 300 tick hashes bit-identical
   // (collider count 510 either way). The geometry hash did not move at all —
   // the crash still crumples exactly as it did.
-  director: ['2ebef4fc', '44620267'],
+  //
+  // moved again in P2/2I+2J (was 2ebef4fc/44620267), intentionally and for
+  // the first time in BOTH hashes — the crash itself is different because the
+  // cast is different:
+  //   1. traffic signals. 'pin-1' d4 is an intersection, so its junction now
+  //      carries a signal program and its ambient traffic carries stop lines;
+  //      cars brake for red and hold at the bar.
+  //   2. cast size 3-8 → 4-10, plus up to four cars deliberately queued on
+  //      whichever arm is red at the freeze.
+  // Both are scene CONTENT changes, which Phase 2 exists to make. The geometry
+  // hash moving alongside is expected here and is not evidence of a physics
+  // change: no force, material or solver parameter was touched.
+  director: ['d84820dd', 'ea7b2a6e'],
   worldgen: ['20bf2a4d', '418447b5'],
 };
 

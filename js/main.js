@@ -9,6 +9,7 @@ import { RoomEnvironment } from '../libs/RoomEnvironment.js';
 import { buildVehicle, REG } from './vehicles.js';
 import { PROPS, SCENERY, buildProp } from './props.js';
 import { buildRoad } from './roads.js';
+import { signalAt } from './signals.js';
 import { disposeGroup, clamp, makeRng, mergeByMaterial } from './lib.js';
 import { initEnv, ENVS } from './env.js';
 import { rollWeather, initWeather, applyWetness } from './weather.js';
@@ -1063,6 +1064,7 @@ function roundLoad(show, pct, label, sub) {
 function destroyRound() {
   if (!round) return;
   targetMap = null; hoverGroup = null;
+  sigLamps = null;      // these hold materials from a sim about to be disposed
   povRig = null; activePov = null;
   env.setWater(null); // otherwise the channel follows you into the showroom
   env.setTerrain(null); // ditto the landscape
@@ -1203,6 +1205,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
       freezeMatrices(rec.group);
     }
     targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
+    buildSignalLamps(sim);  // after the prop merge — noMerge lamps survive it
     scene.add(sim.root);
     povRig = buildLoadout(sc, seed, d, povFocus());
     activePov = null;
@@ -1366,6 +1369,7 @@ function seekPreview(tick) {
     // reset() builds FRESH meshes, so every Object3D the crosshair knows
     // about is now detached garbage — the map has to be rebuilt with it.
     targetMap = buildTargetMap(sim);
+    buildSignalLamps(sim); // reset() rebuilt the meshes: re-grab the materials
     hoverGroup = null;
   }
   // Step silently. The six sim hooks are render-side (particles, audio, the
@@ -1432,6 +1436,43 @@ function resumeRound() {
 // renders the same physical recap plus the bet-by-bet result)
 
 // per-frame round update — called from the frame loop
+/* Traffic signal lamps (P2/2I) — render side only, reading sim state exactly
+   like fx does and writing nothing back. The aspect itself is decided by the
+   sim (the drivers obey it), so this only ever mirrors it: what a player reads
+   off the mast is by construction what the cars are reacting to.
+
+   Collected once per round rather than traversed every frame, and skipped
+   entirely when the aspect has not changed — a signal holds one colour for
+   ~200 ticks, so this is a no-op on all but a handful of frames and must not
+   defeat render-on-demand. */
+let sigLamps = null;
+function buildSignalLamps(sim) {
+  sigLamps = [];
+  if (!sim || !sim.signals || !sim.signals.some(Boolean)) return;
+  for (const rec of sim.props) {
+    const sig = rec.spec && rec.spec.sig;
+    if (!sig) continue;
+    const lamps = [[], [], []];
+    rec.group.traverse((o) => {
+      if (o.isMesh && o.userData.sigLamp !== undefined) lamps[o.userData.sigLamp].push(o.material);
+    });
+    if (lamps[0].length) sigLamps.push({ sig, lamps, last: -1 });
+  }
+}
+function syncSignalLamps(sim) {
+  if (!sigLamps || !sigLamps.length) return;
+  for (const e of sigLamps) {
+    const state = signalAt(sim.signals[e.sig.j], e.sig.arm, sim.tick);
+    if (state === e.last) continue;
+    e.last = state;
+    for (let i = 0; i < 3; i++) {
+      const on = i === state;
+      for (const m of e.lamps[i]) { m.emissiveIntensity = on ? 1.9 : 0.1; m.needsUpdate = false; }
+    }
+    invalidate();
+  }
+}
+
 function roundUpdate(dt, now) {
   if (!round || !inGame) return false;
   if (crashSlowT && now > crashSlowT) { round.sim.speed = 1; crashSlowT = 0; }
@@ -1447,6 +1488,7 @@ function roundUpdate(dt, now) {
   }
   sim.update(dt);
   sim.syncVisuals();
+  syncSignalLamps(sim);
   if (crashFx.update(dt, camera)) busy = true;
 
   if (round.phase === 'preview') {
@@ -1467,6 +1509,7 @@ function roundUpdate(dt, now) {
         crashFx.detachSim();
         round.strip = buildStrip(sim, round.incidentTick);
         targetMap = buildTargetMap(sim);
+    buildSignalLamps(sim); // reset() rebuilt the meshes: re-grab the materials
         hoverGroup = null;
         crashFx.attach(sim);
         hookRoundCinematics(sim);
