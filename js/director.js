@@ -230,12 +230,22 @@ function topoIntersection(rTopo, rDress) {
   // stubs run to ±145: a 10 s approach at road speed is >100 m, so short
   // arms silently throttled every actor to a crawl (found in the G1 sweeps)
   const A = 145;
+  /* P2: a real junction replaces the 13 × 13 m `asphalt_patch` prop. Stubs
+     start at STUB and the junction reaches past them to REACH, so each blunt
+     road end is covered by junction asphalt 2 mm below it — no z-fight, no
+     seam, and the road's own lane lines now stop just outside the stop bar
+     instead of running straight through the crossing. */
+  const STUB = 7.4, REACH = 9.6;
   const roads = [
-    { pts: [{ x: -A, z: 0 }, { x: -A / 2, z: 0 }, { x: -6.3, z: 0 }], w: 8, loop: 0, style: 1 },
-    { pts: [{ x: 6.3, z: 0 }, { x: A / 2, z: 0 }, { x: A, z: 0 }], w: 8, loop: 0, style: 1 },
-    { pts: [{ x: 0, z: -A }, { x: 0, z: -A / 2 }, { x: 0, z: -6.3 }], w: 7, loop: 0, style: 0 },
-    { pts: [{ x: 0, z: 6.3 }, { x: 0, z: A / 2 }, { x: 0, z: A }], w: 7, loop: 0, style: 0 },
+    { pts: [{ x: -A, z: 0 }, { x: -A / 2, z: 0 }, { x: -STUB, z: 0 }], w: 8, loop: 0, style: 1 },
+    { pts: [{ x: STUB, z: 0 }, { x: A / 2, z: 0 }, { x: A, z: 0 }], w: 8, loop: 0, style: 1 },
+    { pts: [{ x: 0, z: -A }, { x: 0, z: -A / 2 }, { x: 0, z: -STUB }], w: 7, loop: 0, style: 0 },
+    { pts: [{ x: 0, z: STUB }, { x: 0, z: A / 2 }, { x: 0, z: A }], w: 7, loop: 0, style: 0 },
   ];
+  const junctions = [{
+    x: 0, z: 0, reach: REACH, style: 1 | 2 | 4 | 8, // bars · walks · box · arrows
+    arms: [{ a: 0, w: 8 }, { a: Math.PI, w: 8 }, { a: -Math.PI / 2, w: 7 }, { a: Math.PI / 2, w: 7 }],
+  }];
   const mk = (x0, z0, x1, z1, w, road) => {
     const pts = [];
     const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2.5);
@@ -248,7 +258,7 @@ function topoIntersection(rTopo, rDress) {
     mk(-1.75, -A, -1.75, A, 7, 'ns'), // 2: N→S (travelling +z, right side −x)
     mk(1.75, A, 1.75, -A, 7, 'ns'),   // 3: S→N
   ];
-  const props = [{ kind: 'asphalt_patch', x: 0, z: 0, heading: 0, seed: String(rDress.int(1, 9999)) }];
+  const props = [];
   const S = (kind, x, z, heading) => props.push({ kind, x, z, heading, seed: String(rDress.int(1, 9999)) });
   // signals on opposing corners (cosmetic state for now — G3 parameterizes),
   // street furniture on the other two
@@ -265,7 +275,7 @@ function topoIntersection(rTopo, rDress) {
   return {
     name: 'intersection',
     world: { arena: A * 2 + 20, env: 'city', ground: A + 22 },
-    roads, props, lanes,
+    roads, junctions, props, lanes,
     crossings: [[0, 2], [0, 3], [1, 2], [1, 3]],
   };
 }
@@ -392,7 +402,12 @@ function topoTramCrossing(rTopo, rDress, vBase) {
   ];
   const props = [];
   const S = dress(props, rDress);
-  S('asphalt_patch', 0, 0, 0);
+  // keep-clear box only: a level crossing is not a signalized junction, and
+  // "do not stop on the tracks" is exactly what the yellow box means
+  const junctions = [{
+    x: 0, z: 0, reach: 9.6, style: 4,
+    arms: [{ a: 0, w: 8 }, { a: Math.PI, w: 8 }, { a: -Math.PI / 2, w: 6.5 }, { a: Math.PI / 2, w: 6.5 }],
+  }];
   S('toll_gate', 9.5, 6.5, 0);
   S('toll_gate', -9.5, -6.5, Math.PI);
   S('sign_warn', 13, 8.5, Math.PI / 2);
@@ -410,7 +425,7 @@ function topoTramCrossing(rTopo, rDress, vBase) {
   return {
     name: 'tramcrossing',
     world: { arena: A * 2 + 20, env: 'proving', ground: A + 22 },
-    roads, props, lanes,
+    roads, junctions, props, lanes,
     crossings: [[0, 2], [0, 3], [1, 2], [1, 3]],
   };
 }
@@ -455,7 +470,23 @@ function topoRoundabout(rTopo, rDress, vBase) {
   ];
   const props = [];
   const S = dress(props, rDress);
-  S('asphalt_patch', 0, 0, 0);
+  /* The patch prop here was doing nothing useful: a 13 × 13 m square of
+     asphalt centred on the origin, which on a ring of radius 21 (asphalt 17
+     → 25) lands entirely on the GRASS ISLAND. It hid no seam. The actual
+     seam is at each stub mouth, where the stub starts at G = R + 4.4 = 25.4
+     and the ring's outer edge is 25 — a bare sliver of ground crossing every
+     entry. A 2-arm junction is a plain apron: it fillets nothing (collinear
+     arms have no corner) and simply lays asphalt from inside the ring to
+     past the stub start, under both, closing the gap for good. */
+  const junctions = [];
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    junctions.push({
+      x: Math.cos(a) * (R + 2.2), z: Math.sin(a) * (R + 2.2),
+      reach: 3.4, style: 0,
+      arms: [{ a, w: 8 }, { a: a + Math.PI, w: 8 }],
+    });
+  }
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     S('sign_yield', Math.cos(a) * (R + 7), Math.sin(a) * (R + 7), a);
@@ -476,7 +507,7 @@ function topoRoundabout(rTopo, rDress, vBase) {
   return {
     name: 'roundabout',
     world: { arena: A * 2 + 20, env: 'city', ground: A + 22 },
-    roads, props, lanes,
+    roads, junctions, props, lanes,
     crossings: [[0, 2], [0, 3], [1, 2], [1, 3]],
   };
 }
@@ -1193,8 +1224,10 @@ export function generateScene(seed, d = 1) {
   // prop scrub: generated props that encroach on a lane path get dropped —
   // an ambient car grazing a sign at tick 250 breaks the quiet preview
   // (the junction patch is AT the lanes by design and has no colliders)
+  // (the asphalt_patch exemption that used to sit here is gone with the prop:
+  // junctions are scenario content, not dressing, so nothing has to be
+  // exempted from a scrub designed to keep dressing off the lanes)
   topo.props = topo.props.filter((pr) => {
-    if (pr.kind === 'asphalt_patch') return true;
     for (const l of topo.lanes) {
       for (let i = 0; i < l.pts.length; i += 2) {
         const dx = pr.x - l.pts[i], dz = pr.z - l.pts[i + 1];
@@ -1434,7 +1467,6 @@ export function generateScene(seed, d = 1) {
   // inside one whose centre was 7.9 m away).
   const BIG_PROP = { house: 10, shop: 10, building_city: 12, gazebo: 6, hedge: 5, guardrail: 4.5 };
   const props = topo.props.filter((pr) => {
-    if (pr.kind === 'asphalt_patch') return true;
     const rr = BIG_PROP[pr.kind] || 3.8;
     for (const c of cars) {
       const dx = pr.x - c.x, dz = pr.z - c.z;
@@ -1454,6 +1486,7 @@ export function generateScene(seed, d = 1) {
     // front so a topology can still override gravity or walls deliberately.
     world: { gravity: 9.81, walls: false, ...topo.world, arena: topo.world.arena || 100 },
     roads: topo.roads,
+    junctions: topo.junctions || [],
     props,
     cars,
     meta: {

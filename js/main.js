@@ -1183,7 +1183,11 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     // asphalt reads as a bug — so the road surface has to carry it. Roads only:
     // materials are per-build, so this cannot leak into the next round, and the
     // terrain is deliberately left alone (grass and rock do not gloss).
-    if (wx.wetness > 0) applyWetness(sim.roads.map((r) => r.group), wx.wetness);
+    // junctions are asphalt too — leaving them dry put a bone-dry square in
+    // the middle of a wet intersection, the one place the camera always looks
+    if (wx.wetness > 0) {
+      applyWetness([...sim.roads, ...(sim.junctions || [])].map((r) => r.group), wx.wetness);
+    }
     // Freeze everything the sim will never pose. Roads are static by contract
     // (the group is never transformed) and a prop's `group` holds whatever was
     // left after the dynamic bodies re-parented their nodes to sim.root — so
@@ -1192,6 +1196,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     // here for the same reason: colliders are explicit recipes, never parsed
     // from geometry, and fx reads `rec.spec` rather than any mesh.
     for (const rec of sim.roads) { mergeByMaterial(rec.group); freezeMatrices(rec.group); }
+    for (const rec of (sim.junctions || [])) { mergeByMaterial(rec.group); freezeMatrices(rec.group); }
     for (const rec of sim.props) {
       if (rec.dyn.some((d) => d.node === rec.group)) continue;
       mergeByMaterial(rec.group);

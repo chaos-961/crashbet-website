@@ -150,6 +150,225 @@ function meshFrom(out, mat) {
   return m;
 }
 
+/* ---------------- junctions (P2) ----------------
+   Before this, an "intersection" was four road stubs stopping 6.3 m short of
+   the origin with a 13 × 13 m `asphalt_patch` PROP dropped in the hole: a
+   fixed square that only fitted an 8 m + 7 m perpendicular cross, carried no
+   markings whatsoever, and could not be sized, skewed or given a third arm.
+
+   buildJunction(spec) -> { group, shapes }. `shapes` is ALWAYS empty — the
+   junction is flat asphalt lying on the y-0 ground plane, so the world's
+   ground slab already holds cars up and nothing here can move a pinned hash.
+   It keeps buildRoad's return shape so callers treat the two the same.
+
+   spec: { x, z, arms: [{ a, w }, ...], reach, fillet, style }
+     a       heading of the arm, pointing AWAY from the centre
+     w       that arm's road width
+     reach   how far the asphalt runs along each arm. Road stubs should START
+             just inside it, so their blunt ends are covered by the junction.
+     style   bit0 stop bars · bit1 crosswalks · bit2 keep-clear box ·
+             bit3 turn arrows
+
+   Everything is drawn 2 mm BELOW the equivalent road layer, which is the one
+   decision the whole file hangs off: a stub may overlap the junction freely
+   without z-fighting, so the polygon never has to be tangent to anything and
+   the arms can be any width at any angle. It is the same trick the patch prop
+   used; the patch's mistake was being a fixed-size square rather than a shape
+   derived from the arms actually meeting. */
+const Y_JUNCT = Y_ASPHALT - 0.002;
+const Y_JMARK = Y_MARK - 0.002;
+
+/* Fan a WORLD-space ring (increasing θ about C) into +Y-facing triangles.
+   The reversal is the same handedness rule as pushStrip, arrived at the same
+   way: walking a ring in increasing θ makes radial × tangential = −Y, so the
+   natural (C, pᵢ, pᵢ₊₁) order faces DOWN. Fourth instance of this trap in the
+   project; the tell is a junction that is present, lit and invisible. */
+function pushRing(out, y, cx, cz, ring) {
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i], q = ring[(i + 1) % ring.length];
+    out.push(cx, y, cz, q[0], y, q[1], p[0], y, p[1]);
+  }
+}
+
+/* Fan a polygon given in an ARM's (s = along, o = across) frame. Here
+   d × n = +Y — the identical basis pushStrip sweeps — so a counter-clockwise
+   polygon in (s, o) needs NO reversal. The two rules look contradictory and
+   are not: the world ring is parameterised by θ, whose tangent is −n. */
+function pushLocal(out, y, F, pts) {
+  const w = ([s, o]) => [F.x + F.dx * s + F.nx * o, F.z + F.dz * s + F.nz * o];
+  const a = w(pts[0]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const b = w(pts[i]), c = w(pts[i + 1]);
+    out.push(a[0], y, a[1], b[0], y, b[1], c[0], y, c[1]);
+  }
+}
+// axis-aligned rect in an arm frame; ordered here so callers cannot wind it
+// backwards by passing the bounds in the order that reads naturally
+function rectL(out, y, F, s0, s1, o0, o1) {
+  const sa = Math.min(s0, s1), sb = Math.max(s0, s1);
+  const oa = Math.min(o0, o1), ob = Math.max(o0, o1);
+  pushLocal(out, y, F, [[sa, oa], [sb, oa], [sb, ob], [sa, ob]]);
+}
+// rotate a frame about its own origin, preserving d × n = +Y
+const rotF = (F, c, s) => ({
+  x: F.x, z: F.z,
+  dx: F.dx * c + F.nx * s, dz: F.dz * c + F.nz * s,
+  nx: F.nx * c - F.dx * s, nz: F.nz * c - F.dz * s,
+});
+
+/* Curb-return fillet between arm A's left edge and arm B's right edge.
+   The corner of a plus-shape is REFLEX, so rounding it ADDS asphalt: the arc
+   is tangent to both road edges and bulges toward the sharp corner, which is
+   exactly what a real curb return does.
+
+   Centre solves (X−P)·a = (X−P)·b = r for unit outward normals a, b, giving
+   X = P + r(a+b)/(1+a·b). Both tangent points then slide outward along their
+   edges LINEARLY in r, so the largest r that still fits inside `reach` has a
+   closed form — no search, no iteration, nothing engine-dependent. */
+function pushFillet(ring, cx, cz, A, B, reach, rSpec) {
+  const cross = A.dx * B.dz - A.dz * B.dx;
+  if (Math.abs(cross) < 1e-4) return;          // collinear arms: no corner exists
+  const ax = -A.nx, az = -A.nz;                // outward normal of A's left edge
+  const bx = B.nx, bz = B.nz;                  // outward normal of B's right edge
+  const dot = ax * bx + az * bz;
+  const den = 1 + dot;
+  if (den < 0.08) return;                      // arms double back: no sane fillet
+  // intersection of the two edge lines, in C-relative coordinates
+  const pAx = -A.nx * A.h, pAz = -A.nz * A.h;
+  const pBx = B.nx * B.h, pBz = B.nz * B.h;
+  const t = ((pBx - pAx) * B.dz - (pBz - pAz) * B.dx) / cross;
+  const px = pAx + A.dx * t, pz = pAz + A.dz * t;
+
+  const ux = (ax + bx) / den, uz = (az + bz) / den;
+  const sA0 = px * A.dx + pz * A.dz, sB0 = px * B.dx + pz * B.dz;
+  const kA = (ux - ax) * A.dx + (uz - az) * A.dz;
+  const kB = (ux - bx) * B.dx + (uz - bz) * B.dz;
+  const lim = reach - 0.15;
+  let r = rSpec;
+  if (kA > 1e-6) r = Math.min(r, (lim - sA0) / kA);
+  if (kB > 1e-6) r = Math.min(r, (lim - sB0) / kB);
+  if (!(r > 0.35)) return;                     // no room: keep the sharp corner
+
+  const gx = px + ux * r, gz = pz + uz * r;
+  const a0 = Math.atan2(-az * r, -ax * r);
+  const a1 = Math.atan2(-bz * r, -bx * r);
+  let da = a1 - a0;                            // a curb return is always < π
+  while (da > Math.PI) da -= Math.PI * 2;
+  while (da < -Math.PI) da += Math.PI * 2;
+  const n = Math.max(2, Math.round(r * 1.7));
+  for (let i = 0; i <= n; i++) {
+    const th = a0 + (da * i) / n;
+    ring.push([cx + gx + Math.cos(th) * r, cz + gz + Math.sin(th) * r]);
+  }
+}
+
+// Deterministic like buildRoad: zero randomness, same spec ⇒ same mesh.
+export function buildJunction(spec) {
+  const g = new THREE.Group();
+  const cx = spec.x || 0, cz = spec.z || 0;
+  const style = spec.style || 0;
+  const arms = (spec.arms || []).map((A, i) => {
+    const a = A.a || 0;
+    const dx = Math.cos(a), dz = Math.sin(a);
+    // nx/nz is the LEFT normal, matching frameAt and lanesOfRoad exactly
+    return { key: ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2), ord: i, h: clamp(A.w || 7, 4, 14) / 2, dx, dz, nx: dz, nz: -dx };
+  });
+  if (arms.length < 2) return { group: g, shapes: [] };
+  // build-order tie-break for the same reason sortLanes has one: two arms at
+  // the same angle must not let float noise decide the ring order
+  arms.sort((p, q) => (p.key - q.key) || (p.ord - q.ord));
+
+  const hmax = arms.reduce((m, A) => Math.max(m, A.h), 0);
+  const reach = spec.reach || hmax + 5.6;
+  const fillet = spec.fillet || Math.min(4.6, hmax * 1.15);
+
+  const ring = [];
+  for (let k = 0; k < arms.length; k++) {
+    const A = arms[k], B = arms[(k + 1) % arms.length];
+    // the arm's own mouth, clockwise corner first (+n sits at the SMALLER θ)
+    ring.push([cx + A.dx * reach + A.nx * A.h, cz + A.dz * reach + A.nz * A.h]);
+    ring.push([cx + A.dx * reach - A.nx * A.h, cz + A.dz * reach - A.nz * A.h]);
+    pushFillet(ring, cx, cz, A, B, reach, fillet);
+  }
+  const asphalt = [];
+  pushRing(asphalt, Y_JUNCT, cx, cz, ring);
+
+  const white = [], gold = [];
+  const stopBars = !!(style & 1), walks = !!(style & 2);
+  const keepClear = !!(style & 4), arrows = !!(style & 8);
+  /* Markings key off the CONFLICT extent, never off `reach`. A cross road of
+     half-width h meeting this arm at angle θ has its edge crossing this arm's
+     axis at h/|sin θ| — so an opposite arm contributes nothing (a T junction
+     gets its bar where the stem is, not pushed out by the far arm), a
+     perpendicular one contributes h, and a skew one correctly contributes
+     more than h. Near-parallel arms diverge, so they are gated out, and the
+     whole thing is capped to leave room inside the apron. */
+  const hxOf = (A) => {
+    let hx = 0;
+    for (const B of arms) {
+      if (B === A) continue;
+      const sin = Math.abs(A.dx * B.dz - A.dz * B.dx);
+      if (sin > 0.25) hx = Math.max(hx, B.h / sin);
+    }
+    return Math.min(hx, reach - 4.2);
+  };
+  for (const A of arms) {
+    const F = { x: cx, z: cz, dx: A.dx, dz: A.dz, nx: A.nx, nz: A.nz };
+    const hx = hxOf(A);
+    /* The APPROACH lane occupies offsets 0..+h along n. Traffic inbound on
+       this arm travels −d, and the right-hand side of −d is +n under the
+       left-normal convention — the same arithmetic that puts lane 1 of a
+       W↔E road at z = −2. Getting this mirrored paints every stop bar and
+       arrow in the oncoming lane, which no test would ever report. */
+    if (walks) {
+      for (let o = -A.h + 0.45; o <= A.h - 0.45; o += 0.95) {
+        rectL(white, Y_JMARK, F, hx + 0.5, hx + 2.8, o - 0.26, o + 0.26);
+      }
+    }
+    if (stopBars) rectL(white, Y_JMARK, F, hx + 3.2, hx + 3.7, 0.12, A.h - 0.18);
+    if (arrows) {
+      const c = A.h * 0.5, s = hx + 7.5;        // straight-ahead, pointing in
+      rectL(white, Y_JMARK, F, s, s + 2.4, c - 0.17, c + 0.17);
+      pushLocal(white, Y_JMARK, F, [[s - 0.95, c], [s, c - 0.62], [s, c + 0.62]]);
+    }
+  }
+  if (keepClear) {
+    /* The box marks the CONFLICT area, and it has to sit INSIDE the
+       crosswalks or its corners end up buried in the bars — which is what a
+       square of hmax did. The conflict area is a rectangle, not a square:
+       half-extent ALONG the widest arm is where the cross road's edge cuts
+       its axis (hxOf), half-extent ACROSS is that arm's own half-width. Built
+       in the arm's frame, so a skew junction gets a skew box instead of one
+       stapled to the world axes. */
+    const wide = arms.reduce((m, A) => (A.h > m.h ? A : m), arms[0]);
+    const F = { x: cx, z: cz, dx: wide.dx, dz: wide.dz, nx: wide.nx, nz: wide.nz };
+    const qs = Math.max(1.5, hxOf(wide)), qo = wide.h, t = 0.15;
+    rectL(gold, Y_JMARK, F, -qs, qs, qo - t, qo + t);
+    rectL(gold, Y_JMARK, F, -qs, qs, -qo - t, -qo + t);
+    rectL(gold, Y_JMARK, F, qs - t, qs + t, -qo, qo);
+    rectL(gold, Y_JMARK, F, -qs - t, -qs + t, -qo, qo);
+    /* Hatch at 45°. In the rotated frame a point (s, o) sits at ((s−o)/√2,
+       (s+o)/√2) in the box's own frame, so the two slab constraints are
+       |s−o| ≤ qs√2 and |s+o| ≤ qo√2 — each bar's extent solves in closed
+       form and no clipping pass is needed. (A square is the special case
+       where this collapses to the old q√2 − |o|.) */
+    const D = rotF(F, Math.SQRT1_2, Math.SQRT1_2);
+    const S2 = Math.SQRT2, span = (qs + qo) / S2, nB = 5;
+    for (let i = 0; i < nB; i++) {
+      const o = -span + ((2 * span) / nB) * (i + 0.5);
+      const lo = Math.max(o - qs * S2, -o - qo * S2) + 0.08;
+      const hi = Math.min(o + qs * S2, -o + qo * S2) - 0.08;
+      if (hi - lo > 0.4) rectL(gold, Y_JMARK, D, lo, hi, o - 0.13, o + 0.13);
+    }
+  }
+
+  const M = matFactory();
+  g.add(meshFrom(asphalt, M('#3d4046', { rough: 0.96, env: 0.3 })));
+  if (white.length) g.add(meshFrom(white, M('#c9ccd1', { rough: 0.8, env: 0.35 })));
+  if (gold.length) g.add(meshFrom(gold, M('#d7a83c', { rough: 0.8, env: 0.35 })));
+  return { group: g, shapes: [] };
+}
+
 // Deterministic: same spec ⇒ identical geometry + identical collider recipe.
 export function buildRoad(spec) {
   const w = clamp(spec.w || ROAD_DEFAULTS.w, 4, 14);

@@ -50,7 +50,19 @@ const PINS = {
   // cars 7 m apart in space can be 100 m apart along the lane pointing at
   // each other — that exemption put a head-on at tick 25. The scrub now
   // requires closeness in BOTH space and arc length, which shifts the cast.
-  director: ['d4276a3c', '44620267'],
+  //
+  // moved again in P2/2A (was d4276a3c/44620267), intentionally, from TWO
+  // deliberate changes to topoIntersection — which is what 'pin-1' d4 deals:
+  //   1. the stubs now start at ±7.4 instead of ±6.3, so every curb collider
+  //      shifted along its road;
+  //   2. the `asphalt_patch` prop is gone, and with it one rDress draw, so
+  //      the whole dressing stream re-rolls.
+  // The junctions that replaced the patch are NOT a cause and cannot be:
+  // buildJunction returns an empty `shapes` list, and stripping `junctions`
+  // from this very scenario leaves all 300 tick hashes bit-identical
+  // (collider count 510 either way). The geometry hash did not move at all —
+  // the crash still crumples exactly as it did.
+  director: ['2ebef4fc', '44620267'],
   worldgen: ['20bf2a4d', '418447b5'],
 };
 

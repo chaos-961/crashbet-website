@@ -10,7 +10,7 @@ import { buildVehicle } from './vehicles.js';
 import { makeRng, clamp, disposeGroup } from './lib.js';
 import { makeDeformState, applyImpact, flushDeform } from './deform.js';
 import { buildProp } from './props.js';
-import { buildRoad } from './roads.js';
+import { buildRoad, buildJunction } from './roads.js';
 import { generateWorld } from './worldgen.js';
 import { generateScene } from './director.js';
 
@@ -628,6 +628,16 @@ export class CrashSim {
     }
     this.roads = [];
     for (const spec of (this.scenario.roads || [])) this._addRoadRig(spec);
+    // Junctions are asphalt lying on the y-0 ground plane and emit NO
+    // colliders, so they are built between roads and props purely so they
+    // share the scene root (and therefore wetness, merging and disposal).
+    // No body is created here, which is why adding them cannot move a pin.
+    this.junctions = [];
+    for (const spec of (this.scenario.junctions || [])) {
+      const built = buildJunction(spec);
+      this.root.add(built.group);
+      this.junctions.push({ spec, group: built.group });
+    }
     this.props = [];
     for (const spec of (this.scenario.props || [])) this._addPropRig(spec);
     this.cars = [];
@@ -1264,6 +1274,10 @@ export class CrashSim {
       this.root.remove(rec.group);
       disposeGroup(rec.group);
     }
+    for (const rec of (this.junctions || [])) {
+      this.root.remove(rec.group);
+      disposeGroup(rec.group);
+    }
     for (const d of this.debris) {
       this.root.remove(d.node);
       disposeGroup(d.node);
@@ -1273,6 +1287,7 @@ export class CrashSim {
     this.cars = [];
     this.props = [];
     this.roads = [];
+    this.junctions = [];
     this.debris = [];
   }
 
@@ -1472,8 +1487,12 @@ export const TEST_SCENARIOS = {
   // pins the driver controller AND the scene generator — any drift in lane
   // extraction, placement or pure-pursuit math moves the hash.
   director: (() => {
-    const sc = generateScene('pin-1', 4);
-    return { world: sc.world, roads: sc.roads, props: sc.props, cars: sc.cars };
+    // SPREAD, never re-list. The enumerated form is the exact shape that made
+    // the causeway generate a bridge over dry land for a whole phase (it
+    // dropped `world.water`), and it would have silently dropped `junctions`
+    // here too — leaving the pin certifying a scene the game never builds.
+    // A pin that bypasses part of the generator does not pin the generator.
+    return { ...generateScene('pin-1', 4) };
   })(),
   // world-building P3: a full generated suburb must replay bit-exact — this
   // also pins the generator itself (layout drift changes the hash)
