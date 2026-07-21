@@ -48,14 +48,24 @@ const KINDS = {
 };
 
 /* Weights per environment, because weather has to fit the place — a desert
-   blizzard reads as a bug, not as variety. Snow is weighted only where a cold
-   night is plausible until 1F lands the alpine and coastal presets. */
+   blizzard reads as a bug, not as variety. Every ENVS entry needs a table here
+   and tests/weather.mjs asserts it in BOTH directions: a preset without a table
+   silently inherits proving's weather, which is the exact shape of the bug that
+   let `city` render as a proving ground for the life of the project. */
 const WEIGHTS = {
   proving: { clear: 26, fair: 30, overcast: 16, drizzle: 8, rain: 8, downpour: 3, mist: 4, fog: 2, storm: 3 },
   salt:    { clear: 40, fair: 28, overcast: 10, dust: 14, mist: 3, storm: 5 },
   night:   { clear: 28, fair: 20, overcast: 17, drizzle: 8, rain: 9, mist: 6, fog: 4, snow: 5, storm: 3 },
   city:    { clear: 14, fair: 24, overcast: 26, drizzle: 12, rain: 12, downpour: 4, mist: 4, fog: 4 },
   grid:    { clear: 100 }, // the diagnostic preset stays legible
+  // 1F. Snow finally has somewhere it belongs (alpine), and dust stays on the
+  // two dry presets. Dawn leans to mist and fog because that is when both
+  // actually happen; dusk keeps the heavier stuff for the light to cut under.
+  dawn:    { clear: 30, fair: 28, overcast: 12, mist: 13, fog: 9, drizzle: 5, rain: 3 },
+  dusk:    { clear: 30, fair: 26, overcast: 14, drizzle: 8, rain: 8, mist: 6, storm: 8 },
+  alpine:  { clear: 24, fair: 22, overcast: 16, snow: 24, mist: 6, fog: 4, storm: 4 },
+  coastal: { clear: 22, fair: 26, overcast: 16, drizzle: 8, rain: 8, mist: 8, fog: 8, storm: 4 },
+  desert:  { clear: 40, fair: 26, dust: 22, overcast: 5, storm: 7 },
 };
 
 export const WEATHER_KINDS = Object.keys(KINDS);

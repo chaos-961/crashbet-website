@@ -42,6 +42,13 @@ const WATER_PRESETS = {
   night:   { deep: '#0a141f', shallow: '#16303f', silt: '#171b20', rock: '#23262c', foam: '#5f7285' },
   grid:    { deep: '#16222c', shallow: '#26414f', silt: '#232830', rock: '#2e3239', foam: '#9fb0bc' },
   city:    { deep: '#22333d', shallow: '#48646d', silt: '#33383a', rock: '#4a4e54', foam: '#d2dade' },
+  // 1F. The fresnel rim takes the live hazed horizon, so these only have to be
+  // right for the water's own body colour — the sky half looks after itself.
+  dawn:    { deep: '#1c2a3e', shallow: '#4a5f72', silt: '#33352f', rock: '#4a4a4c', foam: '#e8d8c8' },
+  dusk:    { deep: '#231d33', shallow: '#54455c', silt: '#332d30', rock: '#463c42', foam: '#e6c0aa' },
+  alpine:  { deep: '#123a4e', shallow: '#3f8a9c', silt: '#4a5058', rock: '#6d747c', foam: '#f4fafd' },
+  coastal: { deep: '#12455c', shallow: '#4fa0a8', silt: '#8a7f63', rock: '#8d8570', foam: '#f2f6f2' },
+  desert:  { deep: '#26404a', shallow: '#5b8a86', silt: '#8a7350', rock: '#9b8461', foam: '#f0e4cc' },
 };
 export const waterPreset = (id) => WATER_PRESETS[id] || WATER_PRESETS.proving;
 

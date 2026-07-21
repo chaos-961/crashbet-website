@@ -124,10 +124,18 @@ export const TERRAINS = {
 export const TERRAIN_IDS = Object.keys(TERRAINS);
 export const isTerrain = (id) => Object.prototype.hasOwnProperty.call(TERRAINS, id);
 
-// which landscape suits which environment preset, when a scene doesn't say
+// which landscape suits which environment preset, when a scene doesn't say.
+// Before 1F only `rolling` and `flats` were ever reached this way: alpine,
+// mesa, dunes, coastal and basin were authored and then had no env that asked
+// for them. The five new presets put three of them into play.
 export const TERRAIN_FOR_ENV = {
   proving: 'rolling', salt: 'flats', night: 'rolling', grid: 'flats',
   city: 'rolling',
+  dawn: 'rolling', dusk: 'rolling', alpine: 'alpine', coastal: 'coastal',
+  // mesa over dunes for the desert: terraces break the skyline and dunes read
+  // as a flat wash at this world's scale, which is the note terrain.js already
+  // makes about amplitude — silhouette beats surface
+  desert: 'mesa',
 };
 
 const RIDGE_AT = 255;   // distant band starts lifting here…

@@ -558,6 +558,13 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 .mchip:hover { background: rgba(255, 255, 255, 0.11); }
 .mchip.sel { background: rgba(255, 176, 58, 0.18); border-color: rgba(255, 176, 58, 0.6); color: #ffcf8a; }
+/* 38 px on a touch screen is under the 44 px minimum. It was already wrong at
+   5 chips; 1F took the environment row to 10, which turns one short row into
+   five of them on a 320 px phone, so it stops being a rounding error. Padding
+   rather than height so the pill keeps its shape as the label length varies. */
+@media (pointer: coarse) {
+  .mchip { padding: 12px 14px; }
+}
 
 /* rotate hint — portrait touch devices while in game */
 #rotate {

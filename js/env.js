@@ -19,6 +19,24 @@ export const ENVS = [
   // missing — so add the preset rather than edit the director, which keeps
   // every generated scenario byte-identical.
   { id: 'city', label: 'City Overcast' },
+  /* 1F: 5 -> 10. Nothing PICKS from this array — every env id is named
+     explicitly by the director and worldgen — so adding entries cannot shift a
+     generated scene and no pin can move. Same safety-by-construction the
+     scenery registry has, and the reason this is a table edit rather than a
+     phase-2 change. They are reachable immediately: Settings lists ENVS.
+
+     These are PLACES and TIMES, not conditions. The plan named `overcast` and
+     `storm` here, and after 1B landed weather that would be saying the same
+     thing twice — a storm is already expressible on every preset, and WEIGHTS
+     decides where it fits. A `storm` PLACE would also have to answer what it
+     looks like in clear weather, which has no coherent answer. Swapped for
+     `desert`, and dawn/dusk carry the time-of-day axis the sun rig can now
+     actually express. */
+  { id: 'dawn', label: 'First Light' },
+  { id: 'dusk', label: 'Last Light' },
+  { id: 'alpine', label: 'High Pass' },
+  { id: 'coastal', label: 'Coast Road' },
+  { id: 'desert', label: 'Hardpan' },
 ];
 export const isEnv = (id) => ENVS.some((e) => e.id === id);
 
@@ -56,6 +74,43 @@ const PRESETS = {
     key: 1.32, keyColor: '#fdf7ec', fill: 0.5, fillColor: '#b4c4d4',
     ground: ['#585c63', '#4c5057', '#42464d'],
   },
+  /* The two low-sun presets are where the 1B light rig pays off: the key is
+     driven from the sky's az/el, so an elevation of ~0.12 gives genuinely long
+     raking shadows instead of the near-overhead ones every preset used to get.
+     Warm key against a cool hemi is the whole trick — the reverse (warm ambient)
+     reads as an orange filter rather than as low sun. */
+  dawn: {
+    bg: '#5b6478', fogN: 30, fogF: 92,
+    hemiSky: '#a8bcd8', hemiGnd: '#54473f', hemi: 0.5,
+    key: 1.55, keyColor: '#ffd0a0', fill: 0.42, fillColor: '#8fa8c8',
+    ground: ['#4e5348', '#454a41', '#3c4038'],
+  },
+  dusk: {
+    bg: '#4a3f50', fogN: 28, fogF: 88,
+    hemiSky: '#9d8fb0', hemiGnd: '#4a3c38', hemi: 0.5,
+    key: 1.45, keyColor: '#ffb478', fill: 0.4, fillColor: '#7e7ba8',
+    ground: ['#4a444a', '#413c42', '#39353a'],
+  },
+  // snow bounces hard, so hemi goes UP here — the same albedo argument that
+  // keeps weather's hemi DOWN on a salt flat, pointing the other way
+  alpine: {
+    bg: '#b9c8d4', fogN: 34, fogF: 130,
+    hemiSky: '#dfeaf6', hemiGnd: '#7d858e', hemi: 0.7,
+    key: 1.75, keyColor: '#fff6ea', fill: 0.5, fillColor: '#c2d4e6',
+    ground: ['#8e9aa2', '#7d8892', '#6d7883'],
+  },
+  coastal: {
+    bg: '#a8bfc4', fogN: 32, fogF: 118,
+    hemiSky: '#dcecf2', hemiGnd: '#7b7461', hemi: 0.62,
+    key: 1.68, keyColor: '#fff2dc', fill: 0.48, fillColor: '#a9c6d2',
+    ground: ['#a99b78', '#9b8e6d', '#8b8062'],
+  },
+  desert: {
+    bg: '#c6a878', fogN: 30, fogF: 122,
+    hemiSky: '#f2dfbc', hemiGnd: '#8a6b45', hemi: 0.6,
+    key: 1.85, keyColor: '#fff0cf', fill: 0.42, fillColor: '#d8b98c',
+    ground: ['#c0a074', '#b09367', '#a0855c'],
+  },
 };
 
 /* ---------------- procedural skybox ----------------
@@ -92,6 +147,38 @@ const SKIES = {
     top: '#5b6b7d', mid: '#8fa0ad', hor: '#c3ccd2', fog: '#b7c0c6',
     sun: { hex: '#f4f1ea', glow: '#e8e6df', az: 1.35, el: 0.68, size: 18 },
     clouds: { n: 12, hex: '#dfe4e8' },
+  },
+  // A low `el` puts the sun near the horizon, where the shader's azimuthal glow
+  // does most of its work — the warm band sits in one part of the sky and the
+  // opposite side stays blue, which is the read the old vertical ramp could not
+  // produce at any elevation. Both keep a few stars: they are faded by the sun
+  // term anyway, and the handful that survive sell the hour.
+  dawn: {
+    top: '#2b4a78', mid: '#8f8fae', hor: '#f0b98a', fog: '#c9b3a4',
+    sun: { hex: '#fff0d0', glow: '#ffbe7a', az: -2.5, el: 0.13, size: 26 },
+    stars: 90,
+    clouds: { n: 9, hex: '#f2d9c4' },
+  },
+  dusk: {
+    top: '#25325e', mid: '#7a5f80', hor: '#e88b62', fog: '#b98a78',
+    sun: { hex: '#ffd9a8', glow: '#ff8f52', az: 0.75, el: 0.11, size: 30 },
+    stars: 130,
+    clouds: { n: 10, hex: '#d9a68f' },
+  },
+  alpine: {
+    top: '#1f5a9e', mid: '#63a0cf', hor: '#cfe2ee', fog: '#c3d6e2',
+    sun: { hex: '#fffaf0', glow: '#eaf2ff', az: 0.9, el: 0.78, size: 20 },
+    clouds: { n: 8, hex: '#f2f7fb' },
+  },
+  coastal: {
+    top: '#2f74b4', mid: '#86b8d4', hor: '#dfe8e4', fog: '#c6d6d6',
+    sun: { hex: '#fff6e2', glow: '#ffe9c0', az: -1.15, el: 0.62, size: 24 },
+    clouds: { n: 12, hex: '#eef4f6' },
+  },
+  desert: {
+    top: '#3e7fb4', mid: '#a9b49e', hor: '#e8cf9e', fog: '#d8bd8e',
+    sun: { hex: '#fffbe8', glow: '#ffe7a8', az: 2.0, el: 0.82, size: 26 },
+    clouds: { n: 4, hex: '#f0e3cc' },
   },
 };
 
@@ -492,7 +579,14 @@ function decoGrid(g) {
   g.add(axes);
 }
 
-const DECO = { proving: decoProving, salt: decoSalt, night: decoNight, grid: decoGrid };
+// dawn/dusk are the proving ground at a different hour, so they keep its apron;
+// desert borrows the salt flat's cracked patches, which is what hardpan is.
+// alpine and coastal have no entry and get the no-op — their ground reads off
+// the terrain ramp, and painted markings would be wrong in both.
+const DECO = {
+  proving: decoProving, salt: decoSalt, night: decoNight, grid: decoGrid,
+  dawn: decoProving, dusk: decoProving, desert: decoSalt,
+};
 
 /* ---------------- controller ---------------- */
 // ctx: { scene, hemi, key, fill, invalidate }
@@ -598,7 +692,13 @@ export function initEnv(ctx) {
   };
   // how bright the landscape is authored, per environment — see `value` in
   // terrain.js. Not a lighting value: it scales the baked vertex colours.
-  const TERRAIN_VALUE = { proving: 1, salt: 1, night: 0.34, grid: 0.7, city: 0.86 };
+  const TERRAIN_VALUE = {
+    proving: 1, salt: 1, night: 0.34, grid: 0.7, city: 0.86,
+    // the low-sun pair sit well under 1 for the same reason night does: the
+    // landscape's colours are BAKED, so nothing in the light rig can darken
+    // them and a full-value hillside under a dawn key reads as midday
+    dawn: 0.6, dusk: 0.52, alpine: 1, coastal: 0.95, desert: 1,
+  };
   // the single expression for "how bright the landscape is right now". Exported
   // so vegetation can match it — plants use their own baked colours, and
   // without this a downpour leaves vivid green trees standing on grey hills.
