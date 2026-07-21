@@ -94,19 +94,40 @@ const SKIES = {
   },
 };
 
-function makeSky(id) {
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const mixHex = (a, b, t) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString();
+
+// The overcast target for a preset: its OWN horizon dragged most of the way to
+// the weather's haze colour. Deriving from the preset rather than from a fixed
+// grey is what keeps a socked-in night a dark night instead of a grey
+// afternoon — and taking the haze from the weather rather than hardcoding grey
+// is what lets a dust storm be tan and mist be brighter than what it hides.
+const hazeTarget = (cfg, hz) => mixHex(cfg.hor, (hz && hz.hex) || '#8f979d', 0.72);
+
+// cloud hides things in the sky (sun, stars, more blobs); haze.amt recolours
+// the air. They are separate because a dust storm hazes hard on a half-clear
+// sky, and driving blob count off haze would grow clouds out of the dust.
+function makeSky(id, cloud = 0, hz = null) {
   const cfg = SKIES[id] || SKIES.proving;
   const g = new THREE.Group();
+  const k = clamp01(cloud);
+  // overcast is mostly the vertical gradient FLATTENING — the sky stops being
+  // bright overhead and pale at the horizon and becomes one value
+  const h = clamp01(hz ? hz.amt : 0);
+  const grey = hazeTarget(cfg, hz);
+  const top = mixHex(cfg.top, grey, h * 0.95);
+  const mid = mixHex(cfg.mid, grey, h * 0.9);
+  const hor = mixHex(cfg.hor, grey, h * 0.7);
 
   // gradient dome (v 0.5 = equator = horizon; horizon color holds below it)
   const c = document.createElement('canvas');
   c.width = 4; c.height = 512;
   const x = c.getContext('2d');
   const grad = x.createLinearGradient(0, 0, 0, 512);
-  grad.addColorStop(0, cfg.top);
-  grad.addColorStop(0.34, cfg.mid);
-  grad.addColorStop(0.5, cfg.hor);
-  grad.addColorStop(1, cfg.hor);
+  grad.addColorStop(0, top);
+  grad.addColorStop(0.34, mid);
+  grad.addColorStop(0.5, hor);
+  grad.addColorStop(1, hor);
   x.fillStyle = grad;
   x.fillRect(0, 0, 4, 512);
   const tex = new THREE.CanvasTexture(c);
@@ -119,7 +140,7 @@ function makeSky(id) {
   dome.renderOrder = -10;
   g.add(dome);
 
-  if (cfg.sun) { // sun by day, moon by night — same recipe, different palette
+  if (cfg.sun && k < 0.72) { // sun by day, moon by night — same recipe, different palette
     const d = dirOf(cfg.sun.az, cfg.sun.el);
     const gc = document.createElement('canvas');
     gc.width = gc.height = 128;
@@ -149,10 +170,11 @@ function makeSky(id) {
     g.add(disc);
   }
 
-  if (cfg.stars) {
+  if (cfg.stars && k < 0.9) {
     const r = makeRng('sky:stars:' + id);
-    const pos = new Float32Array(cfg.stars * 3);
-    for (let i = 0; i < cfg.stars; i++) {
+    const n = Math.max(1, Math.round(cfg.stars * (1 - k)));
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
       const d = dirOf(r.range(0, Math.PI * 2), Math.asin(r.range(0.05, 0.995))).multiplyScalar(SKY_R * 0.96);
       pos[i * 3] = d.x; pos[i * 3 + 1] = d.y; pos[i * 3 + 2] = d.z;
     }
@@ -160,7 +182,7 @@ function makeSky(id) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     const pts = new THREE.Points(geo, new THREE.PointsMaterial({
       color: '#cdd8ec', size: 2.2, sizeAttenuation: false,
-      transparent: true, opacity: 0.9, fog: false, toneMapped: false, depthWrite: false,
+      transparent: true, opacity: 0.9 * (1 - k), fog: false, toneMapped: false, depthWrite: false,
     }));
     pts.frustumCulled = false;
     pts.renderOrder = -9;
@@ -169,8 +191,13 @@ function makeSky(id) {
 
   if (cfg.clouds) {
     const r = makeRng('sky:clouds:' + id);
-    const mat = new THREE.MeshBasicMaterial({ color: cfg.clouds.hex, fog: false, toneMapped: false });
-    for (let i = 0; i < cfg.clouds.n; i++) {
+    // more and greyer as cover rises; this is the parallax layer, the flattened
+    // gradient above is what actually reads as overcast
+    const mat = new THREE.MeshBasicMaterial({
+      color: mixHex(cfg.clouds.hex, grey, h * 0.8), fog: false, toneMapped: false,
+    });
+    const nc = Math.min(26, Math.round(cfg.clouds.n * (0.6 + k * 1.9)));
+    for (let i = 0; i < nc; i++) {
       const az = r.range(0, Math.PI * 2), el = r.range(0.1, 0.38);
       const cl = new THREE.Group();
       const blobs = r.int(3, 5);
@@ -394,6 +421,20 @@ export function initEnv(ctx) {
      sky. */
   let terrainMesh = null;
   let terrainSpec = null;
+  // declared up here rather than beside applyWeather so nothing that runs
+  // during init can trip over the temporal dead zone
+  let wx = null;
+  const cloudNow = () => (wx ? clamp01(wx.cloudCover) : 0);
+  const hazeNow = () => (wx && wx.haze ? wx.haze : { hex: '#8f979d', amt: 0 });
+  // the horizon the world is actually sitting against once weather is applied —
+  // terrain haze, scene background and fog all have to agree on this one value,
+  // and it must be the SAME expression makeSky uses for its `hor` stop or the
+  // landscape meets a sky it does not match
+  const horizonNow = () => {
+    const sk = SKIES[current] || SKIES.proving;
+    const hz = hazeNow();
+    return mixHex(sk.hor, hazeTarget(sk, hz), clamp01(hz.amt) * 0.7);
+  };
   // how bright the landscape is authored, per environment — see `value` in
   // terrain.js. Not a lighting value: it scales the baked vertex colours.
   const TERRAIN_VALUE = { proving: 1, salt: 1, night: 0.34, grid: 0.7, city: 0.86 };
@@ -408,13 +449,14 @@ export function initEnv(ctx) {
   function buildTerrainNow() {
     dropTerrain();
     if (!terrainSpec) return;
-    const sk = SKIES[current] || SKIES.proving;
     const pr = { ...BASE, ...(PRESETS[current] || {}) };
     terrainMesh = buildTerrain(
       { playR: groundR, r0: 0, ...terrainSpec },
       {
-        horizon: sk.hor, ground: pr.ground, small: !!ctx.small,
-        value: TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current],
+        horizon: horizonNow(), ground: pr.ground, small: !!ctx.small,
+        // baked colours can't respond to the lighting rig, so cloud has to
+        // darken the landscape here or a downpour keeps sunlit-green hills
+        value: (TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current]) * (1 - cloudNow() * 0.34),
       },
     );
     ctx.scene.add(terrainMesh);
@@ -449,13 +491,16 @@ export function initEnv(ctx) {
     }
   }
 
-  function apply(id) {
-    if (!PRESETS[id]) id = 'proving';
-    if (id === current) return;
-    current = id;
-    const p = { ...BASE, ...PRESETS[id] };
-    const sk = SKIES[id] || SKIES.proving;
-    // skybox replaces the flat background; fog tints to the sky's horizon
+  /* The preset/weather split (1B). `apply` rebuilds STRUCTURE — sky mesh,
+     decoration, terrain, ground texture, light colours — and early-returns on
+     an unchanged id, which is fine and cheap. `applyWeather` only moves light
+     intensities, fog distances and the sky's cloud cover, and never
+     early-returns.
+     That separation is the whole point: the old single `apply` bailed on an
+     unchanged id and rebuilt everything otherwise, so "same preset, different
+     weather, every scene" was impossible to express (ledger #3). */
+  function rebuildSky() {
+    const sk = SKIES[current] || SKIES.proving;
     if (sky) {
       ctx.scene.remove(sky);
       sky.traverse((o) => {
@@ -463,21 +508,60 @@ export function initEnv(ctx) {
         if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
       });
     }
-    sky = makeSky(id);
+    const hz = hazeNow();
+    sky = makeSky(current, cloudNow(), hz);
     ctx.scene.add(sky);
-    ctx.scene.background = new THREE.Color(sk.hor);
-    ctx.scene.fog = new THREE.Fog(new THREE.Color(sk.fog), p.fogN * state.fk, p.fogF * state.fk);
+    // background and fog tint follow the HAZED horizon, not the authored one
+    ctx.scene.background = new THREE.Color(horizonNow());
+    // fog goes further toward the raw haze than the sky does: the air near you
+    // is the haze, while the dome is still mostly the place you are in
+    const fogC = new THREE.Color(mixHex(sk.fog, hz.hex, clamp01(hz.amt) * 0.62));
+    if (ctx.scene.fog) ctx.scene.fog.color.copy(fogC);
+    else ctx.scene.fog = new THREE.Fog(fogC, state.fogN * state.fk, state.fogF * state.fk);
+  }
+
+  function applyWeather(w) {
+    wx = w || null;
+    const p = { ...BASE, ...(PRESETS[current] || {}) };
+    // multipliers over the preset, so weather composes with a place instead of
+    // replacing its look. This is what actually reads as weather — you would
+    // believe an overcast scene with no rain drawn at all.
+    const L = wx ? wx.light : { key: 1, hemi: 1, fill: 1, exposure: 1, envI: 1 };
+    ctx.hemi.intensity = p.hemi * L.hemi;
+    ctx.key.intensity = p.key * L.key;
+    ctx.fill.intensity = p.fill * L.fill;
+    // the image-based flood. Not optional: the PMREM room environment lights
+    // every material regardless of what the three lights are doing, so leaving
+    // it at 1 makes a storm a bright afternoon that merely lost its shadows.
+    if (ctx.setEnvIntensity) ctx.setEnvIntensity(L.envI == null ? 1 : L.envI);
+    // weather pulls the fog in, the far plane far more than the near one
+    const fb = wx ? wx.fogBoost : 0;
+    state.fogN = p.fogN * (1 - fb * 0.5);
+    state.fogF = p.fogF * (1 - fb * 0.74);
+    if (ctx.scene.fog) {
+      ctx.scene.fog.near = state.fogN * state.fk;
+      ctx.scene.fog.far = state.fogF * state.fk;
+    }
+    rebuildSky();
+    buildTerrainNow(); // haze is baked into the vertex colours
+    if (ctx.setExposure) ctx.setExposure(L.exposure);
+    ctx.invalidate();
+  }
+
+  function apply(id) {
+    if (!PRESETS[id]) id = 'proving';
+    if (id === current) return;
+    current = id;
+    const p = { ...BASE, ...PRESETS[id] };
+    const sk = SKIES[id] || SKIES.proving;
     state.fogN = p.fogN; state.fogF = p.fogF;
-    ctx.hemi.intensity = p.hemi;
     ctx.hemi.color.set(p.hemiSky);
     ctx.hemi.groundColor.set(p.hemiGnd);
-    ctx.key.intensity = p.key;
     ctx.key.color.set(p.keyColor);
     // aim the key at the thing the player can see in the sky, keeping whatever
     // distance fitCamera last chose
     state.sunDir.copy(sk.sun ? dirOf(sk.sun.az, sk.sun.el) : KEY_FALLBACK);
     ctx.key.position.copy(state.sunDir).multiplyScalar(ctx.key.position.length() || 30);
-    ctx.fill.intensity = p.fill;
     ctx.fill.color.set(p.fillColor);
     if (ground.material.map) ground.material.map.dispose();
     ground.material.map = groundTexture(p.ground);
@@ -489,10 +573,7 @@ export function initEnv(ctx) {
     deco = new THREE.Group();
     (DECO[id] || (() => {}))(deco, matFactory());
     ctx.scene.add(deco);
-    // the horizon haze is baked into the terrain's vertex colours, so a new
-    // sky means a new landscape tint — rebuild rather than let them disagree
-    buildTerrainNow();
-    ctx.invalidate();
+    applyWeather(wx); // intensities, fog distances, sky and terrain
   }
 
   // the dome follows the camera so its horizon never gets "reached"
@@ -501,8 +582,9 @@ export function initEnv(ctx) {
   }
 
   return {
-    apply, setFogScale, setGroundRadius, setWater, setTerrain, syncSky, state,
+    apply, applyWeather, setFogScale, setGroundRadius, setWater, setTerrain, syncSky, state,
     get current() { return current; },
+    get weather() { return wx; },
     get terrainField() { return terrainMesh ? terrainMesh.userData.field : null; },
   };
 }

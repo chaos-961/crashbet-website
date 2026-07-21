@@ -11,6 +11,7 @@ import { PROPS, SCENERY, buildProp } from './props.js';
 import { buildRoad } from './roads.js';
 import { disposeGroup, clamp, makeRng } from './lib.js';
 import { initEnv, ENVS } from './env.js';
+import { rollWeather, initWeather, applyWetness } from './weather.js';
 import { initFX } from './fx.js';
 import * as Econ from './economy.js';
 import * as Ach from './achievements.js';
@@ -89,12 +90,49 @@ fill.position.set(-6, 4, -5);
 scene.add(fill);
 
 /* ---------------- environment (ground + presets) ---------------- */
-const env = initEnv({ scene, hemi, key, fill, invalidate, small: smallScreen });
+// BASE_EXPOSURE is the look-tuning baseline (CLAUDE.md); weather rides it as a
+// multiplier rather than replacing it, so a clear scene is bit-for-bit the
+// exposure the whole game was tuned against.
+const BASE_EXPOSURE = 1.18;
+const env = initEnv({
+  scene, hemi, key, fill, invalidate, small: smallScreen,
+  setExposure: (m) => { renderer.toneMappingExposure = BASE_EXPOSURE * (m || 1); },
+  setEnvIntensity: (m) => { scene.environmentIntensity = m == null ? 1 : m; },
+});
+const weather = initWeather(scene, { small: smallScreen });
 env.apply('proving');
 
 /* ---------------- camera fitting / tween ---------------- */
 let camFrom = null, camTo = null, camT = 1;
 const easeInOut = (t) => t * t * (3 - 2 * t);
+
+/* Fog scale rides the live camera, not the distance the establishing shot
+   happened to pick. A dashcam used to inherit the wide shot's ×20, which pushed
+   a fog bank meant to read at 40 m out past 700 m and deleted the weather from
+   precisely the shots weather looks best in.
+
+   The metric is distance to the round's BOX, not to its centre — that was the
+   first version and it is wrong on exactly the scenes that matter. A dashcam on
+   a car at the far end of a 150 m highway is 120 m from the centroid while
+   sitting 2 m from what it is filming, so centre-distance handed it the wide
+   shot's fog anyway. `distanceToPoint` is 0 anywhere inside the scene, so any
+   camera among the cars gets the weather at full strength and only pulling back
+   past the scene thins it.
+
+   That is also what protects the product rule: the wide read stays clear at
+   every weather, because backing off to see the whole scene is the same motion
+   that pushes the fog away. Two number writes, monotonic in distance, so it is
+   free to run per frame and cannot pop mid-tween. */
+const fogBox = new THREE.Box3();
+let fogK = -1;
+function syncFogScale() {
+  if (fogBox.isEmpty()) return false;
+  const k = clamp(fogBox.distanceToPoint(camera.position) / 8, 1, 20);
+  if (Math.abs(k - fogK) < 0.02) return false;
+  fogK = k;
+  env.setFogScale(k);
+  return true;
+}
 
 function fitCamera(bb, instant) {
   const size = bb.getSize(new THREE.Vector3());
@@ -113,8 +151,13 @@ function fitCamera(bb, instant) {
     camTo = { pos, tgt };
     camT = 0;
   }
-  // fog follows the fitted distance so big scenes don't sink into it
-  env.setFogScale(clamp(dist / 8, 1, 20));
+  // fog follows the fitted distance so big scenes don't sink into it — seeded
+  // from `dist` (where the camera is GOING) rather than from the live camera,
+  // which during a tween is still back at the last shot. The box is cached so
+  // syncFogScale can track the camera from here on.
+  fogBox.copy(bb);
+  fogK = clamp(dist / 8, 1, 20);
+  env.setFogScale(fogK);
   // shadow frustum follows scene size
   const s = maxDim * 0.72 + 1.6;
   const sc = key.shadow.camera;
@@ -940,6 +983,8 @@ function destroyRound() {
   povRig = null; activePov = null;
   env.setWater(null); // otherwise the channel follows you into the showroom
   env.setTerrain(null); // ditto the landscape
+  weather.set(null);    // and the rain must not follow you into the menu
+  env.applyWeather(null);
   $('povfx').className = '';
   $('povbar').innerHTML = '';
   controls.enabled = true;
@@ -1022,6 +1067,13 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     if (sc.world.env && ENVS.some((e) => e.id === sc.world.env)) env.apply(sc.world.env);
     env.setGroundRadius(sc.world.ground || 90);
     env.setWater(sc.world.water || null);
+    // Weather (1B). Rolled from its own rng stream off the scene seed, so the
+    // same seed always shows the same sky and no existing stream shifts by a
+    // draw. Applied BEFORE the terrain because the clouded horizon is baked
+    // into the landscape's vertex colours and the two must agree.
+    const wx = rollWeather(seed, env.current);
+    env.applyWeather(wx);
+    weather.set(wx);
     // Terrain (1A). Render-side and opt-in: the scenario may name a preset,
     // otherwise the seed alone is enough and the env preset picks the
     // landscape. playR defaults to the ground radius set above, which is what
@@ -1034,6 +1086,11 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
       sim, scene: sc, rec, markets, phase: 'preview', seed, d, exhibition, resumeAt: 0,
       incidentTick: INCIDENT_TICK, seekTo: null, strip: null, daily: dailyKey,
     };
+    // Wet roads. The rain itself is never the tell — a downpour over bright dry
+    // asphalt reads as a bug — so the road surface has to carry it. Roads only:
+    // materials are per-build, so this cannot leak into the next round, and the
+    // terrain is deliberately left alone (grass and rock do not gloss).
+    if (wx.wetness > 0) applyWetness(sim.roads.map((r) => r.group), wx.wetness);
     targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
     scene.add(sim.root);
     povRig = buildLoadout(sc, seed, d, povFocus());
@@ -1713,6 +1770,7 @@ function resize() {
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  weather.setPixelScale(h, camera.fov); // flakes are sized in metres, not pixels
   invalidate();
 }
 new ResizeObserver(resize).observe(stage);
@@ -1746,10 +1804,19 @@ function frame(now) {
     animating = true;
   }
   updateCrosshair();
+  // Weather is frozen while the round is. The sim's clock is stopped, so
+  // hanging rain is the correct fiction — and it lets render-on-demand sleep
+  // through the freeze, which is the longest UI phase and precisely when the
+  // player wants a steady frame to read rather than a scene that never settles.
+  if (weather.update(dt, camera, !!round && round.phase === 'freeze')) animating = true;
   // OrbitControls.update() re-aims the camera at its target even when the
   // handlers are disabled — never run it while freecam or a POV owns the camera
   const moved = (fly.on || activePov) ? false : controls.update();
   env.syncSky(camera.position);
+  // fog density follows where the camera actually is. Rounds only: they are the
+  // only mode with weather, and the showroom's free camera would otherwise
+  // thin its fog just by flying away from the display floor.
+  if (round) syncFogScale();
   if (animating || moved || needsRender > 0) {
     // camera shake is applied for the render only, then undone — orbit and
     // freecam state never see the jitter
@@ -1865,6 +1932,7 @@ window.__app = {
   renderer, scene, camera, controls, REG, env, fitCamera, invalidate,
   startGame, leaveGame, setCamMode, fly, flyUpdate, get showroom() { return showroom; },
   startCrash, nextCrash, replayCrash, get crash() { return crash; }, get crashFx() { return crashFx; },
+  weather, rollWeather,
   startScene, resumeRound, seekPreview, get round() { return round; }, get preloaded() { return preloaded; },
   pump: (now) => frame(now),
 };
