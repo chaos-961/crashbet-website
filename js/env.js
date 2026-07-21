@@ -438,6 +438,11 @@ export function initEnv(ctx) {
   // how bright the landscape is authored, per environment — see `value` in
   // terrain.js. Not a lighting value: it scales the baked vertex colours.
   const TERRAIN_VALUE = { proving: 1, salt: 1, night: 0.34, grid: 0.7, city: 0.86 };
+  // the single expression for "how bright the landscape is right now". Exported
+  // so vegetation can match it — plants use their own baked colours, and
+  // without this a downpour leaves vivid green trees standing on grey hills.
+  const terrainValueNow = () =>
+    (TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current]) * (1 - cloudNow() * 0.34);
   function dropTerrain() {
     if (!terrainMesh) return;
     ctx.scene.remove(terrainMesh);
@@ -456,7 +461,7 @@ export function initEnv(ctx) {
         horizon: horizonNow(), ground: pr.ground, small: !!ctx.small,
         // baked colours can't respond to the lighting rig, so cloud has to
         // darken the landscape here or a downpour keeps sunlit-green hills
-        value: (TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current]) * (1 - cloudNow() * 0.34),
+        value: terrainValueNow(),
       },
     );
     ctx.scene.add(terrainMesh);
@@ -586,5 +591,7 @@ export function initEnv(ctx) {
     get current() { return current; },
     get weather() { return wx; },
     get terrainField() { return terrainMesh ? terrainMesh.userData.field : null; },
+    get terrainValue() { return terrainValueNow(); },
+    get groundRadius() { return groundR; },
   };
 }

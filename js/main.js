@@ -12,6 +12,7 @@ import { buildRoad } from './roads.js';
 import { disposeGroup, clamp, makeRng } from './lib.js';
 import { initEnv, ENVS } from './env.js';
 import { rollWeather, initWeather, applyWetness } from './weather.js';
+import { initVegetation } from './vegetation.js';
 import { initFX } from './fx.js';
 import * as Econ from './economy.js';
 import * as Ach from './achievements.js';
@@ -100,6 +101,7 @@ const env = initEnv({
   setEnvIntensity: (m) => { scene.environmentIntensity = m == null ? 1 : m; },
 });
 const weather = initWeather(scene, { small: smallScreen });
+const veg = initVegetation(scene, { small: smallScreen });
 env.apply('proving');
 
 /* ---------------- camera fitting / tween ---------------- */
@@ -125,9 +127,22 @@ const easeInOut = (t) => t * t * (3 - 2 * t);
    free to run per frame and cannot pop mid-tween. */
 const fogBox = new THREE.Box3();
 let fogK = -1;
+// The floor is NOT 1, and that matters more than the camera term. The preset
+// fog distances were authored when the world was a 90 m disc with nothing
+// beyond it; now there is a landscape out to 300 m and vegetation that starts
+// at 1.06 × playR. At ×1 a dashcam saw 114 m of fog and the entire world past
+// it — hills, treeline, everything 1A and 1E build — was a grey wall. So the
+// floor is the scene's own size in fog units: a big arena keeps its horizon, a
+// small one still gets a close, atmospheric bank.
+// /28 is calibrated, not picked: the preset far planes land near 75 m after a
+// clear-weather boost, and a scene of radius R wants to see roughly 2.5 R of
+// world, so the floor is R/28 ≈ 2.5R/75. On a 150 m arena that is ×5.4 → 400 m
+// clear, while the `fog` kind (0.33 × base) still closes to 140 m — a real bank
+// on a 150 m scene rather than a wall two car lengths away.
+const fogFloor = () => clamp(env.groundRadius / 28, 1.5, 6);
 function syncFogScale() {
   if (fogBox.isEmpty()) return false;
-  const k = clamp(fogBox.distanceToPoint(camera.position) / 8, 1, 20);
+  const k = clamp(Math.max(fogBox.distanceToPoint(camera.position), 0) / 8, fogFloor(), 20);
   if (Math.abs(k - fogK) < 0.02) return false;
   fogK = k;
   env.setFogScale(k);
@@ -156,7 +171,7 @@ function fitCamera(bb, instant) {
   // which during a tween is still back at the last shot. The box is cached so
   // syncFogScale can track the camera from here on.
   fogBox.copy(bb);
-  fogK = clamp(dist / 8, 1, 20);
+  fogK = clamp(dist / 8, fogFloor(), 20);
   env.setFogScale(fogK);
   // shadow frustum follows scene size
   const s = maxDim * 0.72 + 1.6;
@@ -984,6 +999,7 @@ function destroyRound() {
   env.setWater(null); // otherwise the channel follows you into the showroom
   env.setTerrain(null); // ditto the landscape
   weather.set(null);    // and the rain must not follow you into the menu
+  veg.clear();          // ditto the forest
   env.applyWeather(null);
   $('povfx').className = '';
   $('povbar').innerHTML = '';
@@ -1079,6 +1095,15 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     // landscape. playR defaults to the ground radius set above, which is what
     // keeps the displacement mask off the drivable area.
     env.setTerrain(sc.world.terrain || { seed });
+    // Vegetation (1E). Scattered against the height field env just built, so it
+    // queries the exact surface the mesh came from. Masked to r > playR, no
+    // colliders, one draw call per species — it cannot touch the sim, and the
+    // wind that bends it is the same descriptor driving the rain.
+    veg.setWind(wx);
+    veg.build(env.terrainField, seed, {
+      density: quality === 'low' ? 0.45 : 1,
+      value: env.terrainValue, // match the brightness the landscape was baked at
+    });
 
     const sim = new engine.mod.CrashSim(engine.R, sc, catOfId);
     sim.stopAt = INCIDENT_TICK; // hard freeze on the exact incident tick
@@ -1808,7 +1833,11 @@ function frame(now) {
   // hanging rain is the correct fiction — and it lets render-on-demand sleep
   // through the freeze, which is the longest UI phase and precisely when the
   // player wants a steady frame to read rather than a scene that never settles.
-  if (weather.update(dt, camera, !!round && round.phase === 'freeze')) animating = true;
+  const frozen = !!round && round.phase === 'freeze';
+  if (weather.update(dt, camera, frozen)) animating = true;
+  // the canopies stop with the rain — same reasoning: the freeze is for reading
+  // the scene, and a landscape that never settles defeats render-on-demand
+  if (!frozen && !reduceMotion && veg.update(dt)) animating = true;
   // OrbitControls.update() re-aims the camera at its target even when the
   // handlers are disabled — never run it while freecam or a POV owns the camera
   const moved = (fly.on || activePov) ? false : controls.update();
@@ -1943,7 +1972,7 @@ window.__app = {
   renderer, scene, camera, controls, REG, env, fitCamera, invalidate,
   startGame, leaveGame, setCamMode, fly, flyUpdate, get showroom() { return showroom; },
   startCrash, nextCrash, replayCrash, get crash() { return crash; }, get crashFx() { return crashFx; },
-  weather, rollWeather,
+  weather, rollWeather, veg,
   startScene, resumeRound, seekPreview, get round() { return round; }, get preloaded() { return preloaded; },
   pump: (now) => frame(now),
 };
