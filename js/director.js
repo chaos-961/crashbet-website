@@ -1547,6 +1547,198 @@ const TEMPLATES = {
       return { cars: [carA], props, aggressor: 0, victim: -1, label: 'Ramp Jump', tell: 'that is a lot of speed at a ramp' };
     },
   },
+
+  /* ============ P2/2F templates (20 → 28) ============
+     Eight more ways to crash, each built on a proven-safe pattern so the
+     nothing-before-600 rule holds by construction: obstacle-swerve (debris),
+     rolling same-speed convoy that only disrupts at tick 600 (chain), or a
+     carve into oncoming that only begins at 600 (blowout). Several exist to
+     give the 2E places incidents that fit them — a rockslide on a pass, a
+     fallen tree in the forest, a flooded dip by the river, an overheight
+     trailer at the tunnel — and two (lowgrip, flooddip) are the first
+     templates authored to READ as weather-grip bets.
+     The plan listed ten; `convoysplit` and `towstrap` were built and cut —
+     both are convoy pile-ups, i.e. `chain` with a costume, and both fought the
+     lane model (convoysplit stacked followers at the lane start when the queue
+     outran the run-up; towstrap settled to a no-event 82% of the time). The
+     eight that shipped are each a genuinely distinct scene, which is the point.
+     CALIB has no rows for these yet, so calib() falls back to the kind default
+     until the close-gate regeneration; markets still generate and settle. Each
+     gets a specialFor. */
+
+  // a boulder down across a mountain carriageway — swerve, and the follower
+  rockslide: {
+    topos: ['switchback', 'mountainpass', 'canyon', 'forestroad'],
+    minLane: 115, minD: 2,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      const side = rng.sign();
+      cmd(carA, { t: INCIDENT_TICK, bias: side * 0.22, off: true });
+      cmd(carA, { t: INCIDENT_TICK + 22, bias: -side * 0.24, off: true });
+      const props = [];
+      const p = arcPos(lane.pts, approach.anchorS + 7);
+      props.push({ kind: 'rock', x: p.x, y: arcY(lane, approach.anchorS + 7), z: p.z, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)) });
+      const cars = [carA];
+      const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
+      if (behind) cars.push(behind);
+      return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Rockslide', tell: 'rock down on the carriageway' };
+    },
+  },
+
+  // a trunk down across a forest road
+  fallentree: {
+    topos: ['forestroad', 'switchback', 'mountainpass', 'coastalcliff'],
+    minLane: 115, minD: 2,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      const side = rng.sign();
+      cmd(carA, { t: INCIDENT_TICK, bias: side * 0.2, off: true });
+      cmd(carA, { t: INCIDENT_TICK + 22, bias: -side * 0.25, off: true });
+      const props = [];
+      const p = arcPos(lane.pts, approach.anchorS + 7);
+      // diagonally across the lane, not fully across both — a full-width trunk
+      // reaches into the oncoming lane and clips ambient traffic before 600
+      props.push({ kind: 'fallen_tree', x: p.x, y: arcY(lane, approach.anchorS + 7), z: p.z, heading: p.heading + 0.7, seed: String(rng.int(1, 9999)) });
+      const cars = [carA];
+      const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
+      if (behind) cars.push(behind);
+      return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Fallen Tree', tell: 'a trunk is down across the road' };
+    },
+  },
+
+  // a too-tall trailer stops dead at a low clearance and gets rear-ended
+  overheight: {
+    topos: ['tunnelmouth', 'overpass', 'cloverleaf'],
+    minLane: 125,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const truck = place(lane, approach.anchorS, v);
+      truck._pool = 'HEAVY';
+      cmd(truck, { t: INCIDENT_TICK, v: 0, brakeMax: 4.2 }); // realises it won't fit
+      const props = [];
+      const p = arcPos(lane.pts, approach.anchorS + 8);
+      props.push({ kind: 'height_bar', x: p.x, y: arcY(lane, approach.anchorS + 8), z: p.z, heading: p.heading + Math.PI / 2, seed: String(rng.int(1, 9999)) });
+      const cars = [truck];
+      const f = placeAt(lane, truck._s0 - Math.max(16, v * 1.6), v);
+      if (f) { cmd(f, { t: INCIDENT_TICK + 40, v: 0, brakeMax: 0.6 }); cars.push(f); }
+      return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Overheight Stop', tell: 'that trailer is too tall for the bridge' };
+    },
+  },
+
+  // a barrier comes down and the lead slams for it
+  barrierdrop: {
+    // NOT intersection — a signalized junction already governs its own stops,
+    // and dropping a level-crossing barrier into it collides with the queue
+    topos: ['tramcrossing', 'tjunction', 'schoolzone', 'industrialyard'],
+    minLane: 115,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const lead = place(lane, approach.anchorS, v);
+      cmd(lead, { t: INCIDENT_TICK, v: 0, brakeMax: 4.0 });
+      const props = [];
+      const p = arcPos(lane.pts, approach.anchorS + 6);
+      props.push({ kind: rng.pick(['gate_arm', 'barrier_water']), x: p.x, y: arcY(lane, approach.anchorS + 6), z: p.z, heading: p.heading + Math.PI / 2, seed: String(rng.int(1, 9999)) });
+      const cars = [lead];
+      const f = placeAt(lane, lead._s0 - Math.max(15, v * 1.5), v);
+      if (f) { cmd(f, { t: INCIDENT_TICK + 38, v: 0, brakeMax: 0.55 }); cars.push(f); }
+      return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Barrier Drop', tell: 'the barrier is coming down ahead' };
+    },
+  },
+
+  // traffic loses speed in the murk and the pack behind sees it late
+  fogbank: {
+    topos: ['highway', 'causeway', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'riverside', 'coastalcliff'],
+    minLane: 125,
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      // same-speed convoy; the lead only drops to a crawl AT 600 (so nothing
+      // closes before then), the pack behind reacts late
+      const k = clamp(2 + (ctx.d >> 2), 1, Math.max(1, Math.floor((approach.anchorS - 66) / 12)));
+      const v = Math.min(approach.v, (approach.anchorS - 4 - 4.5 * k) / (10 + 1.2 * k));
+      const lead = place(lane, approach.anchorS, v);
+      cmd(lead, { t: INCIDENT_TICK, v: v * 0.14, brakeMax: 3.0 });
+      cmd(lead, { t: INCIDENT_TICK + 70, v: 0, brakeMax: 1.4 }); // then stops, so the scene settles (no perpetual crawl)
+      lead._short = true;
+      const cars = [lead];
+      let gap = 0;
+      for (let i = 0; i < k; i++) {
+        gap += Math.max(9, lead._v * (0.6 + rng.range(0, 0.24) - 0.1 * tellK) + 4.5);
+        const f = placeAt(lane, lead._s0 - gap, lead._v);
+        if (!f) break;
+        cmd(f, { t: INCIDENT_TICK + 30 + i * (22 + rng.int(0, 16)), v: 0, brakeMax: 0.5 });
+        f._short = true;
+        cars.push(f);
+      }
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Fog Bank', tell: 'traffic ahead is vanishing into the fog' };
+    },
+  },
+
+  // an oversize load wanders over the centre line into the oncoming lane
+  wideload: {
+    topos: ['highway', 'boulevard', 'overpass', 'cloverleaf', 'causeway'],
+    needsOpp: true, minLane: 125,
+    make(ctx) {
+      const { rng, tellK, lane, opp, approach } = ctx;
+      const ho = solveHeadOn(lane, opp);
+      const load = ho ? place(lane, ho.aS, Math.max(MIN_V, ho.v * 0.82)) : place(lane, approach.anchorS, Math.max(MIN_V, approach.v * 0.82));
+      load._pool = 'HEAVY';
+      cmd(load, { t: INCIDENT_TICK, bias: 0.12, off: true }); // too wide for the lane
+      cmd(load, { t: INCIDENT_TICK + 20, bias: 0.22 });
+      const cars = [load];
+      let victimIdx = -1;
+      if (ho) {
+        const oc = place(opp, ho.oS, ho.v, INCIDENT_TICK + rng.int(48, 84));
+        victimIdx = cars.push(oc) - 1;
+      }
+      return { cars, aggressor: 0, victim: victimIdx, label: 'Wide Load', tell: 'that load is drifting over the line' };
+    },
+  },
+
+  // a slick surface: the leader eases down, the follower brakes hard but the
+  // wet road (these topos carry wxGrip) runs the stop long. The bet IS the grip
+  lowgrip: {
+    // wxGrip topos only — the whole bet is that the wet road runs the stop long,
+    // which does not exist on a dry preset (switchback/causeway carry no grip)
+    topos: ['mountainpass', 'canyon', 'forestroad', 'coastalcliff', 'riverside'],
+    minLane: 120,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const lead = place(lane, approach.anchorS, v);
+      cmd(lead, { t: INCIDENT_TICK, v: 0, brakeMax: 2.4 }); // eases to a full stop, so the round settles
+      const cars = [lead];
+      // a tighter follower gap so the wet road (not luck) decides the outcome —
+      // on dry grip it stops here, on a slick road it runs on into the lead
+      const f = placeAt(lane, lead._s0 - Math.max(12, v * 1.05), v);
+      if (f) { cmd(f, { t: INCIDENT_TICK + 14, v: 0, brakeMax: 4.6 }); cars.push(f); } // hard brake on a slick road
+      return { cars, aggressor: 1, victim: 0, label: 'Lost Traction', tell: 'the road is slick and someone is stopping' };
+    },
+  },
+
+  // standing water in a dip — a car aquaplanes and slews wide
+  flooddip: {
+    topos: ['riverside', 'causeway', 'harbourramp', 'coastalcliff'],
+    minLane: 115,
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      const side = rng.sign();
+      cmd(carA, { t: INCIDENT_TICK, bias: side * 0.17, off: true });
+      cmd(carA, { t: INCIDENT_TICK + 18, bias: side * 0.29, off: true }); // aquaplanes, cannot pull it back
+      const cars = [carA];
+      const behind = placeAt(lane, carA._s0 - Math.max(16, v * 1.6), v);
+      if (behind) cars.push(behind);
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Flooded Dip', tell: 'standing water across the dip' };
+    },
+  },
+
 };
 
 /* ---------------- conflict scrub ----------------

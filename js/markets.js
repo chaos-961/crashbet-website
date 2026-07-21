@@ -1841,6 +1841,15 @@ function specialFor(scene) {
     case 'chain': return { label: 'Three or more crash', settle: { crashedGte: 3 } };
     case 'brakefail': return vic >= 0 && { label: 'The queue takes the hit', settle: { carCrash: vic } };
     case 'overspeed': return agg >= 0 && { label: 'It leaves the road', settle: { carOffroad: agg } };
+    // P2/2F specials — car-based settles (indices from meta), same as above
+    case 'rockslide': return agg >= 0 && { label: 'The rockslide takes the lead car', settle: { carCrash: agg } };
+    case 'fallentree': return agg >= 0 && { label: 'The lead hits the fallen tree', settle: { carCrash: agg } };
+    case 'overheight': return vic >= 0 && { label: 'The trailer gets rear-ended', settle: { carCrash: vic } };
+    case 'barrierdrop': return vic >= 0 && { label: 'The queue piles into the barrier', settle: { carCrash: vic } };
+    case 'fogbank': return { label: 'Three or more vanish into the fog', settle: { crashedGte: 3 } };
+    case 'wideload': return pair && { label: 'The load meets the oncoming', settle: { hitPair: [agg, vic] } };
+    case 'lowgrip': return pair && { label: 'It cannot stop on the wet', settle: { hitPair: [agg, vic] } };
+    case 'flooddip': return agg >= 0 && { label: 'The aquaplane ends in a crash', settle: { carCrash: agg } };
     default: return null;
   }
 }
