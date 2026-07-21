@@ -23,6 +23,13 @@ export const ROAD_MAX_PTS = 16;
 const Y_ASPHALT = 0.022;      // asphalt floats 2 cm over the y-0 ground plane
 const Y_MARK = 0.036;         // markings float over the asphalt
 const CURB_H = 0.13, CURB_W = 0.32, SIDE_W = 1.7;
+// P2/2B rural verge (style bit 4) and swept guardrail (bit 5). A verge
+// REPLACES the kerb: every road in the game had a raised kerb, including
+// highways and mountain roads, which is both wrong and a wall where the
+// scene wants a run-off. Guardrail posts carry real colliders — a barrier
+// that does not contain is decoration.
+const VERGE_W = 2.2, VERGE_DROP = -0.05;
+const GRAIL_H = 0.72, GRAIL_W = 0.18, GRAIL_GAP = 4.2, GRAIL_OFF = 0.55;
 // bridge deck (style bit 3): a parapet wall instead of curbs, plus a solid
 // underside so an elevated run reads as a structure and not floating paper
 const DECK_T = 0.42, RAIL_H = 0.92, RAIL_W = 0.26;
@@ -376,27 +383,61 @@ export function buildRoad(spec) {
   const style = spec.style || 0;
   const yellow = !!(style & 1), sidewalks = !!(style & 2), crossings = !!(style & 4);
   const deck = !!(style & 8); // bridge: parapet + underside instead of curbs
+  const verge = !!(style & 16) && !deck;   // rural: gravel shoulder, no kerb
+  const guard = !!(style & 32) && !deck;   // swept guardrail (has colliders)
   const elev = isElevated(spec);
   const curve = roadCurve(spec);
   const L = curve.getLength();
-  const N = clamp(Math.ceil(L / 1.1), 8, 480);
+  /* Caps raised from 480/220 in P2/2B. Both bound at ~528 m, and nothing in
+     the game reaches that: across 514 sampled roads the longest is 321.8 m
+     (switchback). So raising them is a bit-level no-op TODAY — the clamp was
+     never active — while removing a silent coarsening trap for the longer
+     P2 topologies. The pins prove the no-op. (Ledger #27.) */
+  const N = clamp(Math.ceil(L / 1.1), 8, 900);
   const frames = sampleFrames(curve, 0, 1, N);
 
   const M = matFactory();
   const g = new THREE.Group();
   const asphalt = [], white = [], gold = [], curb = [], walk = [], rail = [];
+  const verg = [], grail = [], wear = [];
 
   pushStrip(asphalt, frames, -hw, Y_ASPHALT, hw, Y_ASPHALT, false);
+
+  /* Lane count from width. A 12 m road with one centre line reads as an
+     absurdly wide two-lane; past 10.5 m it gets interior dashes and becomes
+     the dual carriageway it already was in metres. Visual only — director
+     lane extraction is untouched, so no scene changes shape. */
+  const wide = w >= 10.5;
+  const dashRun = (offset) => {
+    const dash = 1.9, gap = 1.5;
+    const nD = Math.max(1, Math.floor((L - gap) / (dash + gap)));
+    for (let k = 0; k < nD; k++) {
+      const s0 = gap / 2 + k * (dash + gap);
+      const sub = sampleFrames(curve, s0 / L, (s0 + dash) / L, 2);
+      pushStrip(white, sub, offset - 0.07, Y_MARK, offset + 0.07, Y_MARK, offset < 0);
+    }
+  };
 
   // centre marking: double yellow solid, or white dashes walked by arc length
   if (yellow) {
     for (const s of [1, -1]) pushStrip(gold, frames, s * 0.11, Y_MARK, s * 0.21, Y_MARK, s < 0);
   } else {
-    const dash = 1.9, gap = 1.5;
-    const nD = Math.max(1, Math.floor((L - gap) / (dash + gap)));
-    for (let k = 0; k < nD; k++) {
-      const s0 = gap / 2 + k * (dash + gap);
-      pushStrip(white, sampleFrames(curve, s0 / L, (s0 + dash) / L, 2), -0.07, Y_MARK, 0.07, Y_MARK, false);
+    dashRun(0);
+  }
+  if (wide) for (const s of [1, -1]) dashRun(s * hw * 0.5);
+
+  /* Tyre polish. Deterministic from geometry like everything else here: a
+     darker band down each wheel path, which is what stops a long straight
+     from reading as one flat swatch. One extra material, so one extra draw
+     call per road after the merge — cheap for how much it breaks up the
+     surface at the grazing angles a dashcam actually sees. */
+  const laneC = wide ? [hw * 0.25, hw * 0.75] : [hw * 0.5];
+  for (const s of [1, -1]) {
+    for (const lc of laneC) {
+      for (const t of [-0.72, 0.72]) {
+        const c = lc + t;
+        pushStrip(wear, frames, s * (c - 0.34), 0.026, s * (c + 0.34), 0.026, s < 0);
+      }
     }
   }
 
@@ -404,6 +445,12 @@ export function buildRoad(spec) {
     const flip = s < 0;
     // edge line
     pushStrip(white, frames, s * (hw - 0.34), Y_MARK, s * (hw - 0.22), Y_MARK, flip);
+    if (verge) {
+      // shoulder falling away from the asphalt edge — a shallow drop, not a
+      // wall, so leaving the road is a run-off rather than a kerb strike
+      pushStrip(verg, frames, s * hw, Y_ASPHALT, s * (hw + VERGE_W), VERGE_DROP, flip);
+      continue;
+    }
     if (deck) {
       // parapet: inner face up, top cap, outer face all the way down past the
       // deck slab — that outer face is what you see from the water below
@@ -428,6 +475,28 @@ export function buildRoad(spec) {
   if (deck) {
     const e = hw + 0.02 + RAIL_W;
     pushStrip(rail, frames, -e, -DECK_T, e, -DECK_T, true);
+  }
+
+  /* GUARDRAIL (style bit 5) — swept along both edges, posts on arc-length
+     stations so spacing stays even through a bend. Unlike the 1G
+     substructure this DOES contribute colliders (below), because a barrier
+     that does not contain a car is scenery. The existing `guardrail` scenery
+     kind is a discrete 4 m object dropped at a point; this is the continuous
+     run a mountain road needs. */
+  if (guard) {
+    const nP = Math.max(2, Math.round(L / GRAIL_GAP));
+    for (const s of [1, -1]) {
+      const flip = s < 0;
+      const o0 = s * (hw + GRAIL_OFF), o1 = s * (hw + GRAIL_OFF + GRAIL_W);
+      // beam: inner face, top cap, outer face — a shallow W-profile read
+      pushStrip(grail, frames, o0, GRAIL_H - 0.34, o0, GRAIL_H, flip);
+      pushStrip(grail, frames, o0, GRAIL_H, o1, GRAIL_H, flip);
+      pushStrip(grail, frames, o1, GRAIL_H, o1, GRAIL_H - 0.34, flip);
+      for (let i = 0; i <= nP; i++) {
+        const f = frameAt(curve, i / nP);
+        pushPost(grail, f, s * (hw + GRAIL_OFF + GRAIL_W / 2), 0.07, 0.07, f.y + GRAIL_H - 0.3, f.y - 0.35, 1);
+      }
+    }
   }
 
   // crosswalks: continental bars (parallel to travel) near both open ends
@@ -510,17 +579,30 @@ export function buildRoad(spec) {
   if (curb.length) g.add(meshFrom(curb, M('#93969c', { rough: 0.92, env: 0.3 })));
   if (walk.length) g.add(meshFrom(walk, M('#a9abaf', { rough: 0.94, env: 0.3 })));
   if (rail.length) g.add(meshFrom(rail, M('#9ea1a6', { rough: 0.9, env: 0.32 })));
+  if (verg.length) g.add(meshFrom(verg, M('#6e6a5f', { rough: 0.98, env: 0.18 })));
+  if (wear.length) g.add(meshFrom(wear, M('#34373c', { rough: 0.97, env: 0.26 })));
+  if (grail.length) {
+    const m = meshFrom(grail, M('#b6b9bd', { rough: 0.62, metal: 0.5, env: 0.5 }));
+    m.castShadow = true; // the post shadows are what make it read as a run
+    g.add(m);
+  }
 
   // curb colliders: one box per ~2.4 m of each curb line, yaw from the tangent
   const shapes = [];
-  const nSeg = clamp(Math.round(L / 2.4), 2, 220);
+  // cap raised with N above, and inactive for the same reason: round(L/2.4)
+  // only reaches 220 at L ≈ 528 m, well past the longest road dealt (321.8 m)
+  const nSeg = clamp(Math.round(L / 2.4), 2, 400);
   const segLen = L / nSeg;
   // a parapet is a barrier, not a kerb: full height, so a car on a bridge is
-  // actually contained instead of hopping the edge into the water
-  const barH = deck ? RAIL_H : CURB_H;
-  const barW = deck ? RAIL_W : CURB_W;
-  for (const s of [1, -1]) {
-    const oc = s * (hw + 0.02 + barW / 2);
+  // actually contained instead of hopping the edge into the water. A verge is
+  // the opposite case — there is no kerb at all, so it emits NO collider and
+  // running off the road is a run-off rather than a strike against a wall.
+  const barH = deck ? RAIL_H : guard ? GRAIL_H : CURB_H;
+  const barW = deck ? RAIL_W : guard ? GRAIL_W : CURB_W;
+  const barO = guard ? hw + GRAIL_OFF + GRAIL_W / 2 - barW / 2 : hw + 0.02;
+  const edgeColliders = !verge || guard; // a bare verge has no line to collide with
+  for (const s of edgeColliders ? [1, -1] : []) {
+    const oc = s * (barO + barW / 2);
     for (let i = 0; i < nSeg; i++) {
       const f = frameAt(curve, (i + 0.5) / nSeg);
       shapes.push({
