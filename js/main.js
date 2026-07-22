@@ -1361,33 +1361,14 @@ function poseStrip(sim, strip, t) {
 }
 
 function seekPreview(tick) {
-  if (!round) return;
-  const sim = round.sim;
-  const t = clamp(Math.round(tick), 0, round.incidentTick);
-  if (round.strip) { poseStrip(sim, round.strip, t); return; }
-  // fallback: the pre-filmstrip re-sim path, kept for any seek that happens
-  // before the strip exists (d >= 8 skips the freeze entirely)
-  if (t === sim.tick) return;
-  if (t < sim.tick) {
-    crashFx.reset();
-    crashFx.detachSim();
-    sim.reset();
-    // reset() builds FRESH meshes, so every Object3D the crosshair knows
-    // about is now detached garbage — the map has to be rebuilt with it.
-    targetMap = buildTargetMap(sim);
-    buildSignalLamps(sim); // reset() rebuilt the meshes: re-grab the materials
-    hoverGroup = null;
-  }
-  // Step silently. The six sim hooks are render-side (particles, audio, the
-  // cinematic push-in) and replaying up to 600 ticks through them would dump
-  // a whole scene's worth of effects and sound into a single frame.
-  sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onObjSplash = sim.onSunk = null;
-  while (sim.tick < t) sim.stepOnce();
-  sim.syncVisuals(1);
-  // re-key fx to the (possibly rebuilt) cars, then re-wrap for cinematics
-  crashFx.attach(sim);
-  hookRoundCinematics(sim);
-  invalidate();
+  // Pure pose off the captured filmstrip — 0.016 ms, no physics, no rebuild.
+  // Since P2/2H every difficulty builds the strip at the freeze, so it always
+  // exists here; the old re-sim fallback (reset + step up to 600 ticks, the
+  // reason a backward drag once crawled) is gone. The sim stays parked on the
+  // incident tick throughout, which is what keeps a resumed round settling
+  // against the exact scene the odds were priced on.
+  if (!round || !round.strip) return;
+  poseStrip(round.sim, round.strip, clamp(Math.round(tick), 0, round.incidentTick));
 }
 
 // The GO button is also the lock, so it carries the stake it is about to
@@ -1505,26 +1486,29 @@ function roundUpdate(dt, now) {
       round.phase = 'freeze';
       Bet.setPhase('freeze');
       setRing(1, 0);
-      if (round.d >= 8) { // no study time at the top difficulties
-        resumeRound();
-      } else {
-        // Capture the 10 s filmstrip before anything else touches the scene:
-        // it rebuilds the world, so fx has to let go of the old car objects
-        // first and the crosshair map has to be rebuilt from the new ones.
-        crashFx.reset();
-        crashFx.detachSim();
-        round.strip = buildStrip(sim, round.incidentTick);
-        targetMap = buildTargetMap(sim);
-    buildSignalLamps(sim); // reset() rebuilt the meshes: re-grab the materials
-        hoverGroup = null;
-        crashFx.attach(sim);
-        hookRoundCinematics(sim);
-        poseStrip(sim, round.strip, round.incidentTick);
-        syncFzGo();
-        syncScrub(round.incidentTick); // the scrub always opens at the incident
-        $('freeze').hidden = false;
-        fitCamera(roundBox(sim), false);
-      }
+      // Every difficulty gets the freeze now (P2/2H). It used to be denied at
+      // d >= 8 ("no study time at the top difficulties"), but difficulty keeps
+      // its meaning through incident subtlety, cast size and similarity, camera
+      // coverage and odds spread — the freeze was the ONE place a hard read
+      // most needed the beat, and removing it there made high-d rounds feel
+      // arbitrary rather than hard. The strip is 0.016 ms to pose, so there is
+      // no cost argument for skipping it either.
+      // Capture the 10 s filmstrip before anything else touches the scene:
+      // it rebuilds the world, so fx has to let go of the old car objects
+      // first and the crosshair map has to be rebuilt from the new ones.
+      crashFx.reset();
+      crashFx.detachSim();
+      round.strip = buildStrip(sim, round.incidentTick);
+      targetMap = buildTargetMap(sim);
+      buildSignalLamps(sim); // reset() rebuilt the meshes: re-grab the materials
+      hoverGroup = null;
+      crashFx.attach(sim);
+      hookRoundCinematics(sim);
+      poseStrip(sim, round.strip, round.incidentTick);
+      syncFzGo();
+      syncScrub(round.incidentTick); // the scrub always opens at the incident
+      $('freeze').hidden = false;
+      fitCamera(roundBox(sim), false);
     }
   } else if (round.phase === 'resolve') {
     busy = true;

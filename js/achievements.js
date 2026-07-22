@@ -61,8 +61,10 @@ export const ACHIEVEMENTS = [
   },
   {
     id: 'cold-read', icon: '🧊', name: 'Cold Read',
-    // d ≥ 8 removes the freeze: the slip has to be in before the incident
-    desc: 'Finish a level 8+ round in profit — with no freeze to think in.',
+    // the hardest reads in the game — subtlest tells, biggest cast, least
+    // camera coverage. (Since P2/2H the freeze is offered at every level, so the
+    // challenge is the READ, not a withheld study beat.)
+    desc: 'Finish a level 8+ round in profit — the subtlest tells in the game.',
     test: (c) => c.d >= 8 && c.report.net > 0,
   },
   {
