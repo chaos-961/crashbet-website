@@ -86,7 +86,14 @@ const PINS = {
   // multiplying a float by exactly 1.0 is bit-exact, so the tyres and brakes
   // every legacy scenario builds are the ones it always built.
   wxgrip:   ['82c01590', 'b42a8bfb'],
-  worldgen: ['20bf2a4d', '418447b5'],
+  // MOVED in P2/2G (was 20bf2a4d/418447b5). The suburb generator gained a rural
+  // fringe — barns, silos, orchard rows set well back off the road — so the 16
+  // Rural & Farm scenery kinds from 1D finally appear in a real round. It is
+  // pure appended dressing (pushed after the filler, trimmed first on mobile),
+  // so the road and every identity prop are byte-identical; the hash moves only
+  // because the world now carries more props. Determinism is intact (still a
+  // pure function of the seed, node == browser), which is what this pin proves.
+  worldgen: ['e9050265', '9baac2f5'],
 };
 
 const run = (scenario) => {

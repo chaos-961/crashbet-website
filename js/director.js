@@ -341,6 +341,10 @@ function topoCauseway(rTopo, rDress, vBase) {
     S('lamp_cobra', s * 34, 7.2, 0);
   }
   if (rTopo.chance(0.6)) S('barrier_water', rTopo.range(-40, 40), 30, rTopo.range(0, 6.28));
+  // 2G coastal dressing — buoys ride the basin, a lighthouse on the far bank
+  for (let i = 0; i < 3; i++) S('buoy', rTopo.range(-48, 48), rTopo.sign() * rTopo.range(24, 52), 0);
+  if (rTopo.chance(0.6)) S('lighthouse', rTopo.sign() * 74, rTopo.sign() * 34, 0);
+  if (rTopo.chance(0.5)) S('tide_marker', rTopo.range(-40, 40), rTopo.sign() * 20, 0);
   return {
     name: 'causeway',
     world: {
@@ -385,6 +389,11 @@ function topoSwitchback(rTopo, rDress, vBase) {
   // valley floor below the viaduct — the parapets are the guardrail now
   for (let i = 0; i < 5; i++) S('tree_pine', rTopo.range(-A, A), rTopo.range(-70, 70), rTopo.range(0, 6.28));
   if (rTopo.chance(0.7)) S('rock', rTopo.range(-60, 60), rTopo.range(-40, 40), rTopo.range(0, 6.28));
+  // 2G alpine dressing — engineering that lines a real mountain route
+  for (let i = 0; i < 2; i++) S('rockfall_net', rTopo.range(-70, 70), rTopo.sign() * rTopo.range(24, 44), 0);
+  if (rTopo.chance(0.7)) S('gabion', rTopo.range(-50, 50), rTopo.sign() * 30, 0);
+  if (rTopo.chance(0.6)) S('scree', rTopo.range(-60, 60), rTopo.sign() * rTopo.range(26, 40), 0);
+  if (rTopo.chance(0.6)) S('cairn', rTopo.range(-40, 40), rTopo.sign() * 24, 0);
   return {
     name: 'switchback',
     world: { arena: A * 2 + 30, env: 'proving', ground: A + 30 },
@@ -436,6 +445,10 @@ function topoTramCrossing(rTopo, rDress, vBase) {
   S('toll_gate', -9.5, -6.5, Math.PI);
   S('sign_warn', 13, 8.5, Math.PI / 2);
   for (let i = 0; i < 4; i++) S('tree_pine', rTopo.range(-70, 70), (i % 2 ? 1 : -1) * rTopo.range(20, 46), rTopo.range(0, 6.28));
+  // 2G rural dressing — the tram line runs through farmland
+  for (let i = 0; i < 3; i++) S('rail_fence', -60 + i * 44, rTopo.sign() * rTopo.range(18, 30), 0);
+  if (rTopo.chance(0.7)) S('farm_gate', rTopo.sign() * 40, rTopo.sign() * 16, Math.PI / 2);
+  if (rTopo.chance(0.6)) S('hay_wrap', rTopo.range(-50, 50), rTopo.sign() * rTopo.range(26, 40), rTopo.range(0, 6.28));
   const mkl = (x0, z0, x1, z1, w, road) => {
     const pts = [];
     const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2.5);
@@ -468,6 +481,10 @@ function topoParkingLot(rTopo, rDress, vBase) {
   for (let i = 0; i < 9; i++) S('lamp_cobra', -64 + i * 16, 3, 0);
   for (let i = 0; i < 6; i++) S('planter_stone', -50 + i * 20, 26, 0);
   for (let i = 0; i < 5; i++) S('bollard', -30 + i * 15, -22, 0);
+  // 2G — a service/industrial edge to the lot
+  if (rTopo.chance(0.7)) S('drum_rack', -70, -34, 0);
+  if (rTopo.chance(0.7)) S('tire_stack', 66, 30, 0);
+  if (rTopo.chance(0.6)) S('pallet', rTopo.range(40, 70), -34, rTopo.range(0, 6.28));
   return {
     name: 'parkinglot',
     world: { arena: A * 2 + 20, env: 'proving', ground: A + 22 },
@@ -1843,7 +1860,15 @@ export function generateScene(seed, d = 1) {
   // worldgen's yard zones overlap occasionally, and a tree ejected out of a
   // house collider falls ACROSS THE ROAD in an otherwise quiet preview
   // (tp49: two "self-toppling" trees were really standing inside houses)
-  const FOOT = { house: 6.5, shop: 8, building_city: 9, gazebo: 4, hedge: 3.2, guardrail: 2.6, fence_picket: 2.4 };
+  // 2E/2G big props get footprints too, so small dressing never spawns inside
+  // a barn or a container stack. Pin-safe: pin-1 (intersection) names none of
+  // these, so its dressing scrub is byte-identical.
+  const FOOT = {
+    house: 6.5, shop: 8, building_city: 9, gazebo: 4, hedge: 3.2, guardrail: 2.6, fence_picket: 2.4,
+    barn: 7, silo: 4, tractor_shed: 6, grain_hopper: 4, windmill: 4, container: 3.4, container_stack: 6,
+    gantry_crane: 8, fuel_tank: 5, substation: 6, pipe_rack: 5, lighthouse: 4, tunnel_portal: 8,
+    cliff_face: 7, alpine_hut: 4, fishing_hut: 3.5, dock: 5, boulder_field: 4,
+  };
   topo.props = topo.props.filter((pr) => {
     if (FOOT[pr.kind]) return true; // the bigs stay; the smalls inside them go
     for (const q of topo.props) {
@@ -2279,7 +2304,12 @@ export function generateScene(seed, d = 1) {
   // parked car exploded it on tick 1 (tp69). Clearance is footprint-aware:
   // a house's collider reaches ~7 m from its centre (tp69's taxi spawned
   // inside one whose centre was 7.9 m away).
-  const BIG_PROP = { house: 10, shop: 10, building_city: 12, gazebo: 6, hedge: 5, guardrail: 4.5 };
+  const BIG_PROP = {
+    house: 10, shop: 10, building_city: 12, gazebo: 6, hedge: 5, guardrail: 4.5,
+    barn: 10, silo: 6, tractor_shed: 8, grain_hopper: 6, windmill: 6, container: 5, container_stack: 8,
+    gantry_crane: 10, fuel_tank: 7, substation: 8, pipe_rack: 7, lighthouse: 6, tunnel_portal: 10,
+    cliff_face: 9, alpine_hut: 6, fishing_hut: 5, dock: 7, boulder_field: 6,
+  };
   const props = topo.props.filter((pr) => {
     const rr = BIG_PROP[pr.kind] || 3.8;
     for (const c of cars) {

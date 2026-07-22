@@ -110,6 +110,13 @@ function suburb(r, props) {
     const f = frameOn(curve, r.range(0.08, 0.92));
     props.push(place(r.pick(['bush', 'rock', 'reeds', 'flowerbed', 'trash_can']), f, r.pick([1, -1]) * r.range(13, 20), 'road', r, 0.9));
   }
+  // 2G rural fringe — the suburb's edge bleeds into farmland, set well back off
+  // the road (pushed last, so the mobile budget trims it before any identity)
+  for (let i = 0; i < 3; i++) {
+    const f = frameOn(curve, r.range(0.12, 0.88));
+    props.push(place(r.pick(['barn', 'silo', 'tractor_shed', 'grain_hopper', 'hay_wrap', 'feed_bin', 'chicken_coop', 'windmill', 'orchard_row']),
+      f, r.pick([1, -1]) * r.range(25, 33), 'away', r, 0.4));
+  }
   return [road];
 }
 
