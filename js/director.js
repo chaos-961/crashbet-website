@@ -2210,6 +2210,16 @@ export function generateScene(seed, d = 1) {
       if (essentialLanes.has(c._lane)) continue;       // never queue in front of an actor
       const R = (J.stopR && J.stopR[arm]) || 7.5;
       const s = stopSAlong(c.drive.pts, J.x || 0, J.z || 0, R);
+      if (s <= 4) continue;
+      /* ROOM TO STOP (ledger #35). An ambient car placed close to the junction
+         and moving fast cannot pull up at the bar — it overshoots into the box
+         and is clipped by cross traffic that legitimately has the green.
+         Measured at ~0.5% of intersection scenes, all ambient↔ambient grazes.
+         The comfortable ambient stop is about v²/(2·3.2) m; short of that plus a
+         car-length of margin, drop the car rather than seat it where it will run
+         its own red. It is non-essential, so this only thins the queue — and a
+         car that cannot stop was never a legible queue member anyway. */
+      if (s < (c._v * c._v) / 6.4 + 6) { made.cars[i] = null; continue; }
       /* `until`: signals stop binding a few seconds after the incident. The
          recorder settles a scene by DISPLACEMENT, and a signal cycles about
          3.5 times over the 2400-tick cap — so obedient traffic is perpetually
@@ -2217,7 +2227,7 @@ export function generateScene(seed, d = 1) {
          (Ran-to-cap went 6.7% → 10.7% and broke the sweep's 10% budget.)
          Past this point ambient cars ignore the lights, finish their path and
          coast to a stop, which is also what people do after a crash. */
-      if (s > 4) c.drive.stops = [{ s, j: jSig, arm, until: INCIDENT_TICK + 150 }];
+      c.drive.stops = [{ s, j: jSig, arm, until: INCIDENT_TICK + 150 }];
     }
   }
 

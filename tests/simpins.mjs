@@ -74,7 +74,17 @@ const PINS = {
   // Both are scene CONTENT changes, which Phase 2 exists to make. The geometry
   // hash moving alongside is expected here and is not evidence of a physics
   // change: no force, material or solver parameter was touched.
-  director: ['d84820dd', 'ea7b2a6e'],
+  //
+  // MOVED AGAIN at the P2 close gate (ledger #35): ambient cars at a signalized
+  // junction now need ROOM to stop before they are seated at the bar — one that
+  // is placed too close and moving too fast to pull up is culled rather than
+  // left to overshoot the box and be clipped by cross traffic on the green.
+  // pin-1 (intersection/police) carried exactly such a car, so its cast dropped
+  // by one and the hash moved; the change is a scene-content correction, no
+  // physics touched. Cut pre-incident ambient grazes 0.50% → 0.17% of
+  // intersection scenes (the residual is a d10 multi-incident actor sharing a
+  // crossing arm, which the "never queue in front of an actor" rule exempts).
+  director: ['e327af80', '1592158f'],
   // NEW in P2/2D. Pins `world.weather.grip` — a wet road under DRIVEN cars, so
   // both halves of the opt-in are frozen: the friction slip each wheel is BUILT
   // with, and the brake authority the driver COMMANDS every tick. They are
