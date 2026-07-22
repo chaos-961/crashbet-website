@@ -43,7 +43,11 @@ stage.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 700);
+// 50° vertical (~79° horizontal at 16:9). FOV 33 was telephoto — it flattened
+// depth and made every scene read as zoomed-in (ledger, P3 camera). fitCamera's
+// distance is derived from camera.fov (and so are the flake sizing and fx), so
+// widening self-corrects the framing; nothing hardcodes the old value.
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 700);
 camera.position.set(13, 8.5, 13);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -501,6 +505,10 @@ function setCamMode(mode) {
   fly.on = want;
   document.body.classList.toggle('flycam', want);
   if (want) {
+    // entering freecam: any scripted POV must let go. drivePov runs every frame
+    // while activePov is set and would override the freecam position outright,
+    // which is why freecam and the C key were silently dead under a POV (#8).
+    if (activePov) { activePov = null; $('povfx').className = ''; renderPovBar(); }
     camera.getWorldDirection(_fwd);
     fly.yaw = Math.atan2(-_fwd.x, -_fwd.z);
     fly.pitch = Math.asin(clamp(_fwd.y, -1, 1));
@@ -930,8 +938,9 @@ function crashUpdate(dt, now) {
   if (crashFx.update(dt, camera)) busy = true;
   if (crash.sim.playing) {
     busy = true;
-    // gentle auto-follow keeps the wreck centered (orbit mode only)
-    if (!fly.on && crash.sim.cars.length) {
+    // gentle auto-follow keeps the wreck centered (orbit mode only) — paused
+    // while a fitCamera tween owns controls.target, same as the round path (#7)
+    if (!fly.on && camT >= 1 && crash.sim.cars.length) {
       _crashC.set(0, 0, 0);
       for (const car of crash.sim.cars) _crashC.add(car.wrap.position);
       _crashC.divideScalar(crash.sim.cars.length);
@@ -1213,7 +1222,7 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     targetMap = buildTargetMap(sim); // crosshair/tap targets for this round
     buildSignalLamps(sim);  // after the prop merge — noMerge lamps survive it
     scene.add(sim.root);
-    povRig = buildLoadout(sc, seed, d, povFocus());
+    povRig = buildLoadout(sc, seed, d, incidentFocus(rec, INCIDENT_TICK));
     activePov = null;
     $('povfx').className = '';
     renderPovBar();
@@ -1231,7 +1240,6 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     $('crashui').hidden = true;
     $('roundui').hidden = false;
     $('freeze').hidden = true;
-    $('outcome').hidden = true;
     $('sceneLv').textContent = 'LV ' + d;
     $('sceneTopo').textContent = sc.meta.topo + ' · ' + sc.meta.label;
     Bet.openRound({ scene: sc, markets, profile, store, exhibition });
@@ -1252,8 +1260,14 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
 
 // cinematics: reuse the crash-test language (auto slow-mo + one push-in)
 function hookRoundCinematics(sim) {
+  // Idempotent by design (ledger #19). crashFx.attach() OVERWRITES sim.onImpact
+  // with the plain fx handler before each of the two calls (scene start + the
+  // freeze re-attach), so today this never stacks. The `_cine` guard makes that
+  // robust regardless of call order: a second call with no attach in between
+  // finds its own wrapper already installed and bails instead of double-wrapping.
+  if (sim.onImpact && sim.onImpact._cine) return;
   const fxImpact = sim.onImpact;
-  sim.onImpact = (car, ev) => {
+  const wrapped = (car, ev) => {
     fxImpact(car, ev);
     const now = performance.now();
     if (ev.dv > 6.5 && now > crashSlowLast + 5000) {
@@ -1271,6 +1285,8 @@ function hookRoundCinematics(sim) {
       }
     }
   };
+  wrapped._cine = true;
+  sim.onImpact = wrapped;
 }
 
 const RING_LEN = 119.4;
@@ -1513,8 +1529,12 @@ function roundUpdate(dt, now) {
   } else if (round.phase === 'resolve') {
     busy = true;
     Bet.tickLive(round.rec, sim.tick); // chips flip as their trigger ticks pass
-    // gentle auto-follow on the wreck centroid (orbit only)
-    if (!fly.on && sim.cars.length) {
+    // gentle auto-follow on the wreck centroid (orbit only). It must stand down
+    // while a fitCamera tween is in flight (camT<1) — the push-in on the first
+    // big hit lerps controls.target too, and both running in the same frame is
+    // the "camera swims and never settles" fight (ledger #7). Once the push-in
+    // completes camT hits 1 and the follow resumes from where it left the target.
+    if (!fly.on && camT >= 1 && sim.cars.length) {
       _crashC.set(0, 0, 0);
       for (const car of sim.cars) _crashC.add(car.wrap.position);
       _crashC.divideScalar(sim.cars.length);
@@ -1557,9 +1577,9 @@ function uiSfx(kind) {
 
 // betting layer: mounted once, driven by the round lifecycle above
 Bet.mountBetUI({
-  onLock: resumeRound,
   // NEXT on the summary card deals the following campaign round (already
-  // in-game, so never re-request fullscreen)
+  // in-game, so never re-request fullscreen). Resuming at the freeze is the
+  // #fzGo button's job (main.js), not a betui callback — see ledger #30.
   onNext: () => startScene(null, null, false),
   sfx: uiSfx,
 });
@@ -1588,18 +1608,57 @@ function povFocus() {
   return _povFocus;
 }
 
+// Where the fixed camera rig is BUILT to look. buildLoadout used to get
+// povFocus() at tick 0 — the spawn centroid — so a cctv/witness pole sat where
+// the cars started, not where the crash happens, and on a long approach those
+// are different places entirely (ledger #12). Read it from the tape instead:
+// the first hard car↔car contact at/after the incident is the crash point; if
+// there is none (a swerve-off with no strike), any first contact, then the mean
+// car position at the incident tick from the coarse tracks (sampled every 10).
+const _inc = new THREE.Vector3();
+function incidentFocus(rec, incidentTick) {
+  let carHit = null, anyHit = null;
+  for (const e of rec.events) {
+    if (e.k !== 'hit' || e.x === undefined || e.t < incidentTick) continue;
+    if (!anyHit) anyHit = e;
+    if (e.o === 'car') { carHit = e; break; }
+  }
+  const pick = carHit || anyHit;
+  if (pick) return _inc.set(pick.x, 1.2, pick.z);
+  const tr = rec.tracks, o = Math.floor(incidentTick / 10) * 3; // TRACK_EVERY=10
+  if (tr && tr.length && tr[0].length > o + 2) {
+    _inc.set(0, 0, 0);
+    for (const t of tr) { _inc.x += t[o]; _inc.y += t[o + 1]; _inc.z += t[o + 2]; }
+    _inc.divideScalar(tr.length);
+    _inc.y = Math.min(_inc.y + 1.0, 3);
+    return _inc;
+  }
+  return _inc.set(0, 0, 0);
+}
+
 function renderPovBar() {
   const bar = $('povbar');
   if (!povRig || !round) { bar.innerHTML = ''; return; }
   // after the scene settles, every angle unlocks (spec: "after resolution,
   // everything unlocks") — before that, difficulty decides
   const list = round.phase === 'done' ? povRig.all : povRig.available;
-  let html = `<button class="povchip${activePov ? '' : ' sel'}" data-pov="free">${POV_META.free.icon}</button>`;
+  let html = `<button class="povchip${activePov ? '' : ' sel'}" data-pov="free" title="Free look — drag to orbit · C for freecam">${POV_META.free.icon}</button>`;
+  let dashN = 0;
   for (const p of list) {
     const m = POV_META[p.kind];
-    const lab = p.kind === 'dash' && round.scene.cars[p.car]
-      ? `${m.icon}` : m.icon;
-    html += `<button class="povchip${activePov && activePov.id === p.id ? ' sel' : ''}" data-pov="${p.id}" title="${m.label}">${lab}</button>`;
+    let inner = m.icon, title = m.label;
+    if (p.kind === 'dash') {
+      // one dashcam per flagged car, so the chip has to say WHICH car — the old
+      // ternary chose between `${m.icon}` and `m.icon`, i.e. nothing (#10). Now
+      // a corner ordinal makes them visibly distinct and the tooltip names the car.
+      dashN++;
+      const car = round.scene.cars[p.car];
+      const name = car ? (REG.find((e) => e.id === car.type) || {}).label || car.type : 'car';
+      inner = `${m.icon}<span class="bdg">${dashN}</span>`;
+      title = `Dashcam · ${name}`;
+    }
+    const on = activePov && activePov.id === p.id ? ' sel' : '';
+    html += `<button class="povchip${on}" data-pov="${p.id}" title="${title}">${inner}</button>`;
   }
   bar.innerHTML = html;
 }
@@ -1623,6 +1682,17 @@ function setPov(id) {
   if (!activePov) controls.enabled = true;
   renderPovBar();
   invalidate();
+}
+
+// keyboard cycling through the rig — V forward, shift+V back — over the same
+// list the bar shows (all angles once the scene has settled, the pruned set
+// before). 'free' is index 0, so it is always in the cycle.
+function cyclePov(dir) {
+  if (!povRig || !round || !inGame) return;
+  const list = round.phase === 'done' ? povRig.all : povRig.available;
+  const ids = ['free', ...list.map((p) => p.id)];
+  const cur = activePov ? Math.max(0, ids.indexOf(activePov.id)) : 0;
+  setPov(ids[(cur + dir + ids.length) % ids.length]);
 }
 
 $('povbar').addEventListener('click', (e) => {
@@ -1899,6 +1969,7 @@ addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'Escape' && inGame) showPause($('pause').hidden);
   if ((e.key === 'c' || e.key === 'C') && inGame) { setCamMode(fly.on ? 'orbit' : 'fly'); return; }
+  if ((e.key === 'v' || e.key === 'V') && inGame && round && $('pause').hidden) { cyclePov(e.key === 'V' ? -1 : 1); return; }
   if (round && inGame && $('pause').hidden && (e.key === ' ' || e.code === 'Space') && round.phase === 'freeze') {
     e.preventDefault(); resumeRound(); return;
   }

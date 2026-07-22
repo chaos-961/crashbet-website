@@ -6,9 +6,10 @@
 //
 // Division of labour with main.js: main.js owns the round lifecycle (deal →
 // preview → freeze → resolve → done) and CALLS INTO this module at each beat;
-// this module owns no sim state and never touches the camera. The one thing
-// it calls back for is `onLock` — the player pressing BET, which is what
-// resumes time at the freeze.
+// this module owns no sim state and never touches the camera. Resuming time at
+// the freeze is main.js's #fzGo button, NOT this module — the old `onLock`
+// callback that once did that job was never wired to place() and is gone (#30).
+// The one callback out is `onNext`, which deals the following round.
 //
 // IMPORTANT — live chips are a PREVIEW, not settlement. `liveState` below
 // re-derives win/lose from the recorder summary so a chip can flip green the
@@ -21,6 +22,10 @@ import * as Econ from './economy.js';
 import { settleMarket } from './markets.js';
 
 const $ = (id) => document.getElementById(id);
+// Safe hidden-toggle. A PWA update can briefly pair new JS with a cached older
+// index.html; a missing NEW element must never throw inside mountBetUI and halt
+// the whole module (that bricks boot at "warming up"). Use this for new ids.
+const setHidden = (id, v) => { const e = $(id); if (e) e.hidden = v; };
 // sign goes OUTSIDE the currency mark — "$-10" reads like a typo
 const money = (n) => ((n | 0) < 0 ? '−$' : '$') + Math.abs(n | 0).toLocaleString('en-US');
 // odds are integer hundredths (250 = ×2.50) — never format with float math
@@ -34,7 +39,6 @@ const S = {
   placed: false,       // slip locked in (stakes deducted)
   phase: 'idle',
   exhibition: false,
-  onLock: null,        // () => void — main.js resumes the sim
   onNext: null,        // () => void — deal the next round
   stakeSel: 5,         // current quick-stake amount
   open: false,
@@ -45,15 +49,22 @@ const S = {
 };
 
 /* ---------------- mount (once) ---------------- */
-export function mountBetUI({ onLock, onNext, sfx }) {
-  S.onLock = onLock;
+export function mountBetUI({ onNext, sfx }) {
   S.onNext = onNext;
   if (sfx) S.sfx = sfx;
+  addEventListener('pagehide', flushDraft); // persist a slip draft on tab close
 
   $('betToggle').addEventListener('click', () => setOpen(!S.open));
   $('bpClose').addEventListener('click', () => setOpen(false));
   $('betPlace').addEventListener('click', place);
   $('sumNext').addEventListener('click', () => { $('summary').hidden = true; if (S.onNext) S.onNext(); });
+  // The summary is dismissable so the player can explore the settled scene:
+  // every camera angle unlocks at 'done', but the full-screen card used to bury
+  // them and could only be left by dealing the next round (#14). A floating chip
+  // brings it back; the round is not advanced until Next is pressed.
+  $('sumClose')?.addEventListener('click', dismissSummary);
+  $('sumReopen')?.addEventListener('click', () => { setHidden('summary', false); setHidden('sumReopen', true); });
+  $('summary')?.addEventListener('click', (e) => { if (e.target === $('summary')) dismissSummary(); });
 
   // quick stakes — these set the amount used by the NEXT tapped market and
   // retro-apply to the focused leg, which is what makes one-thumb betting work
@@ -64,13 +75,18 @@ export function mountBetUI({ onLock, onNext, sfx }) {
         : v === 'all' ? Math.max(1, bankroll())
         : parseInt(v, 10);
       syncStakeBtns();
+      syncRowPayouts(); // the "to win" on every market row tracks the quick stake
       renderSlip();
     });
   }
   // one delegated listener for the whole market list (it re-renders often)
   $('mklist').addEventListener('click', (e) => {
     const row = e.target.closest('.mkrow');
-    if (row) toggleLeg(row.dataset.id);
+    if (row) { toggleLeg(row.dataset.id); return; }
+    // tap a group header to fold it away — with 11–21 groups the player wants
+    // to collapse the ones they have already read (#7)
+    const head = e.target.closest('.mkgroup > h4');
+    if (head) { head.parentElement.classList.toggle('collapsed'); S.sfx('tick'); }
   });
   $('sliplegs').addEventListener('click', (e) => {
     const leg = e.target.closest('.slipleg');
@@ -106,6 +122,7 @@ export function openRound({ scene, markets, profile, store, exhibition }) {
 
   $('betui').hidden = false;
   $('summary').hidden = true;
+  setHidden('sumReopen', true);
   document.body.classList.toggle('exhibition', S.exhibition);
   $('exhTag').hidden = !S.exhibition;
   syncBank(0);
@@ -116,10 +133,18 @@ export function openRound({ scene, markets, profile, store, exhibition }) {
 }
 
 export function closeRound() {
+  flushDraft(); // persist any debounced draft before we drop the slip
   $('betui').hidden = true;
   $('summary').hidden = true;
+  setHidden('sumReopen', true);
   setOpen(false);
   S.scene = null; S.markets = []; S.slip = null; S.phase = 'idle';
+}
+
+// hide the payout card to explore the settled scene; a floating chip re-opens it
+function dismissSummary() {
+  setHidden('summary', true);
+  setHidden('sumReopen', false);
 }
 
 export function setPhase(p) {
@@ -227,17 +252,41 @@ function slipTotal() {
   return t;
 }
 
+// Debounce the draft write. Every stake tap edits the slip and each
+// Econ.saveProfile serialises the whole profile and hits localStorage — a run
+// of +/- taps was one synchronous write per tap (#17). The slip is copied onto
+// the profile synchronously (so in-memory state is always current); only the
+// WRITE is coalesced to one call ~400 ms after the last edit. place() saves
+// directly, and closeRound()/pagehide flush, so "boot resumes the round" holds.
+let _saveT = null;
 function saveDraft() {
   if (!S.profile || !S.profile.round || !S.store) return;
   S.profile.round.slip = S.slip;
-  Econ.saveProfile(S.store, S.profile);
+  clearTimeout(_saveT);
+  _saveT = setTimeout(flushDraft, 400);
+}
+function flushDraft() {
+  clearTimeout(_saveT); _saveT = null;
+  if (S.profile && S.store) Econ.saveProfile(S.store, S.profile);
 }
 
 /* ---------------- placing ---------------- */
+let _allInArmed = false;
 function place() {
   if (S.placed || !hasStakes()) return;
+  // All-in guard: staking the entire bankroll is a two-tap confirm so a stray
+  // tap on PLACE can't empty the account in one go (#18). Exhibition never
+  // moves money, so it is exempt. Any slip edit disarms it (see renderSlip).
+  if (!S.exhibition && slipTotal() >= bankroll() && !_allInArmed) {
+    _allInArmed = true;
+    flashSlip('All-in — tap PLACE again to confirm');
+    $('betPlace').textContent = '⚠ Confirm all-in';
+    return;
+  }
+  _allInArmed = false;
   const v = Econ.placeSlip(S.profile, S.slip, S.markets);
   if (!v.ok) { flashSlip(v.errors[0] || 'Slip rejected'); return; }
+  clearTimeout(_saveT); // place() saves authoritatively below; cancel the draft write
   S.sfx('place');
   S.placed = true;
   Econ.saveProfile(S.store, S.profile);
@@ -260,19 +309,43 @@ function renderMarkets() {
     if (!byGroup.has(m.group)) { byGroup.set(m.group, []); order.push(m.group); }
     byGroup.get(m.group).push(m);
   }
+  // surface "the one to watch" (the aggressor's markets) directly under the
+  // headline so the read the scene is actually about is not buried mid-list.
+  // Array.sort is stable, so groups of equal rank keep their emitted order.
+  const agg = S.scene && S.scene.meta ? S.scene.meta.aggressor : -1;
+  const watchG = agg >= 0 ? 'car:' + agg : null;
+  const rank = (g) => (g === 'headline' ? 0 : g === watchG ? 1 : 2);
+  order.sort((a, b) => rank(a) - rank(b));
+
+  const dis = S.placed || !bettingOpen() ? 'disabled' : '';
   let html = '';
   for (const g of order) {
-    html += `<section class="mkgroup" data-group="${esc(g)}"><h4>${groupTitle(g)}</h4>`;
+    const watch = g === watchG ? ' watch' : '';
+    html += `<section class="mkgroup${watch}" data-group="${esc(g)}"><h4>${groupTitle(g)}<span class="mkchev" aria-hidden="true">▾</span></h4>`;
     for (const m of byGroup.get(g)) {
       const on = onSlip(m.id);
       const par = inParlay(m.id);
-      html += `<button class="mkrow${on ? ' on' : ''}${par ? ' par' : ''}" data-id="${m.id}" ${S.placed || !bettingOpen() ? 'disabled' : ''}>` +
+      const imp = Math.round(10000 / m.oddsH); // the probability the odds imply, %
+      html += `<button class="mkrow${on ? ' on' : ''}${par ? ' par' : ''}" data-id="${m.id}" data-odds="${m.oddsH}" ${dis}>` +
         `<span class="mklabel">${esc(m.label)}</span>` +
-        `<span class="mkodds">${oddsTxt(m.oddsH)}</span></button>`;
+        `<span class="mkmeta"><span class="mkodds">${oddsTxt(m.oddsH)}</span>` +
+        `<span class="mksub"><span class="mkimp">${imp}%</span><span class="mkdot">·</span><span class="mkwin"></span></span></span></button>`;
     }
     html += '</section>';
   }
   list.innerHTML = html;
+  syncRowPayouts();
+}
+
+// the "to win" figure on each market row, at the current quick-stake — so the
+// row is not a bare ×2.50 but says what a tap will stake and pay (#7). Cheap
+// enough to redo whenever the stake changes.
+function syncRowPayouts() {
+  const s = Math.max(1, S.stakeSel | 0);
+  for (const row of $('mklist').querySelectorAll('.mkrow')) {
+    const win = row.querySelector('.mkwin');
+    if (win) win.textContent = 'win ' + money(Math.floor((s * (+row.dataset.odds)) / 100));
+  }
 }
 
 // Update chip state on the rows already in the DOM. Never re-render the list
@@ -341,6 +414,7 @@ export function groupLabel(g) {
 
 /* ---------------- rendering: slip ---------------- */
 function renderSlip() {
+  _allInArmed = false; // any re-render of the slip cancels a pending all-in confirm
   const legs = S.slip ? S.slip.legs : [];
   const par = S.slip ? S.slip.parlay : null;
   const n = legs.length + (par ? par.ids.length : 0);
@@ -515,12 +589,25 @@ function liveClass(id) {
   return '';
 }
 
-// main.js calls this every frame during resolve
+// main.js calls this every frame during resolve. The slip is placed and locked
+// by now, so its legs never change — only their won/lost tint does. Rebuilding
+// #sliplegs innerHTML 60×/s (the old renderSlip call) threw away and rebuilt the
+// DOM every frame; diff-update the classes on the existing rows instead (#15),
+// the way syncMarketRows already does for the market list.
 export function tickLive(rec, tick) {
   S._tick = tick;
   if (S.phase !== 'resolve') return;
   if (!S._idx) S._idx = buildLiveIndex(S.markets, rec);
-  renderSlip();
+  syncSlipRows();
+}
+
+// resolve-time chip update: only the live win/lost class moves, nothing else
+function syncSlipRows() {
+  for (const leg of $('sliplegs').querySelectorAll('.slipleg')) {
+    const st = liveClass(leg.dataset.id);
+    leg.classList.remove('won', 'lost');
+    if (st) leg.classList.add(st);
+  }
 }
 
 /* ---------------- settlement + summary ---------------- */
@@ -575,6 +662,7 @@ export function settle(report, rec) {
   $('sumRows').innerHTML = rows.length ? rows.join('') : '<p class="slipempty">No bets placed on this one.</p>';
   $('sumBank').textContent = money(report.bankroll);
   $('summary').hidden = false;
+  setHidden('sumReopen', true);
   $('sumBust').hidden = !report.busted;
   if (report.busted) $('sumHead').innerHTML = '<span class="sumloss">ROCK BOTTOM</span>';
 }
@@ -632,13 +720,17 @@ function pulse(el) {
   void el.offsetWidth;
   el.classList.add('pulse');
 }
+let _flashT = null;
 function flashSlip(msg) {
   S.sfx('deny');
   const el = $('slipMsg');
   el.textContent = msg;
-  el.classList.remove('show');
-  void el.offsetWidth;
   el.classList.add('show');
+  // the visible window is JS-timed, not animation-timed, so the message still
+  // shows under reduced motion — a max-height keyframe that never runs stayed
+  // pinned at 0 and the message never appeared at all (#16)
+  clearTimeout(_flashT);
+  _flashT = setTimeout(() => el.classList.remove('show'), 2600);
 }
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

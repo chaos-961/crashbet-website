@@ -22,7 +22,11 @@ const _f = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 
 export const POV_META = {
-  free: { label: 'Freecam', icon: '🎮' },
+  // 'Free' hands the camera back to the player: orbit by default, the
+  // touch-friendly mode. The WASD/joystick freecam is a separate toggle
+  // (camBtn / C key) — labelling this chip 'Freecam' claimed a mode it never
+  // entered (ledger #9), it only ever calls setCamMode('orbit').
+  free: { label: 'Free', icon: '🎮' },
   dash: { label: 'Dashcam', icon: '🚘' },
   cctv: { label: 'CCTV', icon: '📹' },
   chopper: { label: 'Chopper', icon: '🚁' },
@@ -79,18 +83,21 @@ export function buildLoadout(scene, seed, d, focus) {
     shake: rng.range(0.5, 1.0),
   });
 
-  // difficulty prune — keep the order stable so the picker never reshuffles
+  // difficulty prune. `all` is dashcams-then-fixed, so taking the first N kept
+  // ONLY dashcams at d4–7 (budget 2–3) and every wide shot was structurally
+  // unreachable (ledger #11). Interleave fixed and dash — fixed first — so the
+  // kept set always leads with a wide angle and mixes in dashcams as the budget
+  // grows. This only reorders an already-drawn list, so no rng draw shifts and
+  // the same seed still ships the same shots.
   const budget = povBudget(d);
-  const kept = [];
-  for (const p of all) {
-    if (kept.length >= budget) break;
-    kept.push(p);
+  const dash = all.filter((p) => p.kind === 'dash');
+  const fixed = all.filter((p) => p.kind !== 'dash');
+  const order = [];
+  for (let i = 0, j = 0; i < fixed.length || j < dash.length;) {
+    if (i < fixed.length) order.push(fixed[i++]);
+    if (j < dash.length) order.push(dash[j++]);
   }
-  // at the tightest budgets make sure the one kept shot is a fixed camera,
-  // not a dashcam on some ambient car that drives away from the incident
-  if (budget <= 1 && kept.length && kept[0].kind === 'dash') {
-    kept[0] = all.find((p) => p.kind === 'cctv');
-  }
+  const kept = order.slice(0, budget);
   return { all, available: kept };
 }
 

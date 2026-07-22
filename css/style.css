@@ -30,269 +30,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: none;
   background: radial-gradient(ellipse at 50% 42%, transparent 55%, rgba(10, 11, 14, 0.42) 100%);
 }
 
-/* ---------- empty-state hint ---------- */
-#emptyhint {
-  position: fixed; left: 50%; top: 44%; transform: translate(-50%, -50%);
-  text-align: center; color: var(--text-dim); z-index: 5; pointer-events: none;
-  opacity: 0; transition: opacity 0.4s ease;
-}
-#emptyhint.show { opacity: 1; }
-#emptyhint .eh-title { font-size: 22px; font-weight: 800; letter-spacing: 0.06em; color: var(--text); text-shadow: 0 4px 18px rgba(0, 0, 0, 0.5); }
-#emptyhint .eh-sub { font-size: 13px; margin-top: 6px; }
-#emptyhint .eh-sub b { color: var(--text); }
-#emptyhint svg { width: 74px; margin-top: 14px; opacity: 0.6; transform: rotate(-12deg); }
-
-/* ---------- HUD ---------- */
-.hud { position: fixed; left: 0; right: 0; z-index: 10; display: flex; pointer-events: none; }
-.hud > * { pointer-events: auto; }
-.hud.top {
-  top: 0; align-items: flex-start; justify-content: space-between;
-  padding: calc(12px + env(safe-area-inset-top)) 16px 0;
-}
-.brand { display: flex; gap: 12px; align-items: center; user-select: none; }
-.logo { width: 46px; height: 32px; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4)); }
-.brand h1 { font-size: 17px; letter-spacing: 0.14em; font-weight: 800; line-height: 1.1; }
-.brand h1 span { background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.brand p { font-size: 11.5px; color: var(--text-dim); letter-spacing: 0.04em; margin-top: 2px; }
-.topright { display: flex; gap: 8px; align-items: center; }
-.chip {
-  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 999px;
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  padding: 7px 13px; font-size: 12px; color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------- right-docked inspector ---------- */
-/* dock narrows on tablets (36vw) so the viewport keeps majority share */
-:root { --dockw: clamp(280px, 36vw, 344px); }
-@media (min-width: 1800px) { :root { --dockw: 384px; } }
-.hud.bottom {
-  left: auto; right: 0; top: 0; bottom: 0;
-  flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: 10px;
-  width: calc(var(--dockw) + 28px + env(safe-area-inset-right));
-  padding: calc(58px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) 14px;
-  transition: transform 0.34s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.34s ease;
-}
-body.ui-collapsed .hud.bottom { transform: translateX(calc(100% + 8px)); opacity: 0; }
-body.ui-collapsed .hud.bottom > * { pointer-events: none; }
-body.ui-collapsed .hud.top { opacity: 0; }
-body.ui-collapsed .hud.top > * { pointer-events: none; }
-.hud.top { transition: opacity 0.34s ease; }
-
-/* ---------- hide / show toggle ---------- */
-.uitoggle {
-  position: fixed; z-index: 20; top: 50%;
-  right: calc(var(--dockw) + 34px + env(safe-area-inset-right));
-  transform: translateY(-50%);
-  width: 38px; height: 58px; border-radius: 13px;
-  display: grid; place-items: center;
-  background: var(--panel); border: 1px solid var(--panel-border);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
-  color: var(--text-dim);
-  transition: right 0.34s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease, color 0.15s ease;
-}
-.uitoggle svg { width: 20px; height: 20px; transition: transform 0.34s ease; }
-.uitoggle:hover { color: var(--text); background: rgba(255, 255, 255, 0.12); }
-body.ui-collapsed .uitoggle { right: calc(12px + env(safe-area-inset-right)); }
-body.ui-collapsed .uitoggle svg { transform: scaleX(-1); }
-
-.namechip {
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 999px;
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  padding: 8px 22px; width: 100%; max-width: var(--dockw); text-align: center;
-}
-.namechip:hover { border-color: rgba(255, 176, 58, 0.5); }
-.namechip .vname { font-weight: 750; font-size: 15.5px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.namechip .vsub { font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-
-.panel {
-  width: 100%; max-width: var(--dockw); min-height: 0;
-  background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
-  padding: 12px; display: flex; flex-direction: column; gap: 10px;
-}
-.sections { overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; min-height: 0; }
-.row { display: flex; gap: 10px; align-items: stretch; }
-.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.field.grow { flex: 1 1 auto; }
-.field > span { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); padding-left: 4px; }
-select, .seedbox {
-  height: 44px; border-radius: 12px;
-  background: rgba(255, 255, 255, 0.065); border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text);
-}
-select {
-  width: 100%; padding: 0 36px 0 12px; font-size: 14px; appearance: none; cursor: pointer;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'><path d='M5 9l7 7 7-7' fill='none' stroke='%23a6adb8' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  background-repeat: no-repeat; background-position: right 12px center;
-}
-select option, select optgroup { background: #1d1f24; color: var(--text); }
-.seedbox { display: flex; align-items: center; padding: 0 4px 0 12px; gap: 2px; }
-.seedbox input {
-  flex: 1; min-width: 0; background: none; border: 0; color: var(--text);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14.5px;
-}
-.seedbox input::placeholder { color: rgba(166, 173, 184, 0.5); }
-
-/* ---------- collapsible sections ---------- */
-details {
-  border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px;
-  background: rgba(255, 255, 255, 0.028);
-}
-summary {
-  list-style: none; cursor: pointer; user-select: none;
-  padding: 10px 12px; font-size: 12px; font-weight: 750;
-  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim);
-  display: flex; align-items: center; gap: 8px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-summary::-webkit-details-marker { display: none; }
-summary::before {
-  content: ""; width: 7px; height: 7px; flex: 0 0 auto;
-  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg); transition: transform 0.18s ease; margin-top: -2px;
-}
-details[open] > summary::before { transform: rotate(45deg); margin-top: -4px; }
-details[open] > summary { color: var(--text); }
-.secbody { padding: 2px 10px 12px; display: flex; flex-direction: column; gap: 9px; }
-.subhead {
-  font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: rgba(166, 173, 184, 0.7); padding: 4px 4px 0; font-weight: 700;
-}
-
-/* selection-dependent visibility */
-.selcar, .selprop, .selroad, .selactions { display: none; }
-body.sel-car .selcar { display: flex; flex-direction: column; gap: 9px; }
-body.sel-prop .selprop { display: flex; flex-direction: column; gap: 9px; }
-body.sel-road .selroad { display: flex; flex-direction: column; gap: 9px; }
-body.has-sel .selactions { display: flex; }
-body.has-sel .nosel { display: none; }
-.hint.nosel { padding: 2px 4px 4px; }
-
-/* ---------- object chips ---------- */
-.carchips { flex-wrap: wrap; gap: 7px; }
-.carchips:empty { display: none; }
-.ccar {
-  display: flex; align-items: center; gap: 7px;
-  padding: 6px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
-  background: rgba(255, 255, 255, 0.065); border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text-dim); max-width: 100%;
-}
-.ccar .dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; border: 1px solid rgba(255, 255, 255, 0.25); }
-.ccar:hover { color: var(--text); }
-.ccar.sel { border-color: rgba(255, 176, 58, 0.55); color: var(--text); background: rgba(255, 176, 58, 0.1); }
-.presetrow { flex-wrap: wrap; gap: 7px; }
-.presetrow .ccar { flex: 1 1 auto; justify-content: center; }
-
-/* ---------- prop buttons ---------- */
-.propgrid { flex-wrap: wrap; gap: 7px; }
-.propbtn {
-  flex: 1 1 calc(50% - 4px);
-  padding: 9px 8px; border-radius: 11px; font-size: 12.5px; font-weight: 650;
-  background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 255, 255, 0.16);
-  color: var(--text-dim); white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.propbtn:hover { color: var(--text); border-color: rgba(255, 176, 58, 0.5); background: rgba(255, 176, 58, 0.08); }
-
-/* armed placement state — button pressed, waiting for the ground tap */
-.propbtn.arm {
-  border-style: solid; border-color: #ffb03a; color: var(--text);
-  background: rgba(255, 176, 58, 0.16); box-shadow: 0 0 0 2px rgba(255, 176, 58, 0.25);
-}
-#spawnCar.arm { filter: brightness(1.12); box-shadow: 0 0 0 3px rgba(255, 176, 58, 0.45), 0 8px 26px rgba(255, 106, 61, 0.36); }
-
-/* ---------- sliders ---------- */
-.sliders { gap: 10px; }
-.field.slider { flex: 1; }
-.field.slider > span { display: flex; justify-content: space-between; padding-right: 2px; gap: 6px; }
-.field.slider b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 700; text-transform: none; letter-spacing: 0; white-space: nowrap; }
-input[type="range"] {
-  -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: none; cursor: pointer;
-}
-input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.12);
-}
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 19px; height: 19px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-  margin-top: -6.5px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); }
-input[type="range"]::-moz-range-thumb {
-  width: 19px; height: 19px; border: 0; border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-.slowbtn { font-size: 13.5px; font-weight: 800; letter-spacing: 0.02em; }
-#c_play.playing { background: linear-gradient(135deg, #d8493a, #e07b39); }
-
-/* ---------- checkbox row ---------- */
-.checkrow {
-  display: flex; align-items: center; gap: 9px; cursor: pointer;
-  font-size: 12.5px; color: var(--text-dim); padding: 2px 4px;
-}
-.checkrow:hover { color: var(--text); }
-.checkrow input {
-  appearance: none; -webkit-appearance: none; width: 19px; height: 19px; flex: 0 0 auto;
-  border-radius: 6px; border: 1.5px solid rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.06); cursor: pointer; position: relative;
-}
-.checkrow input:checked { background: var(--accent-grad); border-color: transparent; }
-.checkrow input:checked::after {
-  content: ""; position: absolute; left: 5.5px; top: 2px; width: 5px; height: 9px;
-  border-right: 2.2px solid #201107; border-bottom: 2.2px solid #201107; transform: rotate(45deg);
-}
-
-/* ---------- paint chips ---------- */
-.paintrow { flex-wrap: nowrap; overflow-x: auto; padding: 2px 2px 4px; gap: 8px; scrollbar-width: none; }
-.paintrow::-webkit-scrollbar { display: none; }
-.chipbtn {
-  --c: transparent;
-  flex: 0 0 auto; width: 37px; height: 37px; border-radius: 50%;
-  background: var(--c); border: 2px solid rgba(255, 255, 255, 0.18);
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-  position: relative;
-}
-.chipbtn:hover { transform: scale(1.12); }
-.chipbtn.sel { border-color: #ffb03a; box-shadow: 0 0 0 3px rgba(255, 176, 58, 0.28); }
-.chipbtn.auto {
-  width: auto; padding: 0 13px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
-  background: conic-gradient(from 210deg, #c63d3d, #e3c53a, #3e8948, #3a76c4, #dd8fb4, #c63d3d);
-  color: #16171a; text-shadow: 0 1px 2px rgba(255, 255, 255, 0.35);
-}
-
-/* ---------- action buttons ---------- */
-.actions { align-items: center; }
-.ibtn {
-  width: 46px; height: 48px; flex: 0 0 auto; border-radius: 13px;
-  display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.065); border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text-dim);
-  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
-}
-.ibtn svg { width: 21px; height: 21px; }
-.ibtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: var(--text); }
-.ibtn:active:not(:disabled) { transform: scale(0.94); }
-.ibtn:disabled { opacity: 0.35; cursor: default; }
-.ibtn.on { color: #ffb03a; border-color: rgba(255, 176, 58, 0.45); background: rgba(255, 176, 58, 0.12); }
-.ibtn.ghost { width: 38px; height: 38px; border: 0; background: none; border-radius: 10px; }
-.ibtn.ghost:hover { background: rgba(255, 255, 255, 0.1); }
-.ibtn.mini {
-  width: 34px; height: 34px; border-radius: 10px;
-  background: var(--panel); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  font-weight: 800; font-size: 15px;
-}
-.ibtn.mini svg { width: 17px; height: 17px; }
-.ibtn.wide {
-  flex: 1 1 0; width: auto; height: 42px; display: flex; gap: 7px;
-  align-items: center; justify-content: center; font-size: 12.5px; font-weight: 650;
-}
-.ibtn.wide svg { width: 17px; height: 17px; flex: 0 0 auto; }
-.ibtn.danger:hover { color: #ff7a5c; border-color: rgba(255, 122, 92, 0.4); background: rgba(255, 90, 60, 0.12); }
+/* ---------------------------------------------------------------------------
+   The mothballed editor's UI CSS lived here (spawn / inspector / chip chrome).
+   Removed in P3 (ledger #20). A handful of editor-era rules the GAME shell
+   still leans on via shared class names are kept below — .primary (the accent
+   CTA look that .mbtn.primary buttons inherit), #toast, the generic
+   input[type=range] touch sizing and the reduced-motion switch. Do not fold
+   those away without checking the game shell.
+   --------------------------------------------------------------------------- */
 
 .primary {
   flex: 1; height: 48px; border-radius: 13px;
@@ -303,31 +48,6 @@ input[type="range"]::-moz-range-thumb {
 }
 .primary:hover { filter: brightness(1.06); box-shadow: 0 10px 30px rgba(255, 106, 61, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .primary:active { transform: scale(0.975); }
-
-.hint { font-size: 11.5px; color: rgba(166, 173, 184, 0.75); user-select: none; }
-.hint b { color: var(--text-dim); }
-
-/* ---------- help overlay ---------- */
-#helpov {
-  position: fixed; inset: 0; z-index: 60;
-  background: rgba(10, 11, 14, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  display: grid; place-items: center; padding: 20px;
-}
-#helpov[hidden] { display: none; }
-.helpcard {
-  width: min(430px, 92vw); max-height: 86vh; overflow-y: auto;
-  background: rgba(22, 24, 29, 0.96); border: 1px solid var(--panel-border);
-  border-radius: var(--radius); padding: 22px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-}
-.helpcard h2 { font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 14px; }
-.helpcard dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; margin-bottom: 18px; }
-.helpcard dt {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px;
-  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 2px 8px; border-radius: 6px; white-space: nowrap; align-self: start; justify-self: start;
-}
-.helpcard dd { font-size: 13px; color: var(--text-dim); align-self: center; }
 
 /* ---------- toast ---------- */
 #toast {
@@ -340,80 +60,20 @@ input[type="range"]::-moz-range-thumb {
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
-/* ---------- golden find ---------- */
-.namechip.golden { border-color: rgba(232, 179, 58, 0.6); box-shadow: 0 0 26px rgba(232, 179, 58, 0.28), inset 0 0 14px rgba(232, 179, 58, 0.1); }
-
-/* ---------- short screens (landscape phones / small laptops) ---------- */
-@media (min-width: 621px) and (max-height: 560px) {
-  .hud.bottom { padding-top: calc(46px + env(safe-area-inset-top)); gap: 7px; }
-  .namechip { padding: 4px 16px; }
-  .namechip .vsub { display: none; }
-  .panel { padding: 8px; gap: 7px; }
-  .secbody { gap: 6px; padding-bottom: 9px; }
-  .ibtn, .primary { height: 42px; }
-  .hint.dockhint { display: none; }
-  .topright .chip { display: none; }
-}
-
-/* ---------- touch ergonomics ---------- */
+/* Range inputs get a bigger track + thumb on touch — keeps the settings sliders
+   (.setrange, #scrubBar) at a comfortable target. This block and the two .primary
+   height trims below are all the editor-era media CSS the game shell still needs;
+   the rest went with the editor UI in P3 (#20). */
 @media (pointer: coarse) {
   input[type="range"] { height: 34px; }
   input[type="range"]::-webkit-slider-runnable-track { height: 8px; border-radius: 4px; }
   input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; margin-top: -8px; }
   input[type="range"]::-moz-range-track { height: 8px; border-radius: 4px; }
   input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
-  summary { padding: 13px 12px; }
-  .checkrow { padding: 6px 4px; }
-  .checkrow input { width: 22px; height: 22px; }
-  .checkrow input:checked::after { left: 6.5px; top: 3px; width: 6px; height: 10px; }
-  .chipbtn { width: 40px; height: 40px; }
-  .ccar { padding: 8px 13px; }
-  .propbtn { padding: 12px 8px; }
 }
-
-/* ---------- mobile: bottom drawer ---------- */
-@media (max-width: 620px) {
-  :root { --dockw: 100%; }
-  .hud.top { padding: calc(10px + env(safe-area-inset-top)) 12px 0; }
-  .brand h1 { font-size: 14.5px; }
-  .brand p { font-size: 10.5px; }
-  .logo { width: 38px; height: 27px; }
-  #stats { display: none; }
-  .hud.bottom {
-    left: 0; right: 0; top: auto; width: 100%;
-    padding: 0 calc(8px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
-    align-items: stretch;
-    gap: 8px;
-  }
-  body.ui-collapsed .hud.bottom,
-  body.placing .hud.bottom { transform: translateY(calc(100% + 8px)); opacity: 0; }
-  body.placing .hud.bottom > * { pointer-events: none; }
-  .namechip { max-width: none; padding: 6px 18px; }
-  .namechip .vname { font-size: 13.5px; }
-  .panel { max-width: none; padding: 10px; gap: 8px; }
-  .sections { max-height: 34vh; }
-  /* toggle docks under the top bar, clear of the drawer */
-  .uitoggle {
-    top: calc(54px + env(safe-area-inset-top)); bottom: auto;
-    right: calc(10px + env(safe-area-inset-right));
-    transform: none; width: 44px; height: 40px;
-  }
-  body.ui-collapsed .uitoggle { transform: none; right: calc(10px + env(safe-area-inset-right)); }
-  .uitoggle svg { transform: rotate(90deg); }
-  body.ui-collapsed .uitoggle svg { transform: rotate(-90deg); }
-  #emptyhint { top: 30%; }
-  #emptyhint .eh-title { font-size: 18px; }
-  .hint.dockhint { display: none; }
-  .ibtn.wide span { display: none; }
-  .ibtn.wide { flex: 1 1 0; }
-}
-/* tiny landscape phones: keep most of the screen for the viewport */
-@media (max-width: 620px) and (max-height: 460px) {
-  .namechip { display: none; }
-  .sections { max-height: 24vh; }
-  .panel { padding: 8px; gap: 6px; }
-  .ibtn, .primary { height: 40px; }
-}
+/* the accent CTA (.mbtn.primary inherits .primary) trims a little on short screens */
+@media (min-width: 621px) and (max-height: 560px) { .primary { height: 42px; } }
+@media (max-width: 620px) and (max-height: 460px) { .primary { height: 40px; } }
 /* The OS preference and the in-game Motion setting are the same switch: main.js
    mirrors the media query onto body.reduced-motion at boot, so the setting can
    also turn it ON for a player whose OS says nothing. Never invert it — a user
@@ -773,6 +433,21 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   background: #ffcf8a; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 #scrubBar:focus-visible { outline: 2px solid rgba(255, 207, 138, 0.7); outline-offset: 4px; }
+/* the one cue that the frozen scene is scrubbable and space/Bet runs it — the
+   P0 filmstrip diff deleted the old hint (ledger #10). Sits just above the
+   scrub bar, centred, and never eats a pointer. */
+.fzhint {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(188px + env(safe-area-inset-bottom));
+  margin: 0; padding: 0 8px; pointer-events: none;
+  font-size: 11px; color: var(--text-dim); text-align: center; white-space: nowrap;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.7);
+}
+.fzhint b { color: #ffcf8a; font-weight: 800; }
+.fzhint kbd {
+  font: inherit; padding: 0 5px; border-radius: 5px; color: var(--text);
+  background: rgba(255, 255, 255, 0.13); border: 1px solid var(--panel-border);
+}
 /* Narrow phones: the tag and the readout are flex:none, so on a 320px screen
    they and the padding ate 151px of a 292px bar and left the slider — the only
    thing in here you actually operate — at 139px, about 4 ticks per pixel. The
@@ -782,22 +457,10 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   #scrub { gap: 8px; padding: 8px 11px; }
   .fztag { display: none; }
 }
-#outcome {
-  position: fixed; z-index: 40; left: 50%; transform: translateX(-50%);
-  bottom: calc(24px + env(safe-area-inset-bottom));
-  padding: 12px 20px; border-radius: 16px; text-align: center;
-  background: var(--panel); border: 1px solid var(--panel-border);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  font-size: 14px; line-height: 1.5; max-width: min(460px, 88vw);
-}
-#outcome[hidden] { display: none; }
-#outcome b { color: #ffcf8a; }
-#outcome .osub { display: block; margin-top: 3px; font-size: 12px; color: rgba(255, 255, 255, 0.5); }
 @media (max-width: 560px) {
   #ring { width: 46px; height: 46px; }
   #ringT { font-size: 16px; }
   #scenetag { top: calc(62px + env(safe-area-inset-top)); font-size: 11px; }
-  #outcome { font-size: 13px; padding: 10px 15px; }
 }
 
 /* ============ main menu additions (G3) ============ */
@@ -892,6 +555,7 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 #povbar:empty { display: none; }
 .povchip {
+  position: relative;
   width: 44px; height: 44px; border-radius: 13px; font-size: 19px; line-height: 1;
   background: var(--panel); border: 1px solid var(--panel-border); color: var(--text);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -899,6 +563,13 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 .povchip:hover { transform: translateY(-2px); background: rgba(35, 38, 45, 0.85); }
 .povchip.sel { border-color: rgba(255, 176, 58, 0.65); box-shadow: 0 0 16px rgba(255, 176, 58, 0.25); }
+/* which dashcam — one per flagged car, so the chip carries its ordinal (#10) */
+.povchip .bdg {
+  position: absolute; right: 2px; bottom: 1px;
+  min-width: 13px; padding: 0 2px; border-radius: 6px;
+  font-size: 10px; font-weight: 700; line-height: 14px;
+  background: rgba(0, 0, 0, 0.55); color: #ffce7a;
+}
 
 /* per-lens treatment — camera MOTION lives in povcam.js, the glass lives here */
 #povfx { position: fixed; inset: 0; z-index: 20; pointer-events: none; display: none; }
@@ -931,14 +602,20 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 @media (prefers-reduced-motion: reduce) { #povfx.pov-cctv { animation: none; } }
 @media (max-width: 700px) {
-  /* the slip FAB centres on phones — keep the POV chips clear of it, and on
-     one scrollable row so a 5-camera rig never stacks three rows high */
+  /* The slip FAB centres on phones. Rather than fight it for the bottom row,
+     lift the POV chips onto their OWN row directly above it — they can never
+     overlap the FAB then (#29) — kept to one scrollable row so a 5-camera rig
+     never stacks three rows high. */
   #povbar {
-    max-width: calc(50vw - 26px); flex-wrap: nowrap;
+    bottom: calc(80px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 28px); flex-wrap: nowrap;
     overflow-x: auto; scrollbar-width: none; padding-bottom: 2px;
   }
   #povbar::-webkit-scrollbar { display: none; }
   .povchip { flex: none; }
+  /* freecam: the joystick owns the bottom-left corner, so lift the strip higher
+     still, clear above it (#13). */
+  body.flycam #povbar { bottom: calc(160px + env(safe-area-inset-bottom)); max-width: calc(100vw - 130px); }
 }
 
 /* crosshair (freecam) — the dot you aim at things to bet on them */
@@ -1025,9 +702,14 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 .mkgroup { margin-top: 10px; }
 .mkgroup:first-child { margin-top: 2px; }
 .mkgroup h4 {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
   font-size: 11px; letter-spacing: 0.07em; color: var(--text-dim);
   font-weight: 700; margin: 0 0 5px 5px; text-transform: capitalize;
 }
+.mkgroup.watch > h4 { color: #ffcf8a; }          /* "the one to watch" accent (#7) */
+.mkchev { margin-left: auto; font-size: 9px; opacity: 0.5; transition: transform 0.15s ease; }
+.mkgroup.collapsed .mkchev { transform: rotate(-90deg); }
+.mkgroup.collapsed .mkrow { display: none; }
 .mkrow {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   width: 100%; min-height: 44px; padding: 9px 12px; margin-bottom: 4px;
@@ -1045,6 +727,11 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   font-variant-numeric: tabular-nums; flex: none;
 }
 .mkrow.par .mkodds { color: #9fd0ff; }
+/* row meta: odds on top, "40% · win $12" beneath — so a row says what it means
+   and what a tap pays, not a bare ×2.50 (#7) */
+.mkmeta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.mksub { display: flex; gap: 4px; font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.mkdot { opacity: 0.5; }
 .mkempty, .slipempty { color: var(--text-dim); font-size: 12.5px; text-align: center; padding: 14px 8px; margin: 0; }
 
 /* the slip, pinned to the bottom of the panel */
@@ -1077,6 +764,11 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   background: rgba(255, 255, 255, 0.07); border: 1px solid var(--panel-border); color: var(--text-dim);
 }
 .legacts button:hover { background: rgba(255, 255, 255, 0.15); color: var(--text); }
+/* delete goes to the far right of the actions row, away from the + button in
+   the stake row directly above, so a downward mis-tap raises the stake instead
+   of silently removing the leg (#18) */
+.legacts .legdel { margin-left: auto; }
+.legacts .legdel:hover { background: rgba(224, 72, 58, 0.2); color: #ff8a7a; border-color: rgba(255, 138, 122, 0.4); }
 .parbox {
   border: 1px dashed rgba(159, 208, 255, 0.45); border-radius: 11px;
   padding: 6px 7px; margin-bottom: 5px; background: rgba(159, 208, 255, 0.06);
@@ -1104,15 +796,16 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 #betPlace { margin: 0; max-width: none; padding: 12px; font-size: 14.5px; letter-spacing: 0.06em; }
 #betPlace[disabled] { opacity: 0.38; pointer-events: none; }
 #slipwrap.placed #betPlace { background: rgba(110, 231, 168, 0.2); color: #6ee7a8; box-shadow: none; }
+/* Visibility is the .show class, not a keyframe: the old animation grew
+   max-height from 0, so under reduced motion (animations off) it never left 0
+   and the message was invisible (#16). The class shows it and JS times the hide
+   (flashSlip); the transition is polish and degrades to instant. */
 .slipmsg {
   margin: 0; font-size: 11.5px; color: #ffb9a4; text-align: center;
   max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.2s ease;
 }
-.slipmsg.show { animation: slipmsg 2.6s ease-out forwards; }
-@keyframes slipmsg {
-  0% { max-height: 0; opacity: 0; } 8% { max-height: 22px; opacity: 1; }
-  80% { max-height: 22px; opacity: 1; } 100% { max-height: 0; opacity: 0; }
-}
+.slipmsg.show { max-height: 24px; opacity: 1; }
 
 /* summary card */
 #summary {
@@ -1123,11 +816,32 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 }
 #summary[hidden] { display: none; }
 .sumcard {
+  position: relative;
   width: min(420px, 94vw); max-height: 90vh; overflow-y: auto;
   background: rgba(18, 20, 25, 0.94); border: 1px solid var(--panel-border);
   border-radius: 20px; padding: 20px 18px 18px;
   box-shadow: 0 26px 80px rgba(0, 0, 0, 0.62); text-align: center;
 }
+/* dismiss the payout card to explore the settled scene; a floating chip brings
+   it back. Every camera unlocks at 'done' but the card used to bury them (#14). */
+.sumclose {
+  position: absolute; top: 12px; right: 12px;
+  width: 34px; height: 34px; border-radius: 10px; font-size: 15px; line-height: 1;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--panel-border); color: var(--text-dim);
+}
+.sumclose:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); }
+.sumreopen {
+  position: fixed; z-index: 40;
+  left: 50%; transform: translateX(-50%);
+  top: calc(12px + env(safe-area-inset-top));
+  min-height: 40px; padding: 0 16px; border-radius: 13px;
+  font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+  background: rgba(18, 20, 25, 0.9); border: 1px solid var(--panel-border); color: var(--text);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.sumreopen[hidden] { display: none; }
+.sumreopen:hover { background: rgba(35, 38, 45, 0.92); transform: translateX(-50%) translateY(-1px); }
 #sumHead { font-size: 30px; font-weight: 900; letter-spacing: 0.02em; margin-bottom: 4px; }
 .sumwin { color: #6ee7a8; }
 .sumloss { color: #ff8a7a; }

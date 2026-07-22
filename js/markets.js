@@ -34,12 +34,19 @@ function oddsFromP(p, d, floor = ODDS_MIN) {
 // heavily-staked "the far lamp post survives" markets per scene). The
 // headline pair is exempt (the spec requires both sides) and instead gets a
 // lower ×1.03 floor so honest 90 %+ scenes stay house-positive.
-const OFFER_MAX = 0.85;
+// P3 tightened this 0.85 → 0.80: the product bar is "not obvious, not
+// impossible", and an 82 % shot is close enough to obvious that it is not a
+// read, just a tax on the impatient. Re-validated on the Monte Carlo.
+const OFFER_MAX = 0.80;
 // and don't offer never-happens either: a market clipped to the 2 % pricing
 // floor when the true rate is 0.2 % is a permanent scam, and a dead market is
-// bad content besides. Module scope so generateMarkets' `add` can read it
-// before the per-scene body runs (the headline pair is added first).
-const OFFER_MIN = 0.015;
+// bad content besides. P3 raised this 0.015 → 0.05: below ~5 % there is nothing
+// in the scene a player can actually READ to decide the bet — it is a lottery
+// ticket, the "unfair randomness" the product forbids — and 0.05 sits clear
+// above the 0.02 pricing clamp so every offered market is priced honestly, not
+// floored. Module scope so generateMarkets' `add` can read it before the
+// per-scene body runs (the headline pair is added first).
+const OFFER_MIN = 0.05;
 const HEADLINE_FLOOR = 103;
 
 /* ---------------- geometry helpers (scene-spec only) ---------------- */

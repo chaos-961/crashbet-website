@@ -91,9 +91,9 @@
                aria-label="Scrub the last ten seconds">
         <span id="scrubT">0.0s</span>
       </div>
+      <p class="fzhint">Drag to rewind the last 10s · <b>Bet</b> or <kbd>space</kbd> to run it</p>
       <button id="fzGo" class="fzgo">Bet</button>
     </div>
-    <div id="outcome" hidden></div>
     <div id="povbar" role="group" aria-label="Camera angle"></div>
   </div>
   <!-- crash-test controls (visible only in crash mode) -->
@@ -192,6 +192,7 @@
 
   <div id="summary" hidden>
     <div class="sumcard" role="dialog" aria-label="Round result">
+      <button id="sumClose" class="sumclose" aria-label="Explore the scene" title="Explore the scene">✕</button>
       <h2 id="sumHead"></h2>
       <p id="sumScene" class="sumscene"></p>
       <div id="sumRows" class="sumrows"></div>
@@ -204,6 +205,9 @@
       </div>
     </div>
   </div>
+
+  <!-- brings the payout card back after it is dismissed to explore the scene -->
+  <button id="sumReopen" class="sumreopen" hidden>📋&nbsp; Result</button>
 </div>
 
 <!-- ============ freecam touch controls ============ -->
