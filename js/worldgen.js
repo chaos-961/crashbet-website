@@ -20,16 +20,20 @@
 import { makeRng, clamp } from './lib.js';
 import { roadCurve } from './roads.js';
 
+// G6: arenas grew ~1.5× and the envs stopped being dev surfaces — 'suburb'
+// is a real preset now and the director redraws env per scene anyway.
 export const WORLD_PRESETS = [
-  { id: 'suburb', label: '🏘 Suburb', env: 'proving', arena: 120 },
-  { id: 'city', label: '🏙 City', env: 'grid', arena: 110 },
-  { id: 'highway', label: '🛣 Highway', env: 'salt', arena: 290 },
+  { id: 'suburb', label: '🏘 Suburb', env: 'suburb', arena: 190 },
+  { id: 'city', label: '🏙 City', env: 'city', arena: 165 },
+  { id: 'highway', label: '🛣 Highway', env: 'desert', arena: 300 },
 ];
 export const isWorldPreset = (id) => WORLD_PRESETS.some((p) => p.id === id);
 
 // heading that points a prop's forward (+X) along direction (dx, dz)
 const headingTo = (dx, dz) => Math.atan2(-dz, dx);
 const r2 = (v) => Math.round(v * 100) / 100;
+// placement clamp half-extent — set by each generator to fit its arena
+let EXT = 99;
 
 // frame on a road: position + tangent/left-normal at parameter u (arc-length)
 function frameOn(curve, u) {
@@ -49,16 +53,20 @@ function place(kind, f, off, face, r, jitter = 0.1) {
   else heading = face;
   return {
     kind,
-    x: r2(clamp(f.x + f.nx * off, -99, 99)),
-    z: r2(clamp(f.z + f.nz * off, -99, 99)),
+    x: r2(clamp(f.x + f.nx * off, -EXT, EXT)),
+    z: r2(clamp(f.z + f.nz * off, -EXT, EXT)),
     heading: r2(heading + (jitter ? r.range(-jitter, jitter) : 0)),
     seed: String(r.int(1, 9999)),
   };
 }
 
 /* ---------------- suburb: one curvy residential street ---------------- */
-function suburb(r, props) {
-  const half = 52;
+// G6: half 52 → 78 (a real 10 s approach both ways), plus two side-street
+// cul-de-sacs — short stubs (< 55 m, so lanesOfRoad never lifts a lane off
+// them) with houses of their own, seamed to the main road by apron junctions.
+function suburb(r, props, out) {
+  EXT = 92;
+  const half = 78;
   const z0 = r.range(-10, 10);
   const road = {
     w: 7, loop: 0, style: 6, // white dashes + sidewalks + crosswalks
@@ -71,6 +79,36 @@ function suburb(r, props) {
   };
   const curve = roadCurve(road);
   const L = curve.getLength();
+  const roads = [road];
+
+  // side streets: two cul-de-sac stubs off alternating sides. The stub starts
+  // INSIDE the apron junction (overlap is fine — the junction sits 2 mm
+  // below both layers) and runs ~30 m out into its own pocket of houses.
+  for (const [u, sideK] of [[0.3, 1], [0.68, -1]]) {
+    const f = frameOn(curve, u);
+    const side = sideK;
+    const nx = f.nx * side, nz = f.nz * side;
+    const sx = f.x + nx * 2.4, sz = f.z + nz * 2.4;
+    const ex = f.x + nx * 32, ez = f.z + nz * 32;
+    roads.push({ w: 6, loop: 0, style: 2, pts: [{ x: r2(sx), z: r2(sz) }, { x: r2((sx + ex) / 2), z: r2((sz + ez) / 2) }, { x: r2(ex), z: r2(ez) }] });
+    out.junctions.push({
+      x: r2(f.x + nx * 3.6), z: r2(f.z + nz * 3.6), reach: 4.4, style: 0,
+      arms: [{ a: r2(Math.atan2(nz, nx)), w: 6 }, { a: r2(Math.atan2(nz, nx) + Math.PI), w: 6 }],
+    });
+    // houses along the stub, then a turning-circle read at the end
+    for (let i = 0; i < 2; i++) {
+      const t = 12 + i * 11;
+      const px = f.x + nx * t, pz = f.z + nz * t;
+      const lx = -nz, lz = nx; // stub-left
+      for (const s of [1, -1]) {
+        props.push({
+          kind: 'house', x: r2(px + lx * s * 8.6), z: r2(pz + lz * s * 8.6),
+          heading: r2(headingTo(-lx * s, -lz * s) + r.range(-0.05, 0.05)), seed: String(r.int(1, 9999)),
+        });
+      }
+    }
+    props.push({ kind: r.pick(['tree_round', 'tree_oak', 'gazebo']), x: r2(ex + nx * 7), z: r2(ez + nz * 7), heading: r2(r.range(0, 6.28)), seed: String(r.int(1, 9999)) });
+  }
 
   // street furniture first — it anchors the "street" read even on tight budgets
   props.push(place('sign_speed', frameOn(curve, 0.045), 5.6, 'road', r));
@@ -106,23 +144,26 @@ function suburb(r, props) {
   }
 
   // filler — first to go when the budget trims
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 9; i++) {
     const f = frameOn(curve, r.range(0.08, 0.92));
     props.push(place(r.pick(['bush', 'rock', 'reeds', 'flowerbed', 'trash_can']), f, r.pick([1, -1]) * r.range(13, 20), 'road', r, 0.9));
   }
   // 2G rural fringe — the suburb's edge bleeds into farmland, set well back off
   // the road (pushed last, so the mobile budget trims it before any identity)
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     const f = frameOn(curve, r.range(0.12, 0.88));
     props.push(place(r.pick(['barn', 'silo', 'tractor_shed', 'grain_hopper', 'hay_wrap', 'feed_bin', 'chicken_coop', 'windmill', 'orchard_row']),
-      f, r.pick([1, -1]) * r.range(25, 33), 'away', r, 0.4));
+      f, r.pick([1, -1]) * r.range(28, 40), 'away', r, 0.4));
   }
-  return [road];
+  return roads;
 }
 
 /* ---------------- city: a loop block — shops out, plaza in ---------------- */
+// G6: the block grew ~1.45× and gained a second ring of towers behind the
+// shops, so the skyline reads as a city rather than a film set.
 function city(r, props) {
-  const ex = r.range(30, 36), ez = r.range(22, 27);
+  EXT = 99;
+  const ex = r.range(42, 50), ez = r.range(31, 38);
   const road = {
     w: 8, loop: 1, style: 2, // sidewalk ring
     pts: [
@@ -157,10 +198,15 @@ function city(r, props) {
   }
 
   // shops face the street from the outside ring
-  const nShop = 5;
+  const nShop = 7;
   for (let i = 0; i < nShop; i++) {
     const u = (i + 0.5) / nShop;
     props.push(place('shop', frameOn(curve, u), r.range(11, 13), 'road', r, 0.05));
+  }
+  // a second rank of towers behind the shops — pure skyline
+  for (let i = 0; i < 5; i++) {
+    const u = (i + 0.3) / 5;
+    props.push(place('building_city', frameOn(curve, u), r.range(24, 32), 'road', r, 0.1));
   }
 
   // lamps + services around the ring
@@ -194,10 +240,11 @@ function city(r, props) {
 
 /* ---------------- highway: sweeping divided road + work zone ---------------- */
 function highway(r, props) {
+  EXT = 145;
   // long enough for a director round: a 10 s approach at highway speed eats
   // >110 m of road, and oncoming traffic needs the same again — the old ±64
   // span could host neither (every highway scene played out on empty asphalt)
-  const half = 130;
+  const half = 140;
   const z0 = r.range(-10, 10), amp = r.range(14, 26) * r.pick([1, -1]);
   const road = {
     w: 13, loop: 0, style: 1, // wide, double yellow
@@ -239,11 +286,14 @@ function highway(r, props) {
   for (let i = 0; i < 4; i++) {
     props.push(place('delineator', frameOn(curve, 0.86 + i * uM(4.1)), 7.6, 'along', r));
   }
+  // roadside services read: a cell tower and a rest-stop cluster
+  props.push(place('cell_tower', frameOn(curve, 0.14), r.pick([1, -1]) * r.range(22, 30), 'away', r, 0.5));
+  props.push(place('billboard', frameOn(curve, 0.4), 14, 'road', r));
   // sparse nature filler
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 14; i++) {
     const f = frameOn(curve, r.range(0.05, 0.95));
     props.push(place(r.pick(['rock', 'tree_pine', 'reeds', 'bush', 'tree_cypress']),
-      f, r.pick([1, -1]) * r.range(15, 26), 'away', r, 0.9));
+      f, r.pick([1, -1]) * r.range(15, 30), 'away', r, 0.9));
   }
   return [road];
 }
@@ -251,6 +301,8 @@ function highway(r, props) {
 const GENERATORS = { suburb, city, highway };
 
 // Deterministic: same preset+seed+caps ⇒ identical scene fragment.
+// G6: also returns `junctions` — apron seams for side streets. Callers that
+// ignore it (the worldgen pin's hand-built scenario) simply never build them.
 export function generateWorld(preset, seed = '1', opts = {}) {
   const p = WORLD_PRESETS.find((w) => w.id === preset);
   if (!p) return null;
@@ -258,7 +310,8 @@ export function generateWorld(preset, seed = '1', opts = {}) {
   const maxRoads = opts.maxRoads || 6;
   const r = makeRng('w:' + preset + ':' + seed);
   const props = [];
-  const roads = GENERATORS[preset](r, props).slice(0, maxRoads);
+  const out = { junctions: [] };
+  const roads = GENERATORS[preset](r, props, out).slice(0, maxRoads);
   if (props.length > maxProps) props.length = maxProps; // filler drops first
-  return { world: { arena: p.arena, env: p.env }, roads, props };
+  return { world: { arena: p.arena, env: p.env }, roads, props, junctions: out.junctions };
 }

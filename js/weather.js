@@ -71,6 +71,8 @@ const WEIGHTS = {
   alpine:  { clear: 24, fair: 22, overcast: 16, snow: 24, mist: 6, fog: 4, storm: 4 },
   coastal: { clear: 22, fair: 26, overcast: 16, drizzle: 8, rain: 8, mist: 8, fog: 8, storm: 4 },
   desert:  { clear: 40, fair: 26, dust: 22, overcast: 5, storm: 7 },
+  // G6 leafy residential — temperate mix, mostly kind, rain that reads at home
+  suburb:  { clear: 26, fair: 30, overcast: 14, drizzle: 10, rain: 8, mist: 5, fog: 3, downpour: 2, storm: 2 },
 };
 
 export const WEATHER_KINDS = Object.keys(KINDS);

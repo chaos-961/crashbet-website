@@ -37,6 +37,11 @@ export const ENVS = [
   { id: 'alpine', label: 'High Pass' },
   { id: 'coastal', label: 'Coast Road' },
   { id: 'desert', label: 'Hardpan' },
+  /* G6: the leafy residential noon. tjunction and the suburb worldgen preset
+     have always asked for 'suburb' and always silently got 'proving' — the
+     same silent-fallback class ledger #5 records for 'city'. Same fix: add
+     the preset the director already names rather than edit the director. */
+  { id: 'suburb', label: 'Greenfield' },
 ];
 export const isEnv = (id) => ENVS.some((e) => e.id === id);
 
@@ -111,6 +116,15 @@ const PRESETS = {
     key: 1.85, keyColor: '#fff0cf', fill: 0.42, fillColor: '#d8b98c',
     ground: ['#c0a074', '#b09367', '#a0855c'],
   },
+  // leafy daylight: lawn-green ground bands under a mild blue sky. The green
+  // lives in the GROUND ramp (baked), not in the lights — a green key reads
+  // as a filter, the same trap the low-sun presets note about warm ambient.
+  suburb: {
+    bg: '#87a0b4', fogN: 33, fogF: 118,
+    hemiSky: '#dcebf4', hemiGnd: '#59614e', hemi: 0.6,
+    key: 1.66, keyColor: '#fff3dd', fill: 0.46, fillColor: '#aecbdc',
+    ground: ['#5d6b4c', '#535f45', '#48533c'],
+  },
 };
 
 /* ---------------- procedural skybox ----------------
@@ -179,6 +193,11 @@ const SKIES = {
     top: '#3e7fb4', mid: '#a9b49e', hor: '#e8cf9e', fog: '#d8bd8e',
     sun: { hex: '#fffbe8', glow: '#ffe7a8', az: 2.0, el: 0.82, size: 26 },
     clouds: { n: 4, hex: '#f0e3cc' },
+  },
+  suburb: {
+    top: '#2e6aa8', mid: '#74a3cc', hor: '#c9dae4', fog: '#b9cdd6',
+    sun: { hex: '#fff4d6', glow: '#ffeabc', az: 0.85, el: 0.66, size: 22 },
+    clouds: { n: 11, hex: '#f0f4f7' },
   },
 };
 
@@ -579,13 +598,15 @@ function decoGrid(g) {
   g.add(axes);
 }
 
-// dawn/dusk are the proving ground at a different hour, so they keep its apron;
+// G6: dawn/dusk used to be "the proving ground at a different hour" and kept
+// its painted test apron — but the env pools now deal them over real places
+// (a mountain pass at dawn), where a skid pad on the valley floor reads as
+// exactly the "testing ground" leftover this release removes. They get the
+// no-op like alpine/coastal/suburb: roads and terrain carry those scenes.
 // desert borrows the salt flat's cracked patches, which is what hardpan is.
-// alpine and coastal have no entry and get the no-op — their ground reads off
-// the terrain ramp, and painted markings would be wrong in both.
 const DECO = {
   proving: decoProving, salt: decoSalt, night: decoNight, grid: decoGrid,
-  dawn: decoProving, dusk: decoProving, desert: decoSalt,
+  desert: decoSalt,
 };
 
 /* ---------------- controller ---------------- */
@@ -697,7 +718,7 @@ export function initEnv(ctx) {
     // the low-sun pair sit well under 1 for the same reason night does: the
     // landscape's colours are BAKED, so nothing in the light rig can darken
     // them and a full-value hillside under a dawn key reads as midday
-    dawn: 0.6, dusk: 0.52, alpine: 1, coastal: 0.95, desert: 1,
+    dawn: 0.6, dusk: 0.52, alpine: 1, coastal: 0.95, desert: 1, suburb: 0.95,
   };
   // the single expression for "how bright the landscape is right now". Exported
   // so vegetation can match it — plants use their own baked colours, and

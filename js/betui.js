@@ -89,14 +89,57 @@ export function mountBetUI({ onNext, sfx }) {
     if (head) { head.parentElement.classList.toggle('collapsed'); S.sfx('tick'); }
   });
   $('sliplegs').addEventListener('click', (e) => {
-    const leg = e.target.closest('.slipleg');
+    const leg = e.target.closest('.slipleg') || e.target.closest('.parbox');
     if (!leg) return;
-    const id = leg.dataset.id;
+    const stakeEl = e.target.closest('.legstake');
+    const id = stakeEl ? stakeEl.dataset.id : (e.target.closest('.slipleg') || {}).dataset?.id;
     if (e.target.closest('.legdel')) removeLeg(id);
     else if (e.target.closest('.legpar')) toggleParlay(id);
     else if (e.target.closest('.legminus')) bumpStake(id, -1);
     else if (e.target.closest('.legplus')) bumpStake(id, +1);
+    // G6 flexibility: tap the amount itself to TYPE an exact stake
+    else if (e.target.closest('.stakeamt') && !S.placed) editStake(id, e.target.closest('.stakeamt'));
   });
+}
+
+/* Inline stake typing. Swaps the amount for a numeric input; commits on
+   Enter/blur, clamped to [1, what the bankroll still allows]. Keyboard type
+   `number` brings up the numeric pad on touch. */
+function editStake(id, amtEl) {
+  if (!id || amtEl.querySelector('input')) return;
+  const isPar = id === '_parlay';
+  const cur = isPar ? (S.slip.parlay ? S.slip.parlay.stake : 0) : (legOf(id) ? legOf(id).stake : 0);
+  if (!cur && cur !== 0) return;
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(cur);
+  inp.inputMode = 'numeric'; inp.className = 'stakeedit';
+  inp.setAttribute('aria-label', 'Stake amount');
+  amtEl.textContent = '';
+  amtEl.appendChild(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const commit = (apply) => {
+    if (done) return;
+    done = true;
+    if (apply) {
+      let v = Math.max(1, Math.floor(Number(inp.value) || 1));
+      // clamp to what the bankroll allows once every OTHER stake is counted
+      const others = slipTotal() - cur;
+      v = Math.min(v, Math.max(1, bankroll() - others));
+      if (isPar) { if (S.slip.parlay) S.slip.parlay.stake = v; }
+      else { const l = legOf(id); if (l) l.stake = v; }
+      S.sfx('tick');
+      saveDraft();
+    }
+    renderSlip();
+  };
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commit(true);
+    else if (e.key === 'Escape') commit(false);
+    e.stopPropagation();
+  });
+  inp.addEventListener('blur', () => commit(true));
+  inp.addEventListener('click', (e) => e.stopPropagation());
 }
 
 function setOpen(v) {
@@ -541,6 +584,7 @@ function buildLiveIndex(markets, rec) {
     else if (s.carWheel !== undefined) { win = wheelAt[s.carWheel]; lose = rest; }
     else if (s.carFire !== undefined) { win = at(sum.perCar[s.carFire].fireAt); lose = rest; }
     else if (s.carOffroad !== undefined) { win = at(sum.perCar[s.carOffroad].offroadAt); lose = rest; }
+    else if (s.carSunk !== undefined) { win = at(sum.perCar[s.carSunk].sunkAt); lose = rest; }
     else if (s.carFirst !== undefined) {
       const c = sum.perCar[s.carFirst];
       if (sum.firstCrashTick >= 0 && c.crashedAt === sum.firstCrashTick) win = at(c.crashedAt);

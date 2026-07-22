@@ -84,7 +84,22 @@ const PINS = {
   // physics touched. Cut pre-incident ambient grazes 0.50% → 0.17% of
   // intersection scenes (the residual is a d10 multi-incident actor sharing a
   // crossing arm, which the "never queue in front of an actor" rule exempts).
-  director: ['e327af80', '1592158f'],
+  //
+  // MOVED at G6 (was e327af80/1592158f), intentionally, by scene CONTENT:
+  //   1. the incident library grew 28 → ~118 templates and every scene draws
+  //      an env from a per-topology pool plus a visual terrain spec (new
+  //      'scn:seed:env' stream) — the template/cast/dressing draws all shift;
+  //   2. castMax 6–14 with per-car awareness delays (drive.aw) and post-
+  //      incident path trims (trimDrive) — background traffic concludes;
+  //   3. signals: all-red 80 → 110 and the driver's amber rule got harder
+  //      (hard-brake commitment test) — the flowing-arrival T-bone is gone;
+  //   4. world.aware turns on post-incident ambient ACC awareness.
+  // All four are generated-scene changes; the ten non-generated pins above
+  // held bit-for-bit, which is the proof no base physics moved.
+  // (Recorded AFTER the close-gate fixes — the overtake wind-down and the
+  // scrubConflicts stop/trim remap each moved it once more during G6 dev.
+  // Verified node == browser at every 20-tick checkpoint.)
+  director: ['84b22ca3', 'b8e69358'],
   // NEW in P2/2D. Pins `world.weather.grip` — a wet road under DRIVEN cars, so
   // both halves of the opt-in are frozen: the friction slip each wheel is BUILT
   // with, and the brake authority the driver COMMANDS every tick. They are
@@ -103,7 +118,11 @@ const PINS = {
   // so the road and every identity prop are byte-identical; the hash moves only
   // because the world now carries more props. Determinism is intact (still a
   // pure function of the seed, node == browser), which is what this pin proves.
-  worldgen: ['e9050265', '9baac2f5'],
+  //
+  // MOVED at G6 (was e9050265/9baac2f5): the suburb grew half 52 → 78 with two
+  // cul-de-sac side streets (own houses, apron junction seams) and a denser
+  // fringe — layout is different by design, still a pure function of the seed.
+  worldgen: ['9015d82', '95810512'],
 };
 
 const run = (scenario) => {

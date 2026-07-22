@@ -95,18 +95,34 @@ body.reduced-motion * { animation: none !important; transition: none !important;
      room, so the menu scrolls rather than clipping "New run" off the bottom */
   overflow-y: auto;
   background:
-    radial-gradient(ellipse at 50% 30%, rgba(255, 122, 61, 0.10), transparent 55%),
-    radial-gradient(ellipse at 50% 110%, rgba(10, 11, 14, 0.75), transparent 70%),
-    rgba(16, 17, 21, 0.55);
-  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+    radial-gradient(ellipse at 50% 26%, rgba(255, 122, 61, 0.09), transparent 52%),
+    radial-gradient(ellipse at 50% 115%, rgba(8, 9, 12, 0.7), transparent 68%),
+    rgba(12, 13, 17, 0.38);
   padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
 }
-.menucard { text-align: center; user-select: none; max-width: 420px; width: 100%; }
-.menulogo { width: 110px; filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.5)); }
-.menutitle { font-size: clamp(34px, 8vw, 52px); font-weight: 900; letter-spacing: 0.16em; margin-top: 6px; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); }
+/* G6 shell: one glass card over the live 3D backdrop. Entrance animates from
+   a transformed START to the untransformed BASE (no fill-mode), so reduced
+   motion simply shows the final state — the #16 gotcha stays impossible. */
+.menucard {
+  text-align: center; user-select: none; max-width: 430px; width: 100%;
+  background: linear-gradient(180deg, rgba(22, 24, 30, 0.72), rgba(14, 15, 19, 0.78));
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 26px;
+  padding: 26px 26px 20px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px) saturate(1.15); -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  animation: menucardIn 0.5s cubic-bezier(0.2, 0.85, 0.25, 1);
+}
+@keyframes menucardIn { from { transform: translateY(16px) scale(0.985); opacity: 0.001; } }
+.menuhead { position: relative; }
+.menulogo { width: 96px; filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.5)); }
+.menutitle {
+  font-size: clamp(32px, 7.4vw, 46px); font-weight: 900; letter-spacing: 0.18em;
+  margin-top: 2px; text-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+}
 .menutitle span { background: var(--accent-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.menutag { color: var(--text-dim); font-size: clamp(12px, 2.6vw, 14px); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 4px; }
-.menufoot { color: rgba(166, 173, 184, 0.75); font-size: 12px; margin-top: 18px; }
+.menutag { color: var(--text-dim); font-size: clamp(11px, 2.4vw, 13px); letter-spacing: 0.22em; text-transform: uppercase; margin-top: 6px; }
+.menufoot { color: rgba(166, 173, 184, 0.6); font-size: 11.5px; margin-top: 16px; }
 
 .mbtn {
   display: block; width: 100%; max-width: 300px; margin: 10px auto 0;
@@ -119,9 +135,29 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 .mbtn:active { transform: translateY(0) scale(0.98); }
 .mbtn.primary { background: var(--accent-grad); color: #1b1206; box-shadow: 0 8px 26px rgba(255, 106, 61, 0.35); }
 .mbtn.primary:hover { box-shadow: 0 10px 30px rgba(255, 106, 61, 0.5); }
-.mbtn.big { margin-top: 26px; padding: 16px 22px; font-size: 18px; letter-spacing: 0.04em; }
+.mbtn.big {
+  margin-top: 18px; padding: 15px 22px; font-size: 17.5px; letter-spacing: 0.05em;
+  max-width: none; display: flex; align-items: center; justify-content: center; gap: 10px;
+  border-radius: 16px; text-transform: uppercase;
+}
+.mbtn.big .mi { width: 20px; height: 20px; flex: none; }
 .mbtn.danger { color: #ff9d8a; }
 .mbtn.danger:hover { background: rgba(224, 72, 58, 0.18); }
+
+/* the tile grid: six equal glass tiles, icon over label */
+.menugrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 12px; }
+.mtile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  min-height: 74px; padding: 10px 6px; border-radius: 15px;
+  background: rgba(255, 255, 255, 0.055); border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text); font-weight: 650; font-size: 12.5px; letter-spacing: 0.02em;
+  transition: transform 0.13s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.mtile .mi { width: 23px; height: 23px; color: #c8cfd8; transition: color 0.16s ease; }
+.mtile:hover { background: rgba(255, 255, 255, 0.11); border-color: rgba(255, 255, 255, 0.16); transform: translateY(-2px); }
+.mtile:hover .mi { color: var(--accent-2); }
+.mtile:active { transform: translateY(0) scale(0.97); }
+.mtile[disabled] { opacity: 0.4; pointer-events: none; }
 
 /* HUD */
 .hambtn {
@@ -244,24 +280,26 @@ body.reduced-motion * { animation: none !important; transition: none !important;
    Height, not width, is the binding constraint here, so the title's 8vw clamp
    also has to come down: at 844 px wide it resolves to the full 52 px. */
 @media (max-height: 460px) {
-  .menulogo { width: 54px; }
-  .menutitle { font-size: 30px; letter-spacing: 0.12em; margin-top: 2px; }
-  .menutag { font-size: 10.5px; margin-top: 2px; }
-  .mbtn.big { margin-top: 9px; padding: 10px 18px; }
+  .menucard { padding: 14px 16px 12px; }
+  .menulogo { width: 46px; }
+  .menutitle { font-size: 27px; letter-spacing: 0.12em; margin-top: 0; }
+  .menutag { font-size: 10px; margin-top: 2px; }
+  .mbtn.big { margin-top: 9px; padding: 10px 18px; font-size: 15px; }
   .pausecard { padding: 14px 16px 14px; }
   .pausecard h2 { margin-bottom: 8px; }
   .mbtn { padding: 8px 16px; margin-top: 5px; font-size: 14px; }
-  .menurow { gap: 7px; }
+  .menugrid { gap: 7px; margin-top: 8px; }
+  .mtile { min-height: 56px; gap: 4px; font-size: 11.5px; }
+  .mtile .mi { width: 19px; height: 19px; }
   #menubank { margin-top: 7px; padding: 5px 12px; }
   .menufoot { display: none; } /* the orbit hint is not worth a row here */
 }
-/* ...but the 44 px floor is not negotiable on an actual touch device. Eight
-   buttons at 44 px cannot fit 390 px of height alongside a title, so on a real
-   landscape phone the menu keeps full-size targets and scrolls (#menu is
-   overflow-y:auto). A resized DESKTOP window has a fine pointer and takes the
-   compact treatment above, where a 42 px button is perfectly clickable. */
+/* ...but the 44 px floor is not negotiable on an actual touch device. The
+   tile grid always clears it; buttons keep the explicit floor so a landscape
+   phone scrolls (#menu is overflow-y:auto) rather than shrinking targets. */
 @media (max-height: 460px) and (pointer: coarse) {
   .mbtn, .mbtn.tiny { min-height: 44px; }
+  .mtile { min-height: 58px; }
 }
 
 /* crash-test HUD (visible only in crash mode) */
@@ -474,8 +512,6 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 #menubank .mbl { font-size: 9.5px; letter-spacing: 0.16em; color: var(--text-dim); font-weight: 700; }
 #mbAmt { font-size: 19px; font-weight: 800; color: #ffcf8a; }
 .mbrun { font-size: 11px; color: var(--text-dim); }
-.menurow { display: flex; gap: 9px; max-width: 300px; margin: 9px auto 0; }
-.menurow .mbtn { margin: 0; flex: 1; padding: 11px 8px; font-size: 13.5px; }
 .mbtn.tiny { margin-top: 12px; padding: 8px 14px; font-size: 12.5px; max-width: 300px; }
 .mbtn.tiny[hidden] { display: none; }
 
@@ -511,7 +547,6 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 @media (max-height: 460px) {
   #menubank { margin-top: 8px; padding: 6px 13px; }
   #mbAmt { font-size: 16px; }
-  .menurow { margin-top: 7px; }
   .modalcard { padding: 14px 16px 14px; }
   .howlist { gap: 6px; }
 }
@@ -756,7 +791,19 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   background: rgba(255, 255, 255, 0.09); border: 1px solid var(--panel-border); color: var(--text);
 }
 .legstake button:hover { background: rgba(255, 255, 255, 0.17); }
-.stakeamt { font-size: 13px; font-weight: 800; min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
+/* tappable: tap the amount to type an exact stake (G6) */
+.stakeamt {
+  font-size: 13px; font-weight: 800; min-width: 42px; text-align: center;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.35); text-underline-offset: 3px;
+}
+.stakeedit {
+  width: 62px; padding: 3px 6px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 176, 58, 0.55);
+  color: var(--text); font: inherit; font-size: 13px; font-weight: 800; text-align: center;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.stakeedit::-webkit-outer-spin-button, .stakeedit::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .stakepay { font-size: 11px; color: var(--text-dim); margin-left: auto; }
 .legacts { display: flex; gap: 6px; margin-top: 5px; }
 .legacts button {

@@ -49,6 +49,7 @@ const WATER_PRESETS = {
   alpine:  { deep: '#123a4e', shallow: '#3f8a9c', silt: '#4a5058', rock: '#6d747c', foam: '#f4fafd' },
   coastal: { deep: '#12455c', shallow: '#4fa0a8', silt: '#8a7f63', rock: '#8d8570', foam: '#f2f6f2' },
   desert:  { deep: '#26404a', shallow: '#5b8a86', silt: '#8a7350', rock: '#9b8461', foam: '#f0e4cc' },
+  suburb:  { deep: '#1c3e4a', shallow: '#48808a', silt: '#4a4a3c', rock: '#5c5c50', foam: '#e8f0f2' },
 };
 export const waterPreset = (id) => WATER_PRESETS[id] || WATER_PRESETS.proving;
 

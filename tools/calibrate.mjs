@@ -62,7 +62,7 @@ for (let i = 0; i < N; i++) {
     // complements are priced as 1−p of their pair — aggregating both sides
     // of the same coin under one kind reads exactly 0.5 forever
     if (m.id === 'h.nocrash' || m.id === 's.under') continue;
-    bump(m.kind, scene.meta.template, m.cal || '_', M.settleMarket(m, rec));
+    bump(m.kind, scene.meta.calKey || scene.meta.template, m.cal || '_', M.settleMarket(m, rec));
   }
   // second pass on the OFFERED set for the O/E difficulty ratio. Generation is
   // pure and cheap; recordScene above is the expensive part and is shared.

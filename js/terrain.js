@@ -136,6 +136,7 @@ export const TERRAIN_FOR_ENV = {
   // as a flat wash at this world's scale, which is the note terrain.js already
   // makes about amplitude — silhouette beats surface
   desert: 'mesa',
+  suburb: 'rolling',
 };
 
 const RIDGE_AT = 255;   // distant band starts lifting here…
@@ -150,6 +151,11 @@ export function makeHeightField(spec) {
   const p = TERRAINS[spec.preset] || TERRAINS.rolling;
   const playR = spec.playR || 90;
   const rampTo = playR * 1.35;
+  // G6 visual amplitude knob. Absent it is exactly 1 and h*1.0 is bit-exact,
+  // the same opt-in argument as wxGrip — no drivable-terrain spec sets it, so
+  // the heightfield collider pins cannot move. The director sets it on
+  // VISUAL-only terrain to push real hills against the skyline everywhere.
+  const ampK = spec.ampK || 1;
   // 32-bit seed from the string, so two scenes never share a landscape
   let s = 2166136261 >>> 0;
   const str = 'ter:' + (spec.seed == null ? '' : spec.seed);
@@ -169,7 +175,7 @@ export function makeHeightField(spec) {
     if (p.rise) h += (r - playR) * p.rise * 0.06 * mask;
     // distant band: bias tall so something silhouettes against the dome
     h *= 1 + smoothstep(RIDGE_AT, RIDGE_FULL, r) * RIDGE_BOOST;
-    return h * mask;
+    return h * mask * ampK;
   }
 
   return { heightAt, preset: p, playR, rampTo, id: spec.preset };

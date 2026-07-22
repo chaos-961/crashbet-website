@@ -107,7 +107,11 @@ const env = initEnv({
 });
 const weather = initWeather(scene, { small: smallScreen });
 const veg = initVegetation(scene, { small: smallScreen });
-env.apply('proving');
+// G6: the menu/garage backdrop rotates through the good-looking presets by
+// day — the proving ground is a dev surface now, not the front door. Scenes
+// always bring their own env; this only dresses the shell.
+const MENU_ENVS = ['suburb', 'coastal', 'dusk', 'alpine', 'dawn', 'city', 'desert'];
+env.apply(MENU_ENVS[new Date().getDate() % MENU_ENVS.length]);
 
 /* ---------------- camera fitting / tween ---------------- */
 let camFrom = null, camTo = null, camT = 1;
@@ -369,22 +373,10 @@ $('p_fs').addEventListener('click', async () => {
 });
 document.addEventListener('fullscreenchange', syncFsLabel);
 
-/* ---------------- settings ---------------- */
-{
-  const row = $('set_envs');
-  for (const e of ENVS) {
-    const b = document.createElement('button');
-    b.className = 'mchip' + (env.current === e.id ? ' sel' : '');
-    b.dataset.env = e.id;
-    b.textContent = e.label;
-    b.addEventListener('click', () => {
-      env.apply(e.id);
-      row.querySelectorAll('.mchip').forEach((c) => c.classList.toggle('sel', c.dataset.env === e.id));
-      invalidate();
-    });
-    row.appendChild(b);
-  }
-}
+/* ---------------- settings ----------------
+   G6: no environment picker any more — the SCENE owns its environment (the
+   director deals it per seed), and letting a Settings chip override it was
+   both a spoiler surface and a mismatch with what the odds were priced on. */
 let quality = smallScreen ? 'low' : 'high';
 /* Quality tiers (1H). Previously this moved only DPR and shadows on/off, forced
    a shader recompile of every material on EVERY call, and was never saved — so
@@ -1100,6 +1092,22 @@ function roundBox(sim) {
 }
 
 // deal a scene: generate → pre-sim headlessly behind the loading beat → play
+// G6 spoiler-free scene tag: places and weather, never the incident
+const TOPO_LABEL = {
+  intersection: 'Signal Junction', suburb: 'Residential Street', city: 'City Block',
+  highway: 'Open Highway', causeway: 'Causeway', switchback: 'Mountain Viaduct',
+  schoolzone: 'School Zone', tramcrossing: 'Level Crossing', parkinglot: 'Parking Lot',
+  roundabout: 'Roundabout', boulevard: 'Boulevard', tunnelmouth: 'Tunnel Approach',
+  industrialyard: 'Freight Yard', tjunction: 'T-Junction', overpass: 'Overpass',
+  cloverleaf: 'Interchange', forestroad: 'Forest Road', mountainpass: 'Mountain Pass',
+  canyon: 'Canyon Road', coastalcliff: 'Coast Cliffs', riverside: 'Riverside',
+  harbourramp: 'Harbour Quay',
+};
+const WX_ICON = {
+  clear: '☀', fair: '🌤', overcast: '☁', drizzle: '🌦', rain: '🌧', downpour: '⛈',
+  mist: '🌫', fog: '🌫', snow: '🌨', dust: '🌪', storm: '⛈',
+};
+
 async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
   if (roundLoading || !preloaded) return;
   roundLoading = true;
@@ -1240,14 +1248,17 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     $('crashui').hidden = true;
     $('roundui').hidden = false;
     $('freeze').hidden = true;
-    $('sceneLv').textContent = 'LV ' + d;
-    $('sceneTopo').textContent = sc.meta.topo + ' · ' + sc.meta.label;
+    // G6: no incident name, no difficulty badge — the scene is the mystery.
+    // The tag shows WHERE you are and what the sky is doing; what happens is
+    // for the player to read.
+    $('sceneLv').textContent = TOPO_LABEL[sc.meta.topo] || sc.meta.topo;
+    $('sceneTopo').textContent = (WX_ICON[wx.kind] || '') + ' ' + wx.kind;
     Bet.openRound({ scene: sc, markets, profile, store, exhibition });
     setRing(1, 10);
     camera.position.set(0, 40, 90);
     fitCamera(roundBox(sim), true);
     roundLoad(false);
-    toast(`🎬 ${sc.meta.label} — LV ${d}`);
+    toast('🎬 Ten seconds — find the tell');
     invalidate();
   } catch (e) {
     console.error('scene failed', e);
@@ -1786,21 +1797,31 @@ renderer.domElement.addEventListener('pointerup', () => { _downXY = null; });
    Continue deals (or resumes) the campaign round; Garage is the old showroom;
    a custom seed always runs Exhibition. The bankroll block only appears once
    a profile exists so a first boot reads as a title screen, not a save file. */
+/* G6: the menu buttons carry inline SVG icons now, so state updates mutate
+   the label <span> and badge in place — an innerHTML rewrite here would wipe
+   the icons the moment a profile loads. */
+function setTileBadge(btn, text, cls) {
+  let badge = btn.querySelector('.mbadge');
+  if (text == null) { if (badge) badge.remove(); return; }
+  if (!badge) { badge = document.createElement('b'); btn.appendChild(badge); }
+  badge.className = 'mbadge' + (cls ? ' ' + cls : '');
+  badge.textContent = text;
+}
 function syncMenu() {
   if (!profile) return;
   const unfinished = !!(profile.round && !profile.round.exhibition);
   $('mbAmt').textContent = '$' + profile.bankroll.toLocaleString('en-US');
   $('mbRun').textContent = unfinished ? 'round in progress' : 'round ' + (profile.campaign.n + 1);
   $('menubank').hidden = false;
-  $('startBtn').innerHTML = unfinished ? '▶&nbsp; Resume round' : '▶&nbsp; Continue';
+  const startLab = $('startBtn').querySelector('span');
+  if (startLab) startLab.textContent = unfinished ? 'Resume round' : 'Continue';
   // "New run" only means something once there is progress to throw away
   $('newRunBtn').hidden = !(profile.campaign.n > 0 || profile.bankroll !== Econ.START_BANKROLL || unfinished);
   // the daily advertises its own state: unplayed today, or the streak so far
   const dly = Econ.dailyInfo(profile);
-  $('dailyBtn').innerHTML = dly.played
-    ? `📅&nbsp; Daily <b class="mbadge">done${dly.streak > 1 ? ` · ${dly.streak}🔥` : ''}</b>`
-    : '📅&nbsp; Daily <b class="mbadge new">new</b>';
-  $('statsBtn').innerHTML = `📊&nbsp; Stats <b class="mbadge">${Ach.unlockedCount(profile)}/${Ach.ACHIEVEMENTS.length}</b>`;
+  if (dly.played) setTileBadge($('dailyBtn'), 'done' + (dly.streak > 1 ? ` · ${dly.streak}🔥` : ''));
+  else setTileBadge($('dailyBtn'), 'new', 'new');
+  setTileBadge($('statsBtn'), `${Ach.unlockedCount(profile)}/${Ach.ACHIEVEMENTS.length}`);
 }
 
 const MODAL_TITLE = { how: 'How to play', seed: 'Custom seed', stats: 'Your record' };

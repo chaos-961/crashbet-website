@@ -36,8 +36,14 @@ export function makeSignalProgram(rng, armGroups, opts = {}) {
      runs at ~12 m/s, so clearance is ~1.6 s; at the original all-red of 20
      ticks the total intergreen was 65 ticks (1.1 s) and cars legitimately
      mid-junction were being T-boned by traffic that had just been waved
-     through. 45 + 80 = 125 ticks ≈ 2.1 s. */
-  const allRed = opts.allRed == null ? 80 : opts.allRed;
+     through. 45 + 80 = 125 ticks ≈ 2.1 s.
+     G6: 80 → 110 (intergreen 155 ≈ 2.6 s). The bigger ambient casts exposed
+     the flowing-arrival case: a car that committed on amber from the far
+     edge of its stop envelope is still clearing as a cross car arrives AT
+     SPEED exactly on the green — the driver's amber rule got harder too
+     (physics.js), and the two changes together put ~0.5 s of clearance
+     margin on the worst case instead of ~0. */
+  const allRed = opts.allRed == null ? 110 : opts.allRed;
   const stages = armGroups.map((arms) => ({
     arms: arms.slice(),
     // integers: a program is compared and summed on tick boundaries, and a

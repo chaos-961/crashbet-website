@@ -16,6 +16,9 @@ import { makeRng, clamp } from './lib.js';
 import { roadCurve } from './roads.js';
 import { generateWorld } from './worldgen.js';
 import { makeSignalProgram, phaseFor, signalAt, GREEN } from './signals.js';
+// terrain.js is pure (integer-hash noise, no THREE state) — the director only
+// reads its env→preset table to attach a VISUAL terrain spec to every scene.
+import { TERRAIN_FOR_ENV } from './terrain.js';
 // weather.js's roll is pure data (no THREE objects, no side effects), which is
 // what lets the scene carry its own weather — see the `world.weather` note in
 // generateScene for why that has to be the scenario's job and not main.js's.
@@ -217,14 +220,15 @@ function sortLanes(lanes) {
 // Each returns { name, world: {arena, env}, roads, props, lanes, crossings }.
 // crossings = [[laneIdxA, laneIdxB], ...] — pairs that genuinely intersect.
 function topoWorldgen(preset, rTopo, vBase) {
-  const g = generateWorld(preset, String(rTopo.int(1, 99999)), { maxProps: 40, maxRoads: 6 });
+  // G6: prop budget 40 → 84 (the generators grew), junction seams pass through
+  const g = generateWorld(preset, String(rTopo.int(1, 99999)), { maxProps: 84, maxRoads: 8 });
   const lanes = [];
   for (const spec of g.roads) for (const l of lanesOfRoad(spec, rTopo, vBase)) lanes.push(l);
   sortLanes(lanes);
-  // big topos (the 290 m highway) need the visual ground disc to keep up;
+  // big topos (the 300 m highway) need the visual ground disc to keep up;
   // setGroundRadius clamps to its 90 m floor so small arenas are unaffected
   const world = { ...g.world, ground: (g.world.arena || 140) / 2 + 22 };
-  return { name: preset, world, roads: g.roads, props: g.props, lanes, crossings: [] };
+  return { name: preset, world, roads: g.roads, props: g.props, junctions: g.junctions || [], lanes, crossings: [] };
 }
 
 // Signalized intersection: four road stubs meeting a bare-asphalt junction
@@ -492,17 +496,31 @@ function topoParkingLot(rTopo, rDress, vBase) {
   };
 }
 
-// Roundabout: a ring with four approach stubs. Stubs stop just outside the
-// ring's outer edge — overlapping asphalt z-fights — and a patch hides the
-// seam. Approach lanes cross each other, which is what makes it bettable.
+/* Roundabout — G6 rebuild. The old lanes were STRAIGHT LINES across the whole
+   span: four cars driving over the island of a ring nobody circulated. Cars
+   now drive real JOURNEYS — enter at one mouth, circulate the ring, exit at
+   the opposite mouth — and ambient entries carry give-way lines (drive.yields)
+   that hold while the circle is occupied, which is the traffic rule the place
+   exists to stage.
+
+   Geometry: circulating radius = the ring centreline R = 23. The pure-pursuit
+   driver's certified band is 19–48 m (switchback note), and v²·κ at 8.8 m/s is
+   ~3.4, which also bars heavies via the bendy guard — correct art direction.
+   Journey k enters at arm k, runs the ring HALF way (passing arm k−1's mouth,
+   which is where the merge conflict lives), and exits at the opposite arm. The
+   arc is trimmed ~0.35 rad short of both mouths so the pursuit lookahead
+   blends entry and exit across the junction aprons instead of kinking.
+   One-way ring: each journey carries a unique `road` tag, so there is no
+   opposite-direction partner and head-on templates skip this topology by
+   geometry (solveHeadOn finds nothing). */
 function topoRoundabout(rTopo, rDress, vBase) {
-  const A = 128, R = 21;
+  const A = 128, R = 23;
   const ring = { pts: [], w: 8, loop: 1, style: 0 };
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     ring.pts.push({ x: Math.cos(a) * R, z: Math.sin(a) * R });
   }
-  const G = R + 4.4; // just clear of the ring's outer edge
+  const G = R + 4.4; // stub start, just clear of the ring's outer edge
   const roads = [ring,
     { w: 8, loop: 0, style: 1, pts: [{ x: -A, z: 0 }, { x: -G, z: 0 }] },
     { w: 8, loop: 0, style: 1, pts: [{ x: G, z: 0 }, { x: A, z: 0 }] },
@@ -511,14 +529,8 @@ function topoRoundabout(rTopo, rDress, vBase) {
   ];
   const props = [];
   const S = dress(props, rDress);
-  /* The patch prop here was doing nothing useful: a 13 × 13 m square of
-     asphalt centred on the origin, which on a ring of radius 21 (asphalt 17
-     → 25) lands entirely on the GRASS ISLAND. It hid no seam. The actual
-     seam is at each stub mouth, where the stub starts at G = R + 4.4 = 25.4
-     and the ring's outer edge is 25 — a bare sliver of ground crossing every
-     entry. A 2-arm junction is a plain apron: it fillets nothing (collinear
-     arms have no corner) and simply lays asphalt from inside the ring to
-     past the stub start, under both, closing the gap for good. */
+  // aprons over each stub-mouth seam (see the P2 note: a 2-arm junction is a
+  // plain apron laid 2 mm under both, closing the sliver for good)
   const junctions = [];
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
@@ -532,24 +544,52 @@ function topoRoundabout(rTopo, rDress, vBase) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     S('sign_yield', Math.cos(a) * (R + 7), Math.sin(a) * (R + 7), a);
   }
-  S('tree_oak', 0, 0, rTopo.range(0, 6.28)); // the island
-  if (rTopo.chance(0.7)) S('hedge', 6, 4, rTopo.range(0, 6.28));
-  // straight approach lanes across the whole span: entering traffic conflicts
-  const mkl = (x0, z0, x1, z1, w, road) => {
+  // the island is a real garden now that nothing drives across it
+  S(rTopo.chance(0.5) ? 'fountain' : 'tree_oak', 0, 0, rTopo.range(0, 6.28));
+  for (let i = 0; i < 4; i++) {
+    const a = rTopo.range(0, 6.28);
+    S(rTopo.pick(['hedge', 'bush', 'flowerbed']), Math.cos(a) * rTopo.range(5, 10), Math.sin(a) * rTopo.range(5, 10), rTopo.range(0, 6.28));
+  }
+  /* Journeys. vRun stays under 9 so the ring's lateral demand is honest for
+     every castable body. Sampling: straights every 2.5 m, arc every ~2.5 m of
+     arc length. Yield zone per journey = the merge mouth on the ring (where
+     journey k joins the arc journey k+1 is circulating). */
+  const vRun = Math.min(vBase, 8.8);
+  const lanes = [];
+  const yieldZones = [];
+  for (let k = 0; k < 4; k++) {
+    const phi = (k / 4) * Math.PI * 2;
+    const ax = Math.cos(phi), az = Math.sin(phi);   // outward arm unit
+    const rx = az, rz = -ax;                        // right-of-inbound offset dir
     const pts = [];
-    const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 2.5);
-    for (let i = 0; i <= n; i++) pts.push(x0 + ((x1 - x0) * i) / n, z0 + ((z1 - z0) * i) / n);
-    return { pts, len: Math.hypot(x1 - x0, z1 - z0), v: vBase, w, road };
-  };
-  const lanes = [
-    mkl(-A, 2, A, 2, 8, 'ew'), mkl(A, -2, -A, -2, 8, 'ew'),
-    mkl(-1.75, -A, -1.75, A, 7, 'ns'), mkl(1.75, A, 1.75, -A, 7, 'ns'),
-  ];
+    // entry straight: from the rim to just outside the ring, offset 2 m right
+    for (let t = A; t >= R + 7; t -= 2.5) pts.push(ax * t + rx * 2, az * t + rz * 2);
+    // arc: theta decreasing from phi−0.35 to phi−π+0.35 (half circulation)
+    const th0 = phi - 0.35, th1 = phi - Math.PI + 0.35;
+    const steps = Math.ceil(((th0 - th1) * R) / 2.5);
+    for (let i = 0; i <= steps; i++) {
+      const th = th0 + ((th1 - th0) * i) / steps;
+      pts.push(Math.cos(th) * R, Math.sin(th) * R);
+    }
+    // exit straight: out along the opposite arm, offset 2 m right of travel
+    for (let t = R + 7; t <= A; t += 2.5) pts.push(-ax * t + rx * 2, -az * t + rz * 2);
+    const lane = { pts, len: laneLen(pts), v: vRun, w: 8, road: 'a' + k };
+    lanes.push(lane);
+    // give-way line: hold just before the arc while the merge mouth is claimed
+    const sEntry = A - (R + 7); // length of the entry straight
+    yieldZones.push({ road: 'a' + k, x: ax * R, z: az * R, r: 12, s: sEntry - 2 });
+  }
+  sortLanes(lanes);
+  // crossings pair [entering k, circulating k+1] — the mouth conflict.
+  // Indices must survive sortLanes, so resolve tags back to positions.
+  const idxOf = (tag) => lanes.findIndex((l) => l.road === tag);
+  const crossings = [];
+  for (let k = 0; k < 4; k++) crossings.push([idxOf('a' + k), idxOf('a' + ((k + 1) % 4))]);
   return {
     name: 'roundabout',
     world: { arena: A * 2 + 20, env: 'city', ground: A + 22 },
-    roads, junctions, props, lanes,
-    crossings: [[0, 2], [0, 3], [1, 2], [1, 3]],
+    roads, junctions, props, lanes, yieldZones,
+    crossings,
   };
 }
 
@@ -973,6 +1013,59 @@ function placeParked(lane, s, end = 'stop') {
 }
 const cmd = (spec, c) => { spec.drive.cmds.push(c); return spec; };
 
+/* Truncate a car's drive path `keepM` metres past its spawn. Background
+   traffic used to drive the FULL lane after the incident — on the G6 worlds
+   (longer roads, bigger casts) somebody was always still rolling at the
+   resolve cap, and 21% of scenes never confirmed rest. Ambient cars now roll
+   ~5–10 s past the incident point and coast to a stop, which is also what
+   traffic actually does around a crash. Essential cars are never trimmed. */
+function trimDrive(spec, keepM) {
+  const pts = spec.drive.pts;
+  let acc = 0;
+  for (let i = 0; i + 3 < pts.length; i += 2) {
+    acc += Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]);
+    if (acc >= keepM) { spec.drive.pts = pts.slice(0, i + 4); return; }
+  }
+}
+
+/* Street furniture on the OUTSIDE of a bend, right in the overshoot path —
+   extracted from `overspeed` (G6) so every lost-it-on-the-corner motif shares
+   the exact same hard-won guards: never inside existing dressing (two
+   overlapping dynamic bodies explode on spawn), never inside ANY other lane's
+   corridor (normal preview traffic mows the catchers down pre-600). */
+function bendCatchers(ctx, lane, curveS, kinds) {
+  const rng = ctx.rng;
+  const aIn = arcPos(lane.pts, Math.max(0, curveS - 8));
+  const aOut = arcPos(lane.pts, curveS + 8);
+  let dh = aOut.heading - aIn.heading;
+  while (dh > Math.PI) dh -= 2 * Math.PI;
+  while (dh < -Math.PI) dh += 2 * Math.PI;
+  const turnL = dh > 0; // turning left → overshoot to the RIGHT
+  const props = [];
+  for (let k = 0; k < 3; k++) {
+    const p = arcPos(lane.pts, curveS + 5 + k * 8);
+    const lx = -Math.sin(p.heading), lz = -Math.cos(p.heading);
+    const s = turnL ? -1 : 1; // outside of the bend
+    const off = 2.7 + k * 1.2 + rng.range(0, 0.8);
+    const px = p.x + s * lx * off, pz = p.z + s * lz * off;
+    if (ctx.topo.props.some((q) => (q.x - px) ** 2 + (q.z - pz) ** 2 < 2.4 * 2.4)) continue;
+    let onLane = false;
+    for (const l of ctx.topo.lanes) {
+      if (l === lane || onLane) continue;
+      for (let i = 0; i < l.pts.length; i += 2) {
+        if ((l.pts[i] - px) ** 2 + (l.pts[i + 1] - pz) ** 2 < 3.4 * 3.4) { onLane = true; break; }
+      }
+    }
+    if (onLane) continue;
+    props.push({
+      kind: rng.pick(kinds),
+      x: px, z: pz,
+      heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)),
+    });
+  }
+  return props;
+}
+
 /* ---------------- incident templates ----------------
    Each returns { cars, label, tell, aggressor, victim } — cars in a fixed
    order, aggressor/victim as indices into that array. `tellK` scales how
@@ -984,7 +1077,9 @@ const TEMPLATES = {
     // red-light and left-turn templates choreograph (a car through the box from
     // the far arm) has no far arm to come from. The T still signals and queues
     // cross traffic; its incidents are the rear-end / pullout kind instead.
-    topos: ['intersection', 'tramcrossing', 'roundabout'],
+    // NOT roundabout (G6): a one-way circulating ring has no red light to run —
+    // its mouth conflict is the `yieldfail` template's job now.
+    topos: ['intersection', 'tramcrossing'],
     make(ctx) {
       const { rng, topo, tellK } = ctx;
       const [ia, ib] = rng.pick(topo.crossings);
@@ -1150,44 +1245,10 @@ const TEMPLATES = {
       // street furniture on the OUTSIDE of the bend, right in the overshoot
       // path — the generated dressing is scrubbed off the lanes, so a car
       // flying off the apex used to plough through empty grass (maxDv ~1.8,
-      // never a crash). The catchers make the corner consequential.
-      const aIn = arcPos(lane.pts, Math.max(0, curveS - 8));
-      const aOut = arcPos(lane.pts, curveS + 8);
-      let dh = aOut.heading - aIn.heading;
-      while (dh > Math.PI) dh -= 2 * Math.PI;
-      while (dh < -Math.PI) dh += 2 * Math.PI;
-      const turnL = dh > 0; // turning left → overshoot to the RIGHT
-      const props = [];
-      for (let k = 0; k < 3; k++) {
-        const p = arcPos(lane.pts, curveS + 5 + k * 8);
-        // lane-left normal is (sin h, cos h)·… — derive from heading directly
-        const lx = -Math.sin(p.heading), lz = -Math.cos(p.heading);
-        const s = turnL ? -1 : 1; // outside of the bend
-        // the overshoot band is only ~2.5–5 m outside the lane line (traced:
-        // the car plows ~4 m wide, parallel to anything further out), and
-        // only massive/bolted kinds register a real Δv on the car
-        const off = 2.7 + k * 1.2 + rng.range(0, 0.8);
-        const px = p.x + s * lx * off, pz = p.z + s * lz * off;
-        // never inside an existing dressing prop (two overlapping dynamic
-        // bodies explode on spawn)
-        if (ctx.topo.props.some((q) => (q.x - px) ** 2 + (q.z - pz) ** 2 < 2.4 * 2.4)) continue;
-        // never inside ANY OTHER lane's corridor — the outside of a city-loop
-        // bend can be another street, and normal preview traffic mowed the
-        // catchers down at tick 84 (6 pre-600 violations in one sweep)
-        let onLane = false;
-        for (const l of ctx.topo.lanes) {
-          if (l === lane || onLane) continue;
-          for (let i = 0; i < l.pts.length; i += 2) {
-            if ((l.pts[i] - px) ** 2 + (l.pts[i + 1] - pz) ** 2 < 3.4 * 3.4) { onLane = true; break; }
-          }
-        }
-        if (onLane) continue;
-        props.push({
-          kind: rng.pick(['tree_oak', 'lamp_cobra', 'hydrant']),
-          x: px, z: pz,
-          heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)),
-        });
-      }
+      // never a crash). The catchers make the corner consequential. The
+      // overshoot band is only ~2.5–5 m outside the lane line (traced), and
+      // only massive/bolted kinds register a real Δv on the car.
+      const props = bendCatchers(ctx, lane, curveS, ['tree_oak', 'lamp_cobra', 'hydrant']);
       return { cars: [carA], props, aggressor: 0, victim: -1, label: 'Overspeed Corner', tell: 'count how fast that one is going' };
     },
   },
@@ -1452,7 +1513,8 @@ const TEMPLATES = {
     // red-light and left-turn templates choreograph (a car through the box from
     // the far arm) has no far arm to come from. The T still signals and queues
     // cross traffic; its incidents are the rear-end / pullout kind instead.
-    topos: ['intersection', 'tramcrossing', 'roundabout'],
+    // NOT roundabout (G6): no left turn across a one-way ring.
+    topos: ['intersection', 'tramcrossing'],
     minD: 2,
     make(ctx) {
       const { rng, topo, tellK } = ctx;
@@ -1756,7 +1818,901 @@ const TEMPLATES = {
     },
   },
 
+  /* ============ G6 bespoke motifs (the library grows to ~12x) ============
+     Same contract as everything above. Variants of these are stamped out by
+     the factory/reskin block after this object; each family shares a `cal`
+     key (meta.calKey) so calibration cells stay thick. */
+
+  // an illegal U-turn across the centreline, stalling broadside in oncoming
+  uturn: {
+    topos: ['suburb', 'city', 'boulevard', 'highway', 'tjunction', 'riverside', 'coastalcliff'],
+    needsOpp: true, cal: 'uturn',
+    make(ctx) {
+      const { rng, tellK, lane, opp } = ctx;
+      const ho = solveHeadOn(lane, opp);
+      const turner = place(lane, ho.aS, Math.max(MIN_V, ho.v * 0.8));
+      if (tellK > 0.7) cmd(turner, { t: 520, v: turner._v * 0.75 }); // the hesitation is the tell
+      cmd(turner, { t: INCIDENT_TICK, bias: 0.3, off: true });        // hard lock across
+      // hand control back so the stall actually settles — a car left in `off`
+      // orbits on the 0.1 drag brake for thousands of ticks (first sweep ran
+      // 21% of scenes to the cap; the recoveries below are the fix)
+      cmd(turner, { t: INCIDENT_TICK + 70, off: false, bias: 0, v: 0, brakeMax: 0.9 }); // stalls broadside
+      const oc = place(opp, ho.oS, ho.v, INCIDENT_TICK + rng.int(55, 95));
+      cmd(oc, { t: INCIDENT_TICK + 60, v: 0, brakeMax: 0.5 });        // sees it far too late
+      return { cars: [turner, oc], aggressor: 0, victim: 1, label: 'Illegal U-Turn', tell: 'that one keeps slowing for no reason' };
+    },
+  },
+
+  // an overtake into the oncoming lane, timed exactly wrong
+  overtake: {
+    topos: ['suburb', 'highway', 'causeway', 'boulevard', 'tunnelmouth', 'overpass', 'cloverleaf', 'forestroad', 'riverside', 'coastalcliff', 'tjunction'],
+    // 175: the slow lead's run-up PLUS the closing-speed spawn gap must fit
+    // behind the anchor, or placeAt returns null and the scene is one slow car
+    needsOpp: true, minLane: 175, cal: 'overtake',
+    make(ctx) {
+      const { rng, tellK, lane, opp, approach } = ctx;
+      const vL = Math.max(MIN_V * 0.85, approach.v * 0.58);      // the slow lead
+      const lead = place(lane, approach.anchorS, vL);
+      lead._short = true;
+      const vO = Math.min(approach.v + 1, laneMaxV(lane, approach.anchorS - 14));
+      // spawn gap = 10 s of closing speed + a safe cushion, so the overtaker
+      // arrives boxed-in at T=0 without ever touching the lead before it
+      const gap0 = (vO - vL) * 10 + 12 + 6 * tellK;
+      const taker = placeAt(lane, lead._s0 - gap0, vO);
+      const cars = [lead];
+      let victimIdx = -1;
+      if (taker) {
+        taker._short = true; taker._pool = rng.chance(0.4) ? 'FAST' : undefined;
+        cmd(taker, { t: INCIDENT_TICK, bias: 0.16, off: true });       // swings out
+        cmd(taker, { t: INCIDENT_TICK + 26, bias: 0.02, off: true });  // commits down the wrong side
+        cmd(taker, { t: INCIDENT_TICK + 30, v: vO + 4 });
+        cmd(taker, { t: INCIDENT_TICK + 150, bias: -0.2, off: true }); // dives back in (late)
+        cmd(taker, { t: INCIDENT_TICK + 190, off: false, bias: 0, v: 0, brakeMax: 0.5 }); // pulls up, shaken
+        cars.push(taker);
+        // oncoming arrives at the overtake zone while the taker is out there
+        const oS = Math.max(24, opp.len - approach.anchorS + 10);
+        if (oS < opp.len - 20) {
+          const oc = place(opp, oS, Math.min(opp.v, laneMaxV(opp, oS)), INCIDENT_TICK + rng.int(60, 110));
+          cmd(oc, { t: INCIDENT_TICK + 175, v: 0, brakeMax: 0.45 }); // stops after the scare — the scene concludes
+          victimIdx = cars.push(oc) - 1;
+        }
+      }
+      return { cars, aggressor: cars.length > 1 ? 1 : 0, victim: victimIdx, label: 'Blind Overtake', tell: 'someone is boxed in and impatient' };
+    },
+  },
+
+  // two racers pull level during the preview — then one of them blinks
+  race: {
+    topos: ['highway', 'boulevard', 'causeway', 'tunnelmouth', 'overpass', 'cloverleaf', 'city'],
+    minLane: 130, cal: 'race',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v + 2, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      carA._pool = 'FAST'; carA._short = true;
+      // B starts 9.5 m back and 0.95 m/s hotter — pulls exactly level by T=0
+      const carB = placeAt(lane, carA._s0 - 9.5, v + 0.95);
+      const cars = [carA];
+      if (carB) {
+        carB._pool = 'FAST'; carB._short = true;
+        // riding the centreline the whole preview: the second half of the tell
+        cmd(carB, { t: 200, bias: 0.055, off: false });
+        cmd(carB, { t: INCIDENT_TICK, bias: -0.16, off: true }); // squeezes back in — on top of A
+        cmd(carB, { t: INCIDENT_TICK + 30, bias: 0.1, off: true });
+        cmd(carB, { t: INCIDENT_TICK + 80, off: false, bias: 0, v: 0, brakeMax: 1.4 }); // gathers it up, stops
+        cars.push(carB);
+      }
+      return { cars, aggressor: cars.length > 1 ? 1 : 0, victim: 0, label: 'Street Race', tell: 'two of them are racing — watch the gap close' };
+    },
+  },
+
+  // a lead driver brake-checks the tailgater — twice
+  brakecheck: {
+    topos: ['highway', 'city', 'suburb', 'boulevard', 'causeway', 'tunnelmouth', 'overpass', 'cloverleaf', 'riverside'],
+    minLane: 135, cal: 'brakecheck',
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS), (approach.anchorS - 10) / 11.2);
+      const lead = place(lane, approach.anchorS, v);
+      lead._short = true;
+      cmd(lead, { t: INCIDENT_TICK, v: v * 0.42, brakeMax: 2.1 });        // the check
+      cmd(lead, { t: INCIDENT_TICK + 42, v: v * 0.95 });                  // and off again
+      cmd(lead, { t: INCIDENT_TICK + 105, v: 0, brakeMax: 3.8 });         // the second one sticks
+      const gap = Math.max(6.4, v * (0.3 - 0.08 * tellK) + 3.6);
+      const tail = placeAt(lane, lead._s0 - gap, v);
+      const cars = [lead];
+      if (tail) {
+        tail._short = true;
+        cmd(tail, { t: INCIDENT_TICK + 30 + rng.int(0, 14), v: 0, brakeMax: 0.55 });
+        cars.push(tail);
+      }
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Brake Check', tell: 'the one in front keeps testing the gap' };
+    },
+  },
+
+  // the pedal sticks wide open right as traffic ahead stacks up
+  stuckthrottle: {
+    topos: ['highway', 'city', 'suburb', 'boulevard', 'causeway', 'tunnelmouth', 'overpass', 'cloverleaf', 'schoolzone', 'industrialyard'],
+    minLane: 130, cal: 'stuckthrottle',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const sQ = approach.anchorS;
+      const q1 = placeParked(lane, sQ);
+      q1._short = true;
+      const v = Math.min(approach.v, laneMaxV(lane, sQ - 30));
+      const comer = place(lane, sQ - 30, v);
+      comer._short = true;
+      cmd(comer, { t: INCIDENT_TICK, v: 30, noBrake: true }); // wide open, no pedal
+      cmd(comer, { t: INCIDENT_TICK + 24, bias: rng.sign() * 0.05 }); // fighting the wheel
+      return { cars: [comer, q1], aggressor: 0, victim: 1, label: 'Stuck Throttle', tell: 'listen for the one that never lifts' };
+    },
+  },
+
+  // steering locks solid right where the road stops being straight
+  steerfail: {
+    topos: ['city', 'switchback', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'causeway'],
+    needsCurve: true, minD: 2, cal: 'steerfail',
+    make(ctx) {
+      const { rng, lane, curveS } = ctx;
+      const v = Math.min(lane.v + 1.5, laneMaxV(lane, curveS));
+      const carA = place(lane, curveS, v);
+      cmd(carA, { t: INCIDENT_TICK, bias: 0, off: true }); // wheel frozen — straight on
+      cmd(carA, { t: INCIDENT_TICK + 110, off: false, bias: 0, v: 0, brakeMax: 2.2 }); // grinds it to a stop
+      const props = bendCatchers(ctx, lane, curveS, ['tree_oak', 'lamp_cobra', 'rock']);
+      const cars = [carA];
+      const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
+      if (behind) cars.push(behind);
+      return { cars, props, aggressor: 0, victim: -1, label: 'Steering Failure', tell: 'watch the wheel stop answering' };
+    },
+  },
+
+  // a heavy starts swaying, and each correction is bigger than the last
+  fishtail: {
+    topos: ['highway', 'causeway', 'boulevard', 'overpass', 'cloverleaf', 'tunnelmouth'],
+    minLane: 130, cal: 'fishtail',
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v + 1, laneMaxV(lane, approach.anchorS));
+      const rig = place(lane, approach.anchorS, v);
+      rig._pool = 'HEAVY';
+      if (tellK > 0.8) cmd(rig, { t: 520, bias: -0.012 }); // the first small sway
+      cmd(rig, { t: INCIDENT_TICK, bias: 0.14, off: true });
+      cmd(rig, { t: INCIDENT_TICK + 22, bias: -0.2, off: true });
+      cmd(rig, { t: INCIDENT_TICK + 46, bias: 0.26, off: true });
+      cmd(rig, { t: INCIDENT_TICK + 70, off: false, bias: 0, v: 0, brakeMax: 1.2 });
+      const cars = [rig];
+      const behind = placeAt(lane, rig._s0 - Math.max(20, v * 1.9), v);
+      if (behind) { cmd(behind, { t: INCIDENT_TICK + 50, v: 0, brakeMax: 0.6 }); cars.push(behind); }
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Trailer Sway', tell: 'the back end is not following the front' };
+    },
+  },
+
+  // a parked car's handbrake lets go — it creeps out into the road
+  runaway: {
+    topos: ['suburb', 'city', 'schoolzone', 'boulevard', 'tjunction', 'riverside'],
+    cal: 'pullout',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const sMerge = approach.anchorS;
+      const victim = place(lane, sMerge, approach.v, INCIDENT_TICK + rng.int(90, 150));
+      cmd(victim, { t: INCIDENT_TICK + rng.int(70, 100), v: 0, brakeMax: 0.4 });
+      const pp = arcPos(lane.pts, sMerge + 5);
+      const ph = arcPos(lane.pts, sMerge + 11);
+      let nx = -(ph.z - pp.z), nz = ph.x - pp.x;
+      const nl = Math.hypot(nx, nz) || 1;
+      nx /= nl; nz /= nl;
+      const off = lane.w / 4 + 2.2;
+      const px = pp.x + nx * off, pz = pp.z + nz * off;
+      const cross = [px, pz];
+      for (let k = 1; k <= 4; k++) cross.push(px - nx * (off + 1.4) * (k / 4) * 1.3, pz - nz * (off + 1.4) * (k / 4) * 1.3);
+      const ghost = {
+        x: px, z: pz, heading: Math.atan2(nz, -nx), speed: 0,
+        // nobody at the wheel: a slow constant creep, no reaction ever
+        drive: { pts: cross, v: 0, end: 'coast', cmds: [{ t: INCIDENT_TICK, v: 2.1, noBrake: true }] },
+        _lane: lane, _s0: sMerge + 5, _v: 0, _anchor: sMerge,
+      };
+      return { cars: [victim, ghost], aggressor: 1, victim: 0, label: 'Runaway Car', tell: 'no driver in the one on the shoulder' };
+    },
+  },
+
+  // a drift onto the shoulder wipes out a row of parked cars
+  parkedrow: {
+    topos: ['suburb', 'city', 'schoolzone', 'boulevard', 'tjunction'],
+    minLane: 120, cal: 'parkedrow',
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS - 6, v);
+      if (tellK > 0.8) cmd(carA, { t: 500, bias: -0.014 });
+      cmd(carA, { t: INCIDENT_TICK, bias: -(0.1 + rng.range(0, 0.04)), off: true }); // drifts shoulder-side
+      const cars = [carA];
+      // the row: 2–3 parked cars on the shoulder ahead, nose to tail
+      const off = lane.w / 4 + 2.1;
+      const n = 2 + (rng.chance(0.5) ? 1 : 0);
+      for (let k = 0; k < n; k++) {
+        const s = approach.anchorS + 4 + k * 7.5;
+        if (s > lane.len - 4) break;
+        const pp = arcPos(lane.pts, s);
+        const ph = arcPos(lane.pts, Math.min(lane.len, s + 5));
+        let nx = -(ph.z - pp.z), nz = ph.x - pp.x;
+        const nl = Math.hypot(nx, nz) || 1;
+        nx /= nl; nz /= nl;
+        cars.push({
+          x: pp.x + nx * off, y: arcY(lane, s), z: pp.z + nz * off, heading: pp.heading, speed: 0,
+          drive: { pts: [pp.x + nx * off, pp.z + nz * off, ph.x + nx * off, ph.z + nz * off], v: 0, end: 'stop', cmds: [] },
+          _lane: null, _s0: 0, _v: 0, _anchor: 0, _short: true,
+        });
+      }
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Parked Row', tell: 'that one is wandering toward the parked cars' };
+    },
+  },
+
+  // a level crossing, a tram that physically cannot stop, and a chancer
+  tramstrike: {
+    topos: ['tramcrossing'], minD: 2, cal: 'tramstrike',
+    make(ctx) {
+      const { rng, topo, tellK } = ctx;
+      // crossing pairs are [ew, ns] by construction; the tram rides the ns rails
+      const [ia, ib] = rng.pick(topo.crossings);
+      const carLane = topo.lanes[ia], tramLane = topo.lanes[ib];
+      const x = crossOf(carLane, tramLane);
+      const vTram = Math.min(10, laneMaxV(tramLane, x.sB));
+      const vCar = Math.min(carLane.v + 1 + tellK, laneMaxV(carLane, x.sA));
+      const tMeet = INCIDENT_TICK + rng.int(12, 20);
+      const chancer = place(carLane, x.sA, vCar, tMeet);
+      const tram = place(tramLane, x.sB, vTram, tMeet + rng.int(-2, 3));
+      tram._type = 'tram';
+      return { cars: [tram, chancer], aggressor: 0, victim: 1, label: 'Level Crossing', tell: 'a tram cannot stop — someone is chancing it' };
+    },
+  },
+
+  // roundabout: an entry that never yields to the circulating car
+  yieldfail: {
+    topos: ['roundabout'], cal: 'yieldfail',
+    make(ctx) {
+      const { rng, topo, tellK } = ctx;
+      const [ie, ic] = rng.pick(topo.crossings); // [entering, circulating]
+      const enter = topo.lanes[ie], circ = topo.lanes[ic];
+      /* NOT crossOf: these two paths MERGE, and on merging paths crossOf's
+         min-distance point lands anywhere along the shared arc — timing both
+         cars to a point 20 m downstream had them converging nose-to-tail on
+         the ring well before tick 600 (the first sweep's roundabout defects).
+         The meet is the MOUTH, which the topology already published as the
+         yield zone: the entering lane's give-way arc, and the circulating
+         lane's closest approach to the zone centre. */
+      const zone = topo.yieldZones.find((y) => y.road === enter.road);
+      const sA = zone.s + 4; // just past the give-way line — in the mouth
+      let sB = 0, best = 1e9, acc = 0;
+      for (let i = 0; i < circ.pts.length; i += 2) {
+        if (i) acc += Math.hypot(circ.pts[i] - circ.pts[i - 2], circ.pts[i + 1] - circ.pts[i - 1]);
+        const d2 = (circ.pts[i] - zone.x) ** 2 + (circ.pts[i + 1] - zone.z) ** 2;
+        if (d2 < best) { best = d2; sB = acc; }
+      }
+      const vC = Math.min(circ.v, laneMaxV(circ, sB));
+      const vE = Math.min(enter.v + 1.5 + 2 * tellK, laneMaxV(enter, sA));
+      const tMeet = INCIDENT_TICK + rng.int(10, 18);
+      const victim = place(circ, sB, vC, tMeet);
+      const runner = place(enter, sA, vE, tMeet + rng.int(-3, 2));
+      return { cars: [victim, runner], aggressor: 1, victim: 0, label: 'Failure To Yield', tell: 'one entry is carrying way too much speed' };
+    },
+  },
+
+  // roundabout: far too fast to turn at all — straight over the island
+  islandhop: {
+    topos: ['roundabout'], minD: 3, cal: 'islandhop',
+    make(ctx) {
+      const { rng, topo } = ctx;
+      // build a straight ghost lane through the island off one real entry
+      const src = rng.pick(topo.lanes);
+      const p0 = src.pts[0], p1 = src.pts[1]; // entry rides the arm axis
+      const hx0 = src.pts[2] - src.pts[0], hz0 = src.pts[3] - src.pts[1];
+      const hl = Math.hypot(hx0, hz0) || 1;
+      const dx = hx0 / hl, dz = hz0 / hl;
+      const pts = [];
+      for (let t = 0; t <= 210; t += 2.5) pts.push(p0 + dx * t, p1 + dz * t);
+      const ghostLane = { pts, len: laneLen(pts), v: src.v + 5, w: 8, road: 'hop' };
+      const sMouth = 128 - 30; // the mouth sits ~R+7 before centre on a 128 arm
+      const carA = place(ghostLane, sMouth, Math.min(15, laneMaxV(ghostLane, sMouth)));
+      cmd(carA, { t: 585, v: 19 }); // the final surge — same shape as overspeed
+      cmd(carA, { t: INCIDENT_TICK + 90, v: 0, brakeMax: 0.8 });
+      return { cars: [carA], aggressor: 0, victim: -1, label: 'Straight Over', tell: 'count how fast that entry is' };
+    },
+  },
+
+  // a car stalls inside the junction box; cross traffic has the green
+  spillback: {
+    topos: ['intersection', 'tramcrossing'], minD: 2, cal: 'spillback',
+    make(ctx) {
+      const { rng, topo, tellK } = ctx;
+      const [ia, ib] = rng.pick(topo.crossings);
+      const blockLane = topo.lanes[ia], crossLane = topo.lanes[ib];
+      const x = crossOf(blockLane, crossLane);
+      // the blocker eases in and dies right in the box, ten ticks early
+      const blocker = place(blockLane, x.sA, Math.max(MIN_V, blockLane.v * 0.8), INCIDENT_TICK - 10);
+      cmd(blocker, { t: INCIDENT_TICK - 12, v: 0, brakeMax: 2.6 }); // engine gone
+      blocker._short = true;
+      const vX = Math.min(crossLane.v + tellK, laneMaxV(crossLane, x.sB));
+      const crosser = place(crossLane, x.sB, vX, INCIDENT_TICK + rng.int(16, 30));
+      cmd(crosser, { t: INCIDENT_TICK + rng.int(8, 18), v: 0, brakeMax: 0.5 });
+      return { cars: [blocker, crosser], aggressor: 1, victim: 0, label: 'Blocked Box', tell: 'someone is about to be stranded in the box' };
+    },
+  },
+
+  // a gust takes a high-sided vehicle across the line — or into the rail
+  gustshove: {
+    topos: ['causeway', 'coastalcliff', 'overpass', 'harbourramp', 'cloverleaf'],
+    minLane: 120, cal: 'gustshove',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const rig = place(lane, approach.anchorS, v);
+      rig._pool = 'HEAVY';
+      const side = rng.sign();
+      cmd(rig, { t: INCIDENT_TICK, bias: side * 0.12, off: true });   // the gust
+      cmd(rig, { t: INCIDENT_TICK + 26, bias: -side * 0.2, off: true }); // the overcorrection
+      cmd(rig, { t: INCIDENT_TICK + 60, off: false, bias: 0, v: 0, brakeMax: 1.0 });
+      const cars = [rig];
+      const behind = placeAt(lane, rig._s0 - Math.max(18, v * 1.7), v);
+      if (behind) { cmd(behind, { t: INCIDENT_TICK + 44, v: 0, brakeMax: 0.6 }); cars.push(behind); }
+      return { cars, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: 'Crosswind', tell: 'the tall one is leaning on the wind' };
+    },
+  },
+
+  // brakes give out on the quay — nothing between the car and the harbour
+  quayplunge: {
+    topos: ['harbourramp'], cal: 'quayplunge',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v + 2, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      cmd(carA, { t: 552, noBrake: true });                      // the failure, invisible
+      cmd(carA, { t: INCIDENT_TICK, bias: 0, off: true });       // frozen, straight at the edge
+      const cars = [carA];
+      const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
+      if (behind) cars.push(behind);
+      return { cars, aggressor: 0, victim: -1, label: 'Dead Pedal At The Quay', tell: 'no brake lights where there should be' };
+    },
+  },
+
+  // parking lot pedal error: through the planters, into the storefront
+  storefront: {
+    topos: ['parkinglot'], cal: 'storefront',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS, v);
+      // aim the veer at the shop (parking lots always dress one at 0,−40),
+      // via the pure-pursuit lateral convention: side = sign(hz·ox − hx·oz)
+      const p = arcPos(lane.pts, approach.anchorS);
+      const hx = Math.cos(p.heading), hz = -Math.sin(p.heading);
+      const side = Math.sign(hz * (0 - p.x) - hx * (-40 - p.z)) || 1;
+      cmd(carA, { t: INCIDENT_TICK, v: 15, bias: side * 0.24, off: true, noBrake: true });
+      cmd(carA, { t: INCIDENT_TICK + 150, off: false, bias: 0, v: 0, noBrake: false, brakeMax: 1.2 });
+      const props = [];
+      for (let k = 0; k < 2; k++) {
+        props.push({
+          kind: rng.pick(['planter_stone', 'bollard']),
+          x: rng.range(-8, 8), z: -27 - k * 5, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)),
+        });
+      }
+      return { cars: [carA], props, aggressor: 0, victim: -1, label: 'Pedal Error', tell: 'watch the one aimed at the shopfront' };
+    },
+  },
+
+  // two cars merging into the same gap from both sides of it
+  mergeduel: {
+    topos: ['highway', 'causeway', 'boulevard', 'overpass', 'cloverleaf', 'industrialyard', 'parkinglot'],
+    minLane: 125, cal: 'merge',
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const held = place(lane, approach.anchorS, v);
+      held._short = true;
+      const m1 = placeAt(lane, held._s0 - Math.max(9, v * 0.7), v * 1.14);
+      const m2 = placeAt(lane, held._s0 - Math.max(19, v * 1.5), v * 1.22);
+      const cars = [held];
+      if (m1) {
+        m1._short = true;
+        cmd(m1, { t: INCIDENT_TICK - 12, bias: 0.09 * tellK, off: true });
+        cmd(m1, { t: INCIDENT_TICK, bias: -0.3, off: true });
+        cars.push(m1);
+      }
+      if (m2) {
+        m2._short = true;
+        cmd(m2, { t: INCIDENT_TICK + 8, bias: 0.12, off: true });
+        cmd(m2, { t: INCIDENT_TICK + 30, bias: -0.32, off: true });
+        cars.push(m2);
+      }
+      return { cars, aggressor: cars.length > 1 ? 1 : 0, victim: 0, label: 'Merge Duel', tell: 'two of them want the same gap' };
+    },
+  },
+
+  // a motorcycle carries too much lean into the bend and loses the front
+  bikedown: {
+    topos: ['city', 'switchback', 'forestroad', 'mountainpass', 'canyon', 'coastalcliff'],
+    needsCurve: true, minD: 2, cal: 'bikedown',
+    make(ctx) {
+      const { rng, lane, curveS } = ctx;
+      const v = Math.min(lane.v + 3, laneMaxV(lane, curveS));
+      const bike = place(lane, curveS, v);
+      bike._type = rng.pick(['moto', 'chopper']);
+      cmd(bike, { t: 585, v: Math.min(22, v + 7) });
+      cmd(bike, { t: INCIDENT_TICK, bias: rng.sign() * 0.3, off: true }); // the front lets go
+      cmd(bike, { t: INCIDENT_TICK + 30, off: false, bias: 0, v: 0, brakeMax: 0.4 });
+      const props = bendCatchers(ctx, lane, curveS, ['rock', 'tree_pine', 'lamp_cobra']);
+      const cars = [bike];
+      const behind = placeAt(lane, bike._s0 - Math.max(16, v * 1.5), v);
+      if (behind) { cmd(behind, { t: INCIDENT_TICK + 36, v: 0, brakeMax: 0.6 }); cars.push(behind); }
+      return { cars, props, aggressor: 0, victim: -1, label: 'Bike Down', tell: 'that bike is committed to the corner' };
+    },
+  },
+
+  // a stall parked just past the causeway crest, invisible until too late
+  blindcrest: {
+    topos: ['causeway'], minLane: 150, cal: 'stall',
+    make(ctx) {
+      const { rng, tellK, lane } = ctx;
+      const sDead = clamp(lane.len * 0.53, 70, lane.len - 45);
+      const dead = placeParked(lane, sDead);
+      dead._short = true;
+      const v = Math.min(lane.v + 2 + tellK, laneMaxV(lane, sDead - 11));
+      const comer = place(lane, sDead - 11, v);
+      cmd(comer, { t: INCIDENT_TICK + 12, v: 0, brakeMax: 0.7 });
+      const cars = [comer, dead];
+      const props = [];
+      if (rng.chance(0.5)) {
+        const p = arcPos(lane.pts, sDead + 6);
+        props.push({ kind: 'cone', x: p.x, y: arcY(lane, sDead + 6), z: p.z, heading: 0, seed: String(rng.int(1, 9999)) });
+      }
+      return { cars, props, aggressor: 0, victim: 1, label: 'Beyond The Crest', tell: 'you cannot see past the hump — someone is parked there' };
+    },
+  },
+
+  // a drift right mows down the street furniture line
+  furnrun: {
+    topos: ['city', 'boulevard', 'schoolzone', 'suburb'],
+    minLane: 120, cal: 'furnrun',
+    make(ctx) {
+      const { rng, tellK, lane, approach } = ctx;
+      const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+      const carA = place(lane, approach.anchorS - 4, v);
+      if (tellK > 0.7) cmd(carA, { t: 510, bias: -0.012 });
+      cmd(carA, { t: INCIDENT_TICK, bias: -(0.09 + rng.range(0, 0.03)), off: true });
+      cmd(carA, { t: INCIDENT_TICK + 90, v: 0, brakeMax: 0.5 });
+      const props = [];
+      for (let k = 0; k < 3; k++) {
+        const s = approach.anchorS + 4 + k * 8;
+        if (s > lane.len - 4) break;
+        const pp = arcPos(lane.pts, s);
+        const ph = arcPos(lane.pts, Math.min(lane.len, s + 5));
+        let nx = -(ph.z - pp.z), nz = ph.x - pp.x;
+        const nl = Math.hypot(nx, nz) || 1;
+        nx /= nl; nz /= nl;
+        const off = lane.w / 4 + 2.5 + k * 0.4;
+        const px = pp.x + nx * off, pz = pp.z + nz * off;
+        // never inside another lane's corridor (the overspeed lesson)
+        let onLane = false;
+        for (const l of ctx.topo.lanes) {
+          if (l === lane || onLane) continue;
+          for (let i = 0; i < l.pts.length; i += 2) {
+            if ((l.pts[i] - px) ** 2 + (l.pts[i + 1] - pz) ** 2 < 3.4 * 3.4) { onLane = true; break; }
+          }
+        }
+        if (onLane) continue;
+        props.push({
+          kind: rng.pick(ctx.topo.name === 'suburb' || ctx.topo.name === 'schoolzone'
+            ? ['hydrant', 'mailbox', 'trash_can'] : ['lamp_cobra', 'bollard', 'bin_wheelie']),
+          x: px, z: pz, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)),
+        });
+      }
+      const cars = [carA];
+      return { cars, props, aggressor: 0, victim: -1, label: 'Furniture Run', tell: 'that one is drifting at the kerb line' };
+    },
+  },
+
+  // two red-light runners from crossing arms find each other in the box
+  redlight2: {
+    topos: ['intersection'], minD: 4, cal: 'redlight',
+    make(ctx) {
+      const { rng, topo, tellK } = ctx;
+      const [ia, ib] = rng.pick(topo.crossings);
+      const la = topo.lanes[ia], lb = topo.lanes[ib];
+      const x = crossOf(la, lb);
+      const vA = Math.min(12 + 2 * tellK, laneMaxV(la, x.sA));
+      const vB = Math.min(12.5 + 2 * tellK, laneMaxV(lb, x.sB));
+      const tMeet = INCIDENT_TICK + rng.int(12, 18);
+      const runA = place(la, x.sA, vA, tMeet);
+      const runB = place(lb, x.sB, vB, tMeet + rng.int(-2, 2));
+      return { cars: [runA, runB], aggressor: 1, victim: 0, label: 'Double Runner', tell: 'neither approach is slowing down' };
+    },
+  },
+
+  // a pursuit blows the junction; cross traffic has the green
+  chasecross: {
+    topos: ['intersection', 'tramcrossing'], minD: 3, cal: 'redlight',
+    make(ctx) {
+      const { rng, topo, tellK } = ctx;
+      const [ia, ib] = rng.pick(topo.crossings);
+      const vic = topo.lanes[ia], run = topo.lanes[ib];
+      const x = crossOf(vic, run);
+      const vVic = Math.min(vic.v, laneMaxV(vic, x.sA));
+      const vRun = Math.min(13.5 + 2 * tellK, laneMaxV(run, x.sB));
+      const tMeet = INCIDENT_TICK + rng.int(13, 21);
+      const victim = place(vic, x.sA, vVic, tMeet);
+      const runner = place(run, x.sB, vRun, tMeet + rng.int(-3, 3));
+      runner._pool = 'FAST'; runner._short = true;
+      const cars = [victim, runner];
+      const cop = placeAt(run, runner._s0 - 10, runner._v);
+      if (cop) { cop._pool = 'POLICE'; cop._short = true; cmd(cop, { t: INCIDENT_TICK + 10, v: 0, brakeMax: 1.6 }); cars.push(cop); }
+      return { cars, aggressor: 1, victim: 0, label: 'Chase Through The Box', tell: 'the sirens are coming in from the side street' };
+    },
+  },
+
+  // roundabout ghost: someone enters against circulation via an exit
+  wrongring: {
+    topos: ['roundabout'], minD: 3, cal: 'wrongway',
+    make(ctx) {
+      const { rng, topo } = ctx;
+      const src = rng.pick(topo.lanes);
+      // the ghost rides src's path REVERSED: in via the exit, wrong way round
+      const rev = [];
+      for (let i = src.pts.length - 2; i >= 0; i -= 2) rev.push(src.pts[i], src.pts[i + 1]);
+      const ghostLane = { pts: rev, len: src.len, v: src.v * 0.85, w: 8, road: 'ghost' };
+      // meet mid-arc: the ghost reaches the shared ring stretch just after T=0
+      const sMeet = src.len * 0.5;
+      const victim = place(src, src.len - sMeet, src.v, INCIDENT_TICK + rng.int(40, 70));
+      const ghost = place(ghostLane, sMeet, ghostLane.v, INCIDENT_TICK + rng.int(40, 70));
+      cmd(ghost, { t: INCIDENT_TICK + 30, bias: 0.06, off: true });
+      cmd(ghost, { t: INCIDENT_TICK + 110, off: false, bias: 0, v: 0, brakeMax: 1.0 });
+      return { cars: [victim, ghost], aggressor: 1, victim: 0, label: 'Wrong Way Round', tell: 'one of them is circling the wrong way' };
+    },
+  },
+
 };
+
+/* ============ G6 variant families ============
+   Two factories and a reskin stamp named variants over proven choreography.
+   `reskin(base, o)` re-runs the BASE template's make() — identical rng draw
+   order, identical invariants — then retouches the result (labels, forced
+   casts, prop swaps). Forced casts obey the same safety arguments the cast
+   pass makes: heavies are only ever forced onto straight-lane topologies,
+   where bendy() would have allowed them anyway. Every variant carries its
+   family's `cal` key, so calibration prices the family, not the costume. */
+
+// obstacle-in-lane swerve (the debris pattern) with a themed obstacle set
+const swerveAt = (o) => ({
+  topos: o.topos, minLane: 115, minD: o.minD, cal: o.cal || 'debris',
+  make(ctx) {
+    const { rng, lane, approach } = ctx;
+    const v = Math.min(approach.v, laneMaxV(lane, approach.anchorS));
+    const carA = place(lane, approach.anchorS, v);
+    if (o.pool) carA._pool = o.pool;
+    const side = rng.sign();
+    cmd(carA, { t: INCIDENT_TICK, bias: side * (o.b1 || 0.2), off: true });
+    cmd(carA, { t: INCIDENT_TICK + 20, bias: -side * (o.b2 || 0.26), off: true });
+    const props = [];
+    const p = arcPos(lane.pts, approach.anchorS + 7);
+    props.push({ kind: rng.pick(o.kinds), x: p.x, y: arcY(lane, approach.anchorS + 7), z: p.z, heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)) });
+    if (o.extraKind && rng.chance(0.7)) {
+      const q = arcPos(lane.pts, approach.anchorS + 10.5);
+      props.push({ kind: o.extraKind, x: q.x + rng.range(-1.4, 1.4), y: arcY(lane, approach.anchorS + 10.5), z: q.z + rng.range(-1.4, 1.4), heading: rng.range(0, 6.28), seed: String(rng.int(1, 9999)) });
+    }
+    const cars = [carA];
+    const behind = placeAt(lane, carA._s0 - Math.max(18, v * 1.8), v);
+    if (behind) cars.push(behind);
+    return { cars, props, aggressor: 0, victim: cars.length > 1 ? 1 : -1, label: o.label, tell: o.tell };
+  },
+});
+
+// late braking into a stopped queue (the sunblind pattern), themed
+const queueSlam = (o) => ({
+  topos: o.topos, minLane: 125, minD: o.minD, cal: 'sunblind',
+  make(ctx) {
+    const { rng, lane, approach } = ctx;
+    const sQ = approach.anchorS;
+    const big = !!o.qPool;
+    const q1 = placeParked(lane, sQ);
+    if (big) q1._pool = o.qPool; else q1._short = true;
+    const q2 = placeParked(lane, sQ - (big ? 11.5 : 9));
+    q2._short = true;
+    const back = big ? 19.5 : 15;
+    const v = Math.min(approach.v + (o.hot || 3), laneMaxV(lane, sQ - back));
+    const comer = place(lane, sQ - back, v);
+    comer._short = true;
+    cmd(comer, { t: INCIDENT_TICK + (o.react || 22), v: 0, brakeMax: o.brake || 0.9 });
+    return { cars: [comer, q2, q1], aggressor: 0, victim: 1, label: o.label, tell: o.tell };
+  },
+});
+
+// re-run a proven template, then retouch the result
+const reskin = (base, o) => ({
+  topos: o.topos || TEMPLATES[base].topos,
+  minLane: o.minLane !== undefined ? o.minLane : TEMPLATES[base].minLane,
+  minD: o.minD !== undefined ? o.minD : TEMPLATES[base].minD,
+  needsOpp: TEMPLATES[base].needsOpp, needsCurve: TEMPLATES[base].needsCurve,
+  cal: TEMPLATES[base].cal || base,
+  make(ctx) {
+    const r = TEMPLATES[base].make(ctx);
+    if (o.tweak) o.tweak(r, ctx);
+    if (o.label) r.label = o.label;
+    if (o.tell) r.tell = o.tell;
+    return r;
+  },
+});
+
+Object.assign(TEMPLATES, {
+  /* ---- shed-load / road-junk swerves (cal: debris/rockslide) ---- */
+  debris_pallet: swerveAt({ topos: ['highway', 'industrialyard', 'cloverleaf', 'overpass', 'tunnelmouth'], kinds: ['pallet'], extraKind: 'boxes', label: 'Pallet Down', tell: 'a pallet is lying in the lane' }),
+  debris_drum: swerveAt({ topos: ['tunnelmouth', 'cloverleaf', 'industrialyard', 'highway'], kinds: ['barrel_drum'], extraKind: 'cone', label: 'Drum Roll', tell: 'a traffic drum is loose in the lane' }),
+  debris_tires: swerveAt({ topos: ['city', 'industrialyard', 'highway', 'parkinglot'], kinds: ['tire_stack'], label: 'Tire Wall', tell: 'somebody lost a stack of tires' }),
+  debris_hay: swerveAt({ topos: ['tramcrossing', 'tjunction', 'suburb', 'riverside'], kinds: ['hay_bale'], extraKind: 'hay_bale', label: 'Bale Out', tell: 'hay bales all over the carriageway' }),
+  debris_boxes: swerveAt({ topos: ['city', 'suburb', 'boulevard', 'schoolzone'], kinds: ['boxes'], extraKind: 'boxes', label: 'Lost Cargo', tell: 'boxes are strewn across the lane' }),
+  debris_log: swerveAt({ topos: ['forestroad', 'switchback', 'mountainpass'], kinds: ['log_pile'], label: 'Logs Loose', tell: 'logs down across the road' }),
+  debris_bin: swerveAt({ topos: ['city', 'suburb', 'schoolzone', 'boulevard'], kinds: ['bin_wheelie', 'dumpster'], label: 'Bin Day', tell: 'a bin has rolled into the road' }),
+  debris_planter: swerveAt({ topos: ['boulevard', 'city', 'parkinglot'], kinds: ['planter_stone'], label: 'Planter Shift', tell: 'that planter is not where it was' }),
+  debris_cone: swerveAt({ topos: ['schoolzone', 'city', 'highway', 'suburb'], kinds: ['cone', 'barricade'], extraKind: 'cone', label: 'Works Scatter', tell: 'the works zone has spilled into the lane' }),
+  rockchain: swerveAt({ topos: ['canyon', 'mountainpass', 'switchback'], kinds: ['rock'], extraKind: 'rock', cal: 'rockslide', b1: 0.24, b2: 0.22, label: 'Rock Field', tell: 'more than one rock is down' }),
+
+  /* ---- queue slams (cal: sunblind) ---- */
+  tunnelqueue: queueSlam({ topos: ['tunnelmouth'], label: 'Dark Adaptation', tell: 'there is a queue just inside the dark' }),
+  queue_bus: queueSlam({ topos: ['city', 'boulevard', 'schoolzone', 'suburb'], qPool: 'HEAVY', hot: 2, label: 'Behind The Bus', tell: 'the queue behind that bus is growing' }),
+  icequeue: queueSlam({ topos: ['mountainpass', 'forestroad', 'coastalcliff'], minD: 2, hot: 2, brake: 1.2, react: 16, label: 'Cold Queue', tell: 'a queue on a slick road is a trap' }),
+  glarequeue: queueSlam({ topos: ['boulevard', 'cloverleaf', 'causeway', 'overpass'], hot: 4, react: 26, brake: 0.8, label: 'Low Sun', tell: 'the sun is right down the road' }),
+
+  /* ---- convoy slowdowns (cal: fogbank via reskin) ---- */
+  whiteout: reskin('fogbank', { topos: ['mountainpass', 'forestroad', 'switchback'], label: 'Whiteout', tell: 'the road ahead is disappearing' }),
+  dustwall: reskin('fogbank', { topos: ['canyon', 'highway', 'cloverleaf'], label: 'Dust Wall', tell: 'a brown wall is rolling over the road' }),
+  convoy_brake: reskin('fogbank', { topos: ['city', 'suburb', 'boulevard', 'schoolzone'], label: 'Sudden Slowdown', tell: 'the whole line ahead is bunching up' }),
+
+  /* ---- crossing & junction variants ---- */
+  emergency_run: reskin('redlight', {
+    topos: ['intersection', 'tramcrossing'], label: 'Emergency Run', tell: 'something with sirens is not stopping',
+    tweak: (r) => { r.cars[1]._pool = 'EMERG'; r.cars[1]._short = false; },
+  }),
+  redlight_bike: reskin('redlight', {
+    label: 'Two Wheels, No Patience', tell: 'the bike is threading the junction',
+    tweak: (r) => { r.cars[1]._type = null; r.cars[1]._pool = 'BIKE'; },
+  }),
+  leftturn_truck: reskin('leftturn', {
+    label: 'Wide Left', tell: 'that truck needs the whole junction to turn',
+    tweak: (r, ctx) => { r.cars[1]._type = ctx.rng.pick(['boxtruck', 'flatbed']); },
+  }),
+  overrun: reskin('pullout', {
+    topos: ['tjunction'], label: 'Stop-Sign Runner', tell: 'the side street is not slowing down',
+    tweak: (r) => { const c = r.cars[1].drive.cmds[0]; if (c) c.v = 7; },
+  }),
+
+  /* ---- pullout family (cal: pullout) ---- */
+  busstop_pullout: reskin('pullout', {
+    topos: ['city', 'boulevard', 'schoolzone', 'suburb'], label: 'Bus Pulling Out', tell: 'the bus is indicating — nobody is letting it out',
+    tweak: (r, ctx) => {
+      const bus = r.cars[1];
+      bus._type = ctx.rng.chance(0.5) ? 'citybus' : 'schoolbus';
+      const c = bus.drive.cmds[0]; if (c) c.v = 4;
+      r.props = r.props || [];
+      r.props.push({ kind: 'bus_stop', x: bus.x + Math.cos(bus.heading + Math.PI) * 7, z: bus.z - Math.sin(bus.heading + Math.PI) * 7, heading: bus.heading, seed: String(ctx.rng.int(1, 9999)) });
+    },
+  }),
+  pullout_farm: reskin('pullout', {
+    topos: ['tramcrossing', 'tjunction', 'riverside', 'suburb'], label: 'Farm Gate', tell: 'the tractor is nosing out of the field',
+    tweak: (r, ctx) => { r.cars[1]._type = ctx.rng.pick(['tractor', 'tractorhay']); const c = r.cars[1].drive.cmds[0]; if (c) c.v = 3.4; },
+  }),
+  forklift_cross: reskin('pullout', {
+    topos: ['industrialyard'], label: 'Forklift Crossing', tell: 'the forklift never looks up',
+    tweak: (r) => { r.cars[1]._type = 'forklift'; const c = r.cars[1].drive.cmds[0]; if (c) c.v = 3.2; },
+  }),
+  delivery_drop: reskin('pullout', {
+    topos: ['city', 'suburb', 'boulevard'], label: 'Delivery Dash', tell: 'the van door is open and the hazards are on',
+    tweak: (r, ctx) => {
+      r.cars[1]._type = 'boxtruck';
+      const c = r.cars[1].drive.cmds[0]; if (c) c.v = 4.5;
+      r.props = r.props || [];
+      r.props.push({ kind: 'boxes', x: r.cars[1].x + 2.2, z: r.cars[1].z + 1.4, heading: ctx.rng.range(0, 6.28), seed: String(ctx.rng.int(1, 9999)) });
+    },
+  }),
+
+  /* ---- heavies & loads on straight roads ---- */
+  jack_tanker: reskin('jackknife', {
+    topos: ['highway', 'causeway', 'tunnelmouth', 'overpass', 'cloverleaf'], label: 'Tanker Jackknife', tell: 'that tanker is moving faster than the cab',
+    tweak: (r) => { r.cars[0]._type = 'tanker'; },
+  }),
+  loadspill_logs: reskin('loadspill', {
+    topos: ['highway', 'tunnelmouth', 'overpass'], label: 'Log Shed', tell: 'those logs are not chained right',
+    tweak: (r, ctx) => { for (const p of r.props || []) { p.kind = 'log_pile'; } r.cars[0]._type = 'flatbed'; void ctx; },
+  }),
+  loadspill_fuel: reskin('loadspill', {
+    topos: ['highway', 'causeway', 'cloverleaf', 'industrialyard'], label: 'Drum Shed', tell: 'drums are walking off that flatbed',
+    tweak: (r) => { for (const p of r.props || []) { p.kind = 'barrel_drum'; } },
+  }),
+  loadspill_hay: reskin('loadspill', {
+    topos: ['suburb', 'tramcrossing', 'tjunction'], label: 'Hay Shed', tell: 'the bales are leaning off the trailer',
+    tweak: (r, ctx) => { for (const p of r.props || []) { p.kind = 'hay_bale'; } r.cars[0]._type = ctx.rng.chance(0.5) ? 'tractorhay' : 'flatbed'; },
+  }),
+  rollover_trip: {
+    topos: ['highway', 'causeway', 'boulevard', 'overpass', 'cloverleaf'],
+    minLane: 130, minD: 2, cal: 'rollover',
+    make(ctx) {
+      const { rng, lane, approach } = ctx;
+      const v = Math.min(approach.v + 3, laneMaxV(lane, approach.anchorS));
+      const tall = place(lane, approach.anchorS, v);
+      tall._pool = 'HEAVY';
+      cmd(tall, { t: INCIDENT_TICK, bias: rng.sign() * 0.22, off: true });
+      cmd(tall, { t: INCIDENT_TICK + 16, bias: -rng.sign() * 0.3, off: true }); // the trip
+      cmd(tall, { t: INCIDENT_TICK + 30, off: false, bias: 0, v: 0, brakeMax: 3.0 });
+      return { cars: [tall], aggressor: 0, victim: -1, label: 'Swerve Trip', tell: 'too tall to swerve like that' };
+    },
+  },
+
+  /* ---- stalls & sudden stops ---- */
+  stall_truck: reskin('stall', {
+    topos: ['highway', 'causeway', 'city', 'tunnelmouth', 'overpass', 'cloverleaf', 'industrialyard'],
+    label: 'Dead Rig', tell: 'that truck has not moved all preview',
+    tweak: (r, ctx) => { r.cars[1]._type = ctx.rng.pick(['semibox', 'boxtruck', 'flatbed']); r.cars[1]._short = false; },
+  }),
+  stall_moto: reskin('stall', {
+    topos: ['city', 'suburb', 'boulevard', 'forestroad', 'riverside'],
+    label: 'Dropped Bike', tell: 'a bike is down in the middle of the lane',
+    tweak: (r, ctx) => { r.cars[1]._type = ctx.rng.pick(['moto', 'chopper']); },
+  }),
+  taxi_fare: reskin('tailgate', {
+    topos: ['city', 'boulevard', 'suburb'], label: 'Sudden Fare', tell: 'taxis stop where the fare is, not where it is safe',
+    tweak: (r) => { r.cars[0]._type = 'taxi'; },
+  }),
+  busbrake: reskin('tailgate', {
+    topos: ['schoolzone', 'suburb', 'city'], label: 'School Stop', tell: 'the bus stops for the stop — the car behind does not',
+    tweak: (r) => { r.cars[0]._type = 'schoolbus'; r.cars[0]._short = false; },
+  }),
+
+  /* ---- two-wheel & fast-cast variants ---- */
+  blowout_bike: reskin('blowout', {
+    label: 'Front Washout', tell: 'watch the bike wobble',
+    tweak: (r) => { r.cars[0]._type = null; r.cars[0]._pool = 'BIKE'; r.cars[0]._short = false; },
+  }),
+  tailgate_moto: reskin('tailgate', {
+    topos: ['city', 'highway', 'boulevard', 'suburb'], label: 'Bike In The Mirror', tell: 'the bike is sitting in the blind spot',
+    tweak: (r) => { if (r.cars[1]) { r.cars[1]._type = null; r.cars[1]._pool = 'BIKE'; r.cars[1]._short = false; } },
+  }),
+  gust_bike: reskin('gustshove', {
+    topos: ['causeway', 'coastalcliff', 'harbourramp'], label: 'Gust Takes The Bike', tell: 'the bike is fighting the crosswind',
+    tweak: (r) => { r.cars[0]._pool = 'BIKE'; },
+  }),
+  lowgrip_bike: reskin('lowgrip', {
+    label: 'No Grip For Two Wheels', tell: 'a bike on a slick road has no margin',
+    tweak: (r) => { if (r.cars[1]) { r.cars[1]._pool = 'BIKE'; } },
+  }),
+
+  /* ---- wrong-way & duel variants ---- */
+  wrongway_night: reskin('wrongway', { label: 'Headlights Coming', tell: 'those headlights are in your lane', tweak: (r) => { r.cars[1]._pool = 'FAST'; } }),
+  chicken: reskin('wrongway', {
+    topos: ['causeway', 'tunnelmouth', 'harbourramp'], minD: 4, label: 'Nobody Blinks', tell: 'neither of them is moving over',
+    tweak: (r) => { cmd(r.cars[0], { t: INCIDENT_TICK + 55, bias: -0.14, off: true }); cmd(r.cars[0], { t: INCIDENT_TICK + 130, off: false, bias: 0, v: 0, brakeMax: 1.2 }); },
+  }),
+  merge_truck: reskin('merge', {
+    topos: ['highway', 'causeway', 'cloverleaf', 'overpass', 'industrialyard'], label: 'Truck Merge', tell: 'the rig is drifting into an occupied lane',
+    tweak: (r) => { if (r.cars[1]) { r.cars[1]._type = 'boxtruck'; r.cars[1]._short = false; } },
+  }),
+  sideswipe: reskin('race', {
+    topos: ['city', 'suburb', 'boulevard', 'highway'], label: 'Sideswipe', tell: 'two of them are sharing one lane',
+    tweak: (r) => { for (const c of r.cars) { c._pool = undefined; } },
+  }),
+  uturn_taxi: reskin('uturn', {
+    topos: ['city', 'boulevard'], label: 'Taxi Flip-Around', tell: 'the taxi wants the fare across the street',
+    tweak: (r) => { r.cars[0]._type = 'taxi'; },
+  }),
+  overtake_bike: reskin('overtake', {
+    topos: ['suburb', 'forestroad', 'riverside', 'coastalcliff'], label: 'Bike Squeezes Past', tell: 'the bike is done waiting',
+    tweak: (r) => { if (r.cars[1]) { r.cars[1]._pool = 'BIKE'; r.cars[1]._short = false; } },
+  }),
+  overtake_blind: reskin('overtake', {
+    topos: ['forestroad', 'coastalcliff', 'riverside'], minD: 3, label: 'Overtake On Faith', tell: 'you cannot see what is coming — someone is going anyway',
+  }),
+  race_clip: reskin('race', {
+    minD: 3, label: 'Wheels Touch', tell: 'the racers keep drifting closer',
+    tweak: (r) => { if (r.cars[1]) { const cs = r.cars[1].drive.cmds; cs.length = 0; cmd(r.cars[1], { t: 200, bias: 0.055 }); cmd(r.cars[1], { t: INCIDENT_TICK, bias: -0.24, off: true }); cmd(r.cars[1], { t: INCIDENT_TICK + 70, off: false, bias: 0, v: 0, brakeMax: 1.4 }); } },
+  }),
+  brakecheck_two: reskin('brakecheck', {
+    minD: 3, label: 'Road Rage', tell: 'those two have been at it all preview',
+    tweak: (r) => { if (r.cars[1]) cmd(r.cars[1], { t: INCIDENT_TICK + 60, bias: 0.12, off: true }); },
+  }),
+  stuck_junction: reskin('stuckthrottle', {
+    topos: ['city', 'suburb', 'boulevard', 'schoolzone'], label: 'No Lift At The Lights', tell: 'that one is speeding UP at the queue',
+  }),
+  steerfail_heavy: reskin('steerfail', {
+    topos: ['city', 'causeway'], label: 'Heavy, No Steering', tell: 'the truck has stopped turning in',
+    tweak: (r) => { r.cars[0]._pool = 'HEAVY'; },
+  }),
+  fishtail_tanker: reskin('fishtail', { label: 'Tanker Sway', tell: 'the tank is sloshing — watch the trailer', tweak: (r) => { r.cars[0]._type = 'tanker'; } }),
+  yieldfail_double: reskin('yieldfail', {
+    minD: 4, label: 'Both Barge In', tell: 'two entries, neither is giving way',
+    tweak: (r, ctx) => {
+      const extra = ctx.topo.crossings.find((c) => ctx.topo.lanes[c[0]] !== r.cars[1]._lane);
+      if (extra) {
+        const l = ctx.topo.lanes[extra[0]];
+        const s = Math.min(l.len - 40, l.len * 0.42);
+        // arrives well after the freeze so it cannot touch the main pair pre-600
+        const c = place(l, s, Math.min(l.v, laneMaxV(l, s)), INCIDENT_TICK + 48);
+        r.cars.push(c);
+      }
+    },
+  }),
+  overspeed_wet: reskin('overspeed', {
+    topos: ['forestroad', 'mountainpass', 'canyon', 'coastalcliff'], minD: 4, label: 'Too Hot In The Wet', tell: 'that speed needs a dry road',
+  }),
+  drift_show: reskin('overspeed', {
+    topos: ['city'], minD: 5, label: 'Showing Off', tell: 'someone is driving for an audience',
+    tweak: (r) => { r.cars[0]._pool = 'FAST'; },
+  }),
+  brakefail_bus: reskin('brakefail', {
+    topos: ['city', 'suburb', 'boulevard', 'schoolzone'], label: 'Bus, No Brakes', tell: 'the bus is not shedding any speed',
+    tweak: (r) => { r.cars[0]._type = 'citybus'; r.cars[0]._short = false; },
+  }),
+  wide_farm: reskin('wideload', {
+    topos: ['tramcrossing', 'tjunction', 'riverside', 'suburb'], label: 'Wide Farm Load', tell: 'that trailer is wider than the lane',
+    tweak: (r) => { r.cars[0]._type = 'tractorhay'; },
+  }),
+  pit_fail: reskin('pit', {
+    minD: 5, label: 'PIT Gone Wrong', tell: 'the cruiser is lining up — badly',
+    tweak: (r) => {
+      if (r.cars[1]) {
+        const cs = r.cars[1].drive.cmds;
+        cs.length = 0;
+        cmd(r.cars[1], { t: INCIDENT_TICK - 40, v: r.cars[1]._v + 2.5 });
+        cmd(r.cars[1], { t: INCIDENT_TICK, bias: 0.13, off: true });
+        cmd(r.cars[1], { t: INCIDENT_TICK + 14, bias: -0.42, off: true }); // spins itself
+        cmd(r.cars[1], { t: INCIDENT_TICK + 90, off: false, bias: 0, v: 0, brakeMax: 1.6 });
+      }
+    },
+  }),
+  pileup_mass: reskin('chain', {
+    topos: ['highway', 'causeway', 'cloverleaf', 'overpass', 'tunnelmouth'], minD: 6, label: 'Mass Pile-Up', tell: 'far too many cars, far too close' }),
+  lowgrip_convoy: reskin('lowgrip', {
+    minD: 3, label: 'Slick Chain', tell: 'three of them, none with grip',
+    tweak: (r, ctx) => {
+      const last = r.cars[r.cars.length - 1];
+      if (last && last._lane) {
+        const third = placeAt(last._lane, last._s0 - Math.max(13, last._v * 1.1), last._v);
+        if (third) { cmd(third, { t: INCIDENT_TICK + 26, v: 0, brakeMax: 4.2 }); r.cars.push(third); }
+      }
+      void ctx;
+    },
+  }),
+  camper_wobble: reskin('drowsy', {
+    topos: ['highway', 'causeway', 'coastalcliff', 'riverside', 'forestroad'], label: 'Overloaded Camper', tell: 'the camper is wallowing all over the lane',
+    tweak: (r) => { r.cars[0]._type = 'camper'; r.cars[0]._short = false; },
+  }),
+  limo_block: reskin('spillback', {
+    topos: ['intersection'], minD: 2, label: 'Limo In The Box', tell: 'that limousine will not clear the junction',
+    tweak: (r) => { r.cars[0]._type = 'limo'; r.cars[0]._short = false; },
+  }),
+  icecream_stop: reskin('tailgate', {
+    topos: ['suburb', 'schoolzone'], label: 'Ice Cream Stop', tell: 'the jingle means a sudden stop',
+    tweak: (r) => { r.cars[0]._type = 'icecream'; r.cars[0]._short = false; },
+  }),
+  police_block: reskin('stall', {
+    topos: ['highway', 'city', 'boulevard', 'causeway'], minD: 2, label: 'Rolling Roadblock', tell: 'the cruiser is parked across the lane',
+    tweak: (r) => { r.cars[1]._pool = 'POLICE'; },
+  }),
+  ambulance_haste: reskin('merge', {
+    topos: ['city', 'boulevard', 'highway'], label: 'Ambulance In A Hurry', tell: 'the ambulance is forcing the gap',
+    tweak: (r) => { if (r.cars[1]) { r.cars[1]._pool = 'EMERG'; r.cars[1]._short = false; } },
+  }),
+});
+
+/* Every topos string must name a real topology — a typo would silently strand
+   a template (it just never deals). Cheap to assert once at module load. */
+{
+  const TOPO_NAMES = new Set([
+    'intersection', 'suburb', 'city', 'highway',
+    'causeway', 'switchback', 'schoolzone', 'tramcrossing', 'parkinglot', 'roundabout',
+    'boulevard', 'tunnelmouth', 'industrialyard', 'tjunction', 'overpass', 'cloverleaf',
+    'forestroad', 'mountainpass', 'canyon', 'coastalcliff', 'riverside', 'harbourramp',
+  ]);
+  for (const [n, t] of Object.entries(TEMPLATES)) {
+    for (const tp of t.topos) {
+      if (!TOPO_NAMES.has(tp)) throw new Error(`template ${n} names unknown topology '${tp}'`);
+    }
+  }
+}
 
 /* ---------------- conflict scrub ----------------
    Nothing may collide before tick 600. Same-lane pairs are placed with
@@ -1792,6 +2748,15 @@ function scrubConflicts(cars, keep) {
         // grade, and leaving the old height drops the car through the deck
         C.x = p.x; C.y = arcY(C._lane, C._s0); C.z = p.z; C.heading = p.heading;
         C.drive.pts = slicePts(C._lane.pts, C._s0);
+        /* The rebuild re-slices the FULL lane, so everything measured along
+           the OLD path start must move with the car: a stop line kept at its
+           old arc read as "passed" 26 m early and latched done, and the car
+           sailed through its red into cross traffic (swp1_35). The trim is
+           re-applied too — the raw re-slice silently restored the full-lane
+           tail this pass exists to cut. */
+        if (C.drive.stops) for (const st of C.drive.stops) st.s += back;
+        if (C.drive.yields) for (const y of C.drive.yields) y.s += back;
+        if (C._anchor !== undefined) trimDrive(C, (C._anchor - C._s0) + 90);
         moved = true;
       }
     }
@@ -1840,6 +2805,52 @@ export function generateScene(seed, d = 1) {
   // degenerate generated layout (no drivable lane)? fall back to the
   // intersection — deterministic, since the branch is itself seed-derived
   if (!topo.lanes.some((l) => solveApproach(l) !== null)) topo = topoIntersection(rTopo, rDress);
+
+  /* ---- G6: the place picks its own sky ----
+     Every topology used to hard-name ONE env, and three of them (plus both
+     worldgen presets) named ids that did not exist or were diagnostic — so
+     half the game rendered on the proving ground or the grid. Each place now
+     draws from a curated pool of environments that actually fit it, off its
+     OWN stream ('scn:'+seed+':env') so no existing facet shifts by a draw.
+     The pool never includes 'proving' or 'grid': those stay dev surfaces. */
+  const rEnv = makeRng('scn:' + seed + ':env');
+  const ENV_POOLS = {
+    intersection: ['city', 'dawn', 'dusk', 'night', 'suburb'],
+    suburb: ['suburb', 'suburb', 'dawn', 'dusk'],
+    city: ['city', 'city', 'night', 'dusk', 'dawn'],
+    highway: ['desert', 'dawn', 'dusk', 'coastal', 'salt'],
+    causeway: ['salt', 'coastal', 'dawn', 'dusk'],
+    switchback: ['alpine', 'alpine', 'dawn', 'dusk'],
+    schoolzone: ['suburb', 'suburb', 'city', 'dawn'],
+    tramcrossing: ['suburb', 'dawn', 'dusk', 'coastal'],
+    parkinglot: ['city', 'night', 'dusk', 'dawn'],
+    roundabout: ['city', 'suburb', 'dusk', 'dawn'],
+    boulevard: ['dusk', 'dusk', 'city', 'night', 'dawn'],
+    tunnelmouth: ['dawn', 'dusk', 'night', 'alpine'],
+    industrialyard: ['night', 'night', 'dusk', 'dawn'],
+    tjunction: ['suburb', 'suburb', 'dawn', 'dusk', 'city'],
+    overpass: ['city', 'dawn', 'dusk', 'night'],
+    cloverleaf: ['dawn', 'dusk', 'desert', 'coastal'],
+    forestroad: ['alpine', 'suburb', 'dawn', 'dusk'],
+    mountainpass: ['alpine', 'alpine', 'dawn', 'dusk'],
+    canyon: ['desert', 'desert', 'dawn', 'dusk'],
+    coastalcliff: ['coastal', 'coastal', 'dawn', 'dusk'],
+    riverside: ['coastal', 'suburb', 'dawn', 'dusk'],
+    harbourramp: ['coastal', 'coastal', 'night', 'dawn', 'dusk'],
+  };
+  const envPool = ENV_POOLS[topo.name];
+  if (envPool) topo.world.env = rEnv.pick(envPool);
+  /* ---- G6: every scene gets a landscape ----
+     Relief topologies bring their own (drivable) terrain spec and keep it.
+     Everyone else gets a VISUAL ring — same null-opt-in world.terrain shape,
+     no `drivable` flag, so the sim collider is untouched and only the
+     horizon changes. ampK pushes real hills against the skyline; the mask
+     still pins everything inside playR to exactly y = 0. */
+  if (!topo.world.terrain) {
+    const TAMP = { alpine: 1.7, mesa: 1.55, coastal: 1.4, rolling: 1.5, flats: 1.15, dunes: 1.35, basin: 1.35 };
+    const tp = TERRAIN_FOR_ENV[topo.world.env] || 'rolling';
+    topo.world.terrain = { preset: tp, seed: String(rEnv.int(1, 99999)), ampK: TAMP[tp] || 1.35 };
+  }
 
   // prop scrub: generated props that encroach on a lane path get dropped —
   // an ambient car grazing a sign at tick 250 breaks the quiet preview
@@ -1967,9 +2978,11 @@ export function generateScene(seed, d = 1) {
       const dl = rInc.pick(others);
       const dc = place(dl, Math.min(dl.len - 20, dl.v * 10 + 15), dl.v);
       dc.drive.acc = INCIDENT_TICK; // full attention only during the preview
+      dc.drive.aw = rInc.int(20, 80);
       cmd(dc, { t: 470, bias: 0.03 * rInc.sign() });
       cmd(dc, { t: 555, bias: -0.015 });
       cmd(dc, { t: 585, bias: 0 });
+      trimDrive(dc, (dc._anchor - dc._s0) + 85 + rInc.range(0, 40));
       made.cars.push(dc);
       decoyRef = dc;
     }
@@ -1983,10 +2996,12 @@ export function generateScene(seed, d = 1) {
       const ml = rInc.pick(others);
       const mc = place(ml, Math.min(ml.len - 25, ml.v * 10 + 20), ml.v + 2);
       mc.drive.acc = INCIDENT_TICK; // attentive until the chaos starts
+      mc.drive.aw = rInc.int(20, 80);
       const side = rInc.sign();
       const t2 = INCIDENT_TICK + rInc.int(0, 110);
       cmd(mc, { t: t2, bias: side * 0.08, off: true });
       cmd(mc, { t: t2 + 18, bias: side * 0.17 });
+      cmd(mc, { t: t2 + 95, off: false, bias: 0, v: 0, brakeMax: 0.8 }); // its loss concludes too
       made.cars.push(mc);
       multiRef = mc;
     }
@@ -2000,7 +3015,9 @@ export function generateScene(seed, d = 1) {
   // than four cars in a diorama, and signals give the extra bodies somewhere
   // sensible to be (queued at a red) instead of merely more chances to
   // collide before tick 600 — which the sweep is the gate on.
-  const castMax = Math.min(10, 4 + (d >> 1) + rInc.int(0, 1));
+  // G6: 4–11 → 6–14. Awareness (world.aware) is what makes the bigger cast
+  // safe to watch: ambient cars now brake for the wreck instead of feeding it.
+  const castMax = Math.min(14, 6 + (d >> 1) + rInc.int(0, 2));
   const lanesFor = usable.length ? usable : topo.lanes;
   let guard = 0;
   while (made.cars.length < castMax && lanesFor.length && guard++ < 40) {
@@ -2021,8 +3038,13 @@ export function generateScene(seed, d = 1) {
     // content and a slow car ahead of matched traffic is a pre-600 rear-end
     if (amb._v < vNew * 0.75) continue;
     // ambient traffic keeps its distance during the preview; after the
-    // incident it reacts only at panic range (late brakers still pile in)
+    // incident awareness returns on a personal reaction clock (drive.aw), so
+    // the cast reads as drivers — the closest still get caught out, the rest
+    // brake and hold instead of feeding the pile
     amb.drive.acc = INCIDENT_TICK;
+    amb.drive.aw = rInc.int(20, 80);
+    // roll ~6–11 s past the anchor, then coast down — scenes must CONCLUDE
+    trimDrive(amb, (sA - amb._s0) + 65 + rInc.range(0, 45));
     made.cars.push(amb);
   }
 
@@ -2178,6 +3200,9 @@ export function generateScene(seed, d = 1) {
           const qc = place(ql, sLine, qv, tArrive);
           if (!qc || qc._v < qv * 0.6) break;
           qc.drive.acc = INCIDENT_TICK; // full attention: this is a queue
+          qc.drive.aw = rInc.int(20, 80);
+          // clear the junction after release, then wind down
+          trimDrive(qc, (sLine - qc._s0) + 55 + rInc.range(0, 30));
           made.cars.push(qc);
         }
       }
@@ -2228,6 +3253,31 @@ export function generateScene(seed, d = 1) {
          Past this point ambient cars ignore the lights, finish their path and
          coast to a stop, which is also what people do after a crash. */
       c.drive.stops = [{ s, j: jSig, arm, until: INCIDENT_TICK + 150 }];
+    }
+  }
+
+  /* ---- G6 give-way lines ----
+     Topologies that stage a priority rule (the roundabout's circulating
+     priority) publish yieldZones; every AMBIENT car whose lane matches gets
+     the hold-while-occupied line. Essential cars never do — their run-up is
+     budgeted at free-flow cruise, the same argument as signal stop lines. */
+  if (topo.yieldZones) {
+    /* Same exclusion the signal stop lines learned: never seat a hold in
+       front of an ESSENTIAL car. An actor's run-up is budgeted at free-flow
+       cruise, so an ambient car yielding at the mouth of the actor's own
+       lane is a stationary wall it plows into pre-600 (measured: 4 of the
+       first sweep's 5 defects were exactly this). */
+    const essLanesY = new Set();
+    for (let i = 0; i < made.cars.length; i++) {
+      const c = made.cars[i];
+      if (c && keep.has(i) && c._lane) essLanesY.add(c._lane);
+    }
+    for (let i = 0; i < made.cars.length; i++) {
+      const c = made.cars[i];
+      if (!c || !c.drive || keep.has(i)) continue;
+      if (essLanesY.has(c._lane)) continue;
+      const z = c._lane && topo.yieldZones.find((y) => c._lane.road === y.road);
+      if (z) c.drive.yields = [{ x: z.x, z: z.z, r: z.r, s: z.s, until: INCIDENT_TICK + 150 }];
     }
   }
 
@@ -2291,7 +3341,10 @@ export function generateScene(seed, d = 1) {
   const NO_HEAVY = topo.name === 'mountainpass' || topo.name === 'canyon'
     || topo.name === 'forestroad' || topo.name === 'coastalcliff';
   const poolFor = (c) => {
-    if (c._pool === 'POLICE') return ['police'];
+    if (c._pool === 'POLICE') return ['police', 'policesuv'];
+    if (c._pool === 'EMERG') return ['ambulance', 'firetruck'];
+    if (c._pool === 'BIKE') return ['moto', 'chopper'];
+    if (c._pool === 'SLOW') return ['tractor', 'icecream'];
     // _short = spawned in a tight queue: only compact bodies fit the gap
     if (c._short) return c._pool === 'FAST' ? FAST : CIVIC;
     if (c._pool === 'FAST') return FAST;
@@ -2304,9 +3357,12 @@ export function generateScene(seed, d = 1) {
   };
   for (let i = 0; i < cars.length; i++) {
     const c = cars[i];
-    c.type = rCast.pick(poolFor(c));
+    // _type = an exact REG id a template demands (tram, moto, tractor…). The
+    // pool draw still happens so the stream never shifts on the branch.
+    const drawn = rCast.pick(poolFor(c));
+    c.type = c._type || drawn;
     c.seed = String(rCast.int(1, 99999));
-    delete c._lane; delete c._s0; delete c._v; delete c._anchor; delete c._pool; delete c._short;
+    delete c._lane; delete c._s0; delete c._v; delete c._anchor; delete c._pool; delete c._short; delete c._type;
   }
 
   // props may not overlap a CAR spawn either: the pullout's shoulder spot
@@ -2357,13 +3413,19 @@ export function generateScene(seed, d = 1) {
     // stayed green only because the `water` simtest scenario hand-writes
     // world.water rather than going through the director. Defaults stay in
     // front so a topology can still override gravity or walls deliberately.
-    world: { gravity: 9.81, walls: false, ...topo.world, arena: topo.world.arena || 100, weather },
+    // G6: `aware: true` turns on post-incident ambient awareness (physics.js
+    // driveTick) — a default, not an override, so a topology could opt out.
+    world: { gravity: 9.81, walls: false, aware: true, ...topo.world, arena: topo.world.arena || 100, weather },
     roads: topo.roads,
     junctions: topo.junctions || [],
     props,
     cars,
     meta: {
       seed: String(seed), d, topo: topo.name, template: tName,
+      // calKey groups variant templates under their choreography family so
+      // CALIB cells stay thick — markets.js and tools/calibrate.mjs both key
+      // pricing on THIS, while `template` stays the variant's identity.
+      calKey: T.cal || tName,
       incidentTick: INCIDENT_TICK, resolveTicks: RESOLVE_TICKS,
       label: made.label, tell: made.tell,
       aggressor: aggRef ? cars.indexOf(aggRef) : -1,

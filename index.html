@@ -20,30 +20,49 @@
 <!-- ============ main menu ============ -->
 <div id="menu">
   <div class="menucard">
-    <svg class="menulogo" viewBox="0 0 48 32" aria-hidden="true">
-      <path fill="url(#lg)" d="M4 22l4-9 7-4h14l7 4 8 9v5h-5a4 4 0 0 1-8 0H19a4 4 0 0 1-8 0H4z"/>
-      <path fill="#181a1e" opacity=".55" d="M16 11h6v6h-9zM24 11h6l3 6h-9z"/>
-      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#ff6a3d"/><stop offset="1" stop-color="#ffb03a"/>
-      </linearGradient></defs>
-    </svg>
-    <h1 class="menutitle">CRASH <span>BET</span></h1>
-    <p class="menutag" id="menutag">deterministic low-poly sandbox</p>
+    <div class="menuhead">
+      <svg class="menulogo" viewBox="0 0 48 32" aria-hidden="true">
+        <path fill="url(#lg)" d="M4 22l4-9 7-4h14l7 4 8 9v5h-5a4 4 0 0 1-8 0H19a4 4 0 0 1-8 0H4z"/>
+        <path fill="#181a1e" opacity=".55" d="M16 11h6v6h-9zM24 11h6l3 6h-9z"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ff6a3d"/><stop offset="1" stop-color="#ffb03a"/>
+        </linearGradient></defs>
+      </svg>
+      <h1 class="menutitle">CRASH <span>BET</span></h1>
+      <p class="menutag" id="menutag">read the road · bet the physics</p>
+    </div>
     <div id="menubank" hidden>
       <span class="mbl">BANKROLL</span><b id="mbAmt">$100</b><span id="mbRun" class="mbrun"></span>
     </div>
-    <button id="startBtn" class="mbtn primary big" disabled>▶&nbsp; Continue</button>
-    <div class="menurow">
-      <button id="dailyBtn" class="mbtn" disabled>📅&nbsp; Daily</button>
-      <button id="statsBtn" class="mbtn" disabled>📊&nbsp; Stats</button>
-    </div>
-    <div class="menurow">
-      <button id="seedBtn" class="mbtn" disabled>🔑&nbsp; Custom seed</button>
-      <button id="garageBtn" class="mbtn" disabled>🏛&nbsp; Garage</button>
-    </div>
-    <div class="menurow">
-      <button id="howBtn" class="mbtn">📖&nbsp; How to play</button>
-      <button id="crashBtn" class="mbtn" disabled>💥&nbsp; Crash test</button>
+    <button id="startBtn" class="mbtn primary big" disabled>
+      <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+      <span>Continue</span>
+    </button>
+    <div class="menugrid">
+      <button id="dailyBtn" class="mtile" disabled>
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="12" cy="14.5" r="1.7" fill="currentColor"/></svg>
+        <span>Daily</span>
+      </button>
+      <button id="statsBtn" class="mtile" disabled>
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19.5V11M12 19.5V5.5M19 19.5v-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>
+        <span>Stats</span>
+      </button>
+      <button id="seedBtn" class="mtile" disabled>
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="4" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M11.5 12l8 8m-3-3 2.4-2.4M16 16.5l2 2" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/></svg>
+        <span>Seed</span>
+      </button>
+      <button id="garageBtn" class="mtile" disabled>
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 20V9.5L12 4l8.5 5.5V20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M7.5 20v-6.5h9V20M7.5 16.5h9" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <span>Garage</span>
+      </button>
+      <button id="howBtn" class="mtile">
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.3c-.8.4-1.2.9-1.2 1.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="16.6" r="1.15" fill="currentColor"/></svg>
+        <span>How to</span>
+      </button>
+      <button id="crashBtn" class="mtile" disabled>
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.6L18 5.4l-1.4 4L21 12l-4.4 2.6L18 18.6l-4.2-2.2L12 21l-1.8-4.6L6 18.6l1.4-4L3 12l4.4-2.6L6 5.4l4.2 2.2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        <span>Crash test</span>
+      </button>
     </div>
     <button id="newRunBtn" class="mbtn tiny danger" hidden>↻&nbsp; New run</button>
     <div id="boot">
@@ -179,6 +198,7 @@
         <button class="stakebtn" data-stake="1">$1</button>
         <button class="stakebtn sel" data-stake="5">$5</button>
         <button class="stakebtn" data-stake="25">$25</button>
+        <button class="stakebtn" data-stake="100">$100</button>
         <button class="stakebtn" data-stake="half">Half</button>
         <button class="stakebtn" data-stake="all">All-in</button>
       </div>
@@ -231,8 +251,6 @@
     </div>
     <div id="pauseSettings" hidden>
       <h2>Settings</h2>
-      <p class="msub">Environment</p>
-      <div class="mchips" id="set_envs" role="group" aria-label="Environment"></div>
       <p class="msub">Quality</p>
       <div class="mchips" id="set_quality" role="group" aria-label="Quality">
         <button data-q="low" class="mchip">Low</button>

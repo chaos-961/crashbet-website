@@ -2513,9 +2513,11 @@ function roleOf(scene, i, aggPts) {
   return 'ambFar';
 }
 
-// per-template special market: label + a settle spec the settler understands
+// per-template special market: label + a settle spec the settler understands.
+// Keyed on the FAMILY (meta.calKey) so every variant of a motif shares its
+// special — a variant's costume never changes what the special is about.
 function specialFor(scene) {
-  const t = scene.meta.template;
+  const t = scene.meta.calKey || scene.meta.template;
   const agg = scene.meta.aggressor, vic = scene.meta.victim;
   const pair = agg >= 0 && vic >= 0;
   switch (t) {
@@ -2536,6 +2538,27 @@ function specialFor(scene) {
     case 'wideload': return pair && { label: 'The load meets the oncoming', settle: { hitPair: [agg, vic] } };
     case 'lowgrip': return pair && { label: 'It cannot stop on the wet', settle: { hitPair: [agg, vic] } };
     case 'flooddip': return agg >= 0 && { label: 'The aquaplane ends in a crash', settle: { carCrash: agg } };
+    // G6 families
+    case 'uturn': return pair && { label: 'The U-turn gets clipped', settle: { hitPair: [agg, vic] } };
+    case 'overtake': return pair && { label: 'The overtake meets oncoming', settle: { hitPair: [agg, vic] } };
+    case 'race': return agg >= 0 && vic >= 0 && { label: 'The racers make contact', settle: { hitPair: [agg, vic] } };
+    case 'brakecheck': return pair && { label: 'The brake check lands', settle: { hitPair: [agg, vic] } };
+    case 'stuckthrottle': return agg >= 0 && { label: 'The throttle never lifts', settle: { carCrash: agg } };
+    case 'steerfail': return agg >= 0 && { label: 'It never makes the bend', settle: { carOffroad: agg } };
+    case 'fishtail': return agg >= 0 && { label: 'The sway ends in a wreck', settle: { carCrash: agg } };
+    case 'tramstrike': return pair && { label: 'The tram cannot stop in time', settle: { hitPair: [agg, vic] } };
+    case 'yieldfail': return pair && { label: 'The entry gets T-boned', settle: { hitPair: [agg, vic] } };
+    case 'islandhop': return agg >= 0 && { label: 'Straight over the island', settle: { carOffroad: agg } };
+    case 'spillback': return pair && { label: 'Stranded in the box and hit', settle: { hitPair: [agg, vic] } };
+    case 'gustshove': return agg >= 0 && { label: 'The gust wins', settle: { carCrash: agg } };
+    case 'quayplunge': return agg >= 0 && { label: 'It goes into the harbour', settle: { carSunk: agg } };
+    case 'storefront': {
+      if (agg < 0) return null;
+      const shop = scene.props.findIndex((p) => p.kind === 'shop');
+      return shop >= 0 ? { label: 'Through the storefront', settle: { propHit: shop } } : { label: 'Into the frontage', settle: { carCrash: agg } };
+    }
+    case 'bikedown': return agg >= 0 && { label: 'The bike goes down', settle: { carCrash: agg } };
+    case 'parkedrow': return pair && { label: 'The parked row takes the hit', settle: { hitPair: [agg, vic] } };
     default: return null;
   }
 }
@@ -2558,7 +2581,8 @@ export function generateMarkets(scene, opts = {}) {
   const offerAll = !!opts.all;
   const offerable = (p) => offerAll || p >= OFFER_MIN;
   const d = scene.meta.d;
-  const tpl = scene.meta.template;
+  // price on the FAMILY key: variants share their motif's calibration cells
+  const tpl = scene.meta.calKey || scene.meta.template;
   const nearMissK = scene.meta.nearMiss ? 0.55 : 1;
   const markets = [];
   // `cal` is the calibration bucket (role/zone) — tools/calibrate.mjs
@@ -2662,6 +2686,7 @@ export function settleMarket(m, rec) {
   if (s.carWheel !== undefined) return sum.perCar[s.carWheel].wheels > 0;
   if (s.carFire !== undefined) return sum.perCar[s.carFire].fireAt >= 0;
   if (s.carOffroad !== undefined) return sum.perCar[s.carOffroad].offroadAt >= 0;
+  if (s.carSunk !== undefined) return sum.perCar[s.carSunk].sunkAt >= 0;
   if (s.carFirst !== undefined) {
     const p = sum.perCar[s.carFirst];
     return sum.firstCrashTick >= 0 && p.crashedAt === sum.firstCrashTick;

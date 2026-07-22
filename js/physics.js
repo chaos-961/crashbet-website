@@ -389,6 +389,14 @@ function makeDriver(drive) {
     stops: (drive.stops || []).map((s) => ({
       s: s.s, j: s.j, arm: s.arm, until: s.until == null ? Infinity : s.until, done: false,
     })),
+    /* G6 give-way lines (roundabout entries). Copied, never referenced, for
+       the same recorder-vs-live reason as stops — the done latch is sim
+       state, and the scenario is shared between both sims. */
+    yields: (drive.yields || []).map((y) => ({
+      x: y.x, z: y.z, r2: y.r * y.r, s: y.s,
+      until: y.until == null ? Infinity : y.until, done: false,
+    })),
+    aw: drive.aw || 0, // post-incident reaction delay (ticks) for aware ACC
     seg: 0, ci: 0,
     vt: drive.v || 0, bias: 0, off: false, noBrake: false, brakeMax: 1,
     done: false,
@@ -501,6 +509,16 @@ function driveTick(sim, car, tick) {
     const mpx = (gx + fpx) / 2, mpz = (gz + fpz) / 2;
     const panic2 = (Math.abs(v) * 0.7 + 5) ** 2;
     const tame = d.acc > 1 ? tick < d.acc : true; // acc = tick bound of full attention
+    /* G6 awareness (world.aware): past the attention bound an ambient driver
+       is no longer blind. After a PERSONAL reaction delay (drive.aw, rolled
+       by the director so every car reacts on its own clock) full-range
+       detection returns, so the ambient cast brakes for the wreck ahead
+       instead of filing into it at cruise. The scripted late-brakers are
+       untouched — essential cars never carry .acc — so choreographed
+       pile-ins still land; this only stops the AMBIENT cars reading as
+       blind. During the reaction window panic range still applies, so a car
+       right on top of the incident still gets caught out. */
+    const aware = sim.aware && d.acc > 1 && !tame && tick >= d.acc + (d.aw || 45);
     for (const other of sim.cars) {
       if (other === car) continue;
       const to = other.body.translation();
@@ -529,9 +547,45 @@ function driveTick(sim, car, tick) {
       const olv = other.body.linvel();
       const vo = olv.x * hx + olv.z * hz;
       const closeIn = dMe2 < panic2;
-      if (!tame && !closeIn) continue; // post-incident: only panic range reacts
-      const cap = Math.max(0, vo - (closeIn && tame ? 1.5 : closeIn ? 0 : 0.3));
+      // post-incident: panic range always reacts; full range only once aware
+      if (!tame && !closeIn && !aware) continue;
+      const cap = Math.max(0, vo - (closeIn && tame ? 1.5 : closeIn ? 0 : aware ? 0.6 : 0.3));
       if (cap < vt) vt = cap;
+    }
+  }
+  /* G6 GIVE-WAY LINES (roundabout entries). A yield binds like a red light —
+     the same v² = 2·a·s ease onto the line and a firm hold inside 2.2 m —
+     but the release condition is live geometry instead of a tick program:
+     the line holds while any MOVING car occupies the conflict circle. All
+     controls read the same pre-step state in fixed car order, arithmetic
+     only, so this is exactly as deterministic as the signal path. A held
+     yielder is itself under 1.2 m/s, i.e. below the occupancy speed
+     threshold, so two cars waiting at different mouths can never deadlock
+     each other. Past `until` the line stops binding, same as stops. */
+  let holdAtYield = false;
+  if (d.yields.length && sim) {
+    for (let k = 0; k < d.yields.length; k++) {
+      const y = d.yields[k];
+      if (y.done) continue;
+      if (tick > y.until) { y.done = true; continue; }
+      const dist = y.s - arcNow;
+      if (dist < -1.2) { y.done = true; continue; }
+      if (dist > 60) continue;
+      let occupied = false;
+      for (const other of sim.cars) {
+        if (other === car) continue;
+        const to = other.body.translation();
+        const dx = to.x - y.x, dz = to.z - y.z;
+        if (dx * dx + dz * dz > y.r2) continue;
+        const olv = other.body.linvel();
+        if (olv.x * olv.x + olv.z * olv.z < 1.44) continue; // held/parked: no claim
+        occupied = true;
+        break;
+      }
+      if (!occupied) continue;
+      const vLim = Math.sqrt(2 * 3.2 * Math.max(0, dist - 0.55));
+      if (vLim < vt) vt = vLim;
+      if (dist < 2.2) holdAtYield = true;
     }
   }
   /* SIGNAL STOP LINES (P2/2I). Same anticipatory shape as the end-of-path
@@ -561,10 +615,16 @@ function driveTick(sim, car, tick) {
       const state = signalAt(sim.signals[st.j], st.arm, tick);
       if (state === GREEN) continue;
       const av = Math.abs(v);
-      // can we still pull up? (0.55 m of slack for the nose)
-      const needed = (av * av) / (2 * 3.2);
-      if (state === AMBER && needed > dist - 0.55) continue;
-      const vLim = Math.sqrt(2 * 3.2 * Math.max(0, dist - 0.55));
+      /* AMBER: go only when genuinely committed — i.e. the car cannot stop
+         even braking HARD (4.6 m/s²). The old comfortable-decel test let a
+         car ~22 m out sail through, and it was still mid-box when the cross
+         street's green released a flowing arrival into its side (measured:
+         ambient T-bones at d1 once the casts grew). A car that does stop for
+         amber brakes harder than the comfortable red-approach ramp, which is
+         also just what drivers do. */
+      if (state === AMBER && (av * av) / (2 * 4.6) > dist - 0.55) continue;
+      const aBrk = state === AMBER ? 4.4 : 3.2;
+      const vLim = Math.sqrt(2 * aBrk * Math.max(0, dist - 0.55));
       if (vLim < vt) vt = vLim;
       if (dist < 2.2) holdAtLine = true;
     }
@@ -578,7 +638,7 @@ function driveTick(sim, car, tick) {
   // waiting at a red: hold hard rather than creep. The anticipatory limit
   // alone decays asymptotically, leaving a car idling forward at ~0.6 m/s —
   // which over a 200-tick red walks it into the middle of the junction.
-  if (holdAtLine && Math.abs(v) < 1.2) { throttle = 0; brake = 1; }
+  if ((holdAtLine || holdAtYield) && Math.abs(v) < 1.2) { throttle = 0; brake = 1; }
   return { steer, throttle, brake };
 }
 
@@ -644,6 +704,11 @@ export class CrashSim {
        "unreachable" that names nothing. Measured — this is not hypothetical. */
     const wx = W.weather;
     this.wxGrip = wx && Number.isFinite(wx.grip) ? clamp(wx.grip, 0.35, 1) : 1;
+    /* G6 driver awareness. Opt-in with the same null shape as water/terrain/
+       grip: absent — which is every pinned scenario — ambient ACC behaves
+       exactly as it always did, so no legacy hash can move. The director sets
+       it on every generated scene; the behaviour itself lives in driveTick. */
+    this.aware = !!W.aware;
     this.waterBasin = wat && typeof wat.x0 === 'number'
       ? { x0: wat.x0, x1: wat.x1, z0: wat.z0, z1: wat.z1, bed: wat.bed == null ? wat.y - 3.5 : wat.bed }
       : null;
@@ -738,7 +803,7 @@ export class CrashSim {
          capture. The array is a pure function of this key, so reusing it is
          bit-identical by construction rather than by luck; a one-entry cache
          is enough because a reset rebuilds the SAME scenario. */
-      const key = `${T.seed}|${T.preset}|${playR}|${ext}|${n}`;
+      const key = `${T.seed}|${T.preset}|${playR}|${ext}|${n}|${T.ampK || 1}`;
       let heights = _hfCache.key === key ? _hfCache.heights : null;
       if (!heights) {
         heights = new Float32Array((n + 1) * (n + 1));
