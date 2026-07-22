@@ -69,447 +69,587 @@ function pathDist(a, b) {
    default (Laplace-style) so thin cells never produce absurd odds. Regenerate
    after any director/physics change that moves outcome statistics — the
    Monte Carlo gate (tests/montecarlo.mjs) catches drift. */
-// Empirical table from tools/calibrate.mjs (400 scenes, all difficulties,
-// Laplace-smoothed toward each kind mean). Regenerate after director/physics
-// changes that move outcome statistics; tests/montecarlo.mjs catches drift.
-// Regenerated for G4: the 8-template G1 table left the 12 new templates
-// falling back to bare kind means, so 60 % of the incident library was priced
-// off an average instead of its own measured rate.
+// Empirical table from tools/calibrate.mjs, Laplace-smoothed toward each kind
+// mean. Regenerate after any director/physics change that moves outcome
+// statistics; tests/montecarlo.mjs catches drift.
+// Regenerated at the P2 close gate over 900 scenes: 2E took the world to 22
+// topologies and 2F the incident library to 28 templates, so the G4 table left
+// a third of the templates (rockslide/fallentree/overheight/… ) priced off a
+// bare kind mean. Out-of-sample O/E after this regen sat at 0.98/0.96/0.99
+// across the three difficulty bands, all intervals containing 1.00 — so NO
+// difficulty axis was added (the rule in the note below still holds).
 export const CALIB = {
   anyflip: {
-    _: 0.068,
-    blowout: {
-      _: 0.142
-    },
-    brakefail: {
-      _: 0.011
-    },
-    chain: {
-      _: 0.113
-    },
-    debris: {
-      _: 0.07
-    },
-    drowsy: {
-      _: 0.083
-    },
-    jackknife: {
-      _: 0.014
-    },
-    leftturn: {
-      _: 0.074
-    },
-    loadspill: {
-      _: 0.064
-    },
-    merge: {
-      _: 0.014
-    },
-    overspeed: {
-      _: 0.041
-    },
-    pit: {
-      _: 0.025
-    },
-    police: {
-      _: 0.13
-    },
-    pullout: {
+    _: 0.05,
+    barrierdrop: {
       _: 0.012
     },
+    blowout: {
+      _: 0.06
+    },
+    brakefail: {
+      _: 0.005
+    },
+    chain: {
+      _: 0.047
+    },
+    debris: {
+      _: 0.05
+    },
+    drowsy: {
+      _: 0.073
+    },
+    fallentree: {
+      _: 0.215
+    },
+    flooddip: {
+      _: 0.076
+    },
+    fogbank: {
+      _: 0.009
+    },
+    jackknife: {
+      _: 0.042
+    },
+    leftturn: {
+      _: 0.018
+    },
+    loadspill: {
+      _: 0.048
+    },
+    lowgrip: {
+      _: 0.011
+    },
+    merge: {
+      _: 0.009
+    },
+    overheight: {
+      _: 0.081
+    },
+    overspeed: {
+      _: 0.177
+    },
+    pit: {
+      _: 0.013
+    },
+    police: {
+      _: 0.082
+    },
+    pullout: {
+      _: 0.024
+    },
     rampjump: {
-      _: 0.029
+      _: 0.021
     },
     redlight: {
-      _: 0.115
+      _: 0.065
+    },
+    rockslide: {
+      _: 0.087
     },
     rollover: {
-      _: 0.025
+      _: 0.057
     },
     stall: {
-      _: 0.138
+      _: 0.005
     },
     sunblind: {
-      _: 0.016
+      _: 0.033
     },
     tailgate: {
+      _: 0.007
+    },
+    wideload: {
       _: 0.013
     },
     wrongway: {
-      _: 0.162
+      _: 0.17
     }
   },
   anyglass: {
-    _: 0.185,
+    _: 0.177,
+    barrierdrop: {
+      _: 0.082
+    },
     blowout: {
-      _: 0.197
+      _: 0.126
     },
     brakefail: {
-      _: 0.213
+      _: 0.106
     },
     chain: {
-      _: 0.516
+      _: 0.512
     },
     debris: {
-      _: 0.105
+      _: 0.175
     },
     drowsy: {
-      _: 0.222
+      _: 0.175
     },
-    jackknife: {
-      _: 0.147
+    fallentree: {
+      _: 0.353
     },
-    leftturn: {
-      _: 0.164
-    },
-    loadspill: {
-      _: 0.05
-    },
-    merge: {
-      _: 0.075
-    },
-    overspeed: {
-      _: 0.111
-    },
-    pit: {
-      _: 0.132
-    },
-    police: {
+    flooddip: {
       _: 0.18
     },
+    fogbank: {
+      _: 0.033
+    },
+    jackknife: {
+      _: 0.163
+    },
+    leftturn: {
+      _: 0.18
+    },
+    loadspill: {
+      _: 0.187
+    },
+    lowgrip: {
+      _: 0.181
+    },
+    merge: {
+      _: 0.03
+    },
+    overheight: {
+      _: 0.379
+    },
+    overspeed: {
+      _: 0.235
+    },
+    pit: {
+      _: 0.177
+    },
+    police: {
+      _: 0.147
+    },
     pullout: {
-      _: 0.062
+      _: 0.11
     },
     rampjump: {
-      _: 0.151
+      _: 0.076
     },
     redlight: {
-      _: 0.339
+      _: 0.253
+    },
+    rockslide: {
+      _: 0.271
     },
     rollover: {
-      _: 0.069
+      _: 0.133
     },
     stall: {
-      _: 0.191
+      _: 0.048
     },
     sunblind: {
-      _: 0.084
+      _: 0.078
     },
     tailgate: {
-      _: 0.068
+      _: 0.023
+    },
+    wideload: {
+      _: 0.263
     },
     wrongway: {
-      _: 0.386
+      _: 0.28
     }
   },
   anywheel: {
-    _: 0.102,
+    _: 0.117,
+    barrierdrop: {
+      _: 0.028
+    },
     blowout: {
       _: 0.149
     },
     brakefail: {
-      _: 0.043
+      _: 0.047
     },
     chain: {
-      _: 0.247
+      _: 0.301
     },
     debris: {
-      _: 0.031
+      _: 0.102
     },
     drowsy: {
-      _: 0.137
+      _: 0.217
     },
-    jackknife: {
-      _: 0.058
+    fallentree: {
+      _: 0.235
     },
-    leftturn: {
-      _: 0.085
+    flooddip: {
+      _: 0.1
     },
-    loadspill: {
-      _: 0.028
-    },
-    merge: {
+    fogbank: {
       _: 0.022
     },
+    jackknife: {
+      _: 0.119
+    },
+    leftturn: {
+      _: 0.1
+    },
+    loadspill: {
+      _: 0.137
+    },
+    lowgrip: {
+      _: 0.096
+    },
+    merge: {
+      _: 0.02
+    },
+    overheight: {
+      _: 0.106
+    },
     overspeed: {
-      _: 0.061
+      _: 0.131
     },
     pit: {
-      _: 0.038
+      _: 0.117
     },
     police: {
-      _: 0.165
+      _: 0.053
     },
     pullout: {
-      _: 0.048
+      _: 0.067
     },
     rampjump: {
-      _: 0.044
+      _: 0.05
     },
     redlight: {
-      _: 0.267
+      _: 0.135
+    },
+    rockslide: {
+      _: 0.18
     },
     rollover: {
-      _: 0.038
+      _: 0.074
     },
     stall: {
-      _: 0.144
+      _: 0.027
     },
     sunblind: {
-      _: 0.025
+      _: 0.018
     },
     tailgate: {
-      _: 0.052
+      _: 0.015
+    },
+    wideload: {
+      _: 0.161
     },
     wrongway: {
-      _: 0.22
+      _: 0.249
     }
   },
   chain3: {
-    _: 0.175,
+    _: 0.242,
+    barrierdrop: {
+      _: 0.098
+    },
     blowout: {
-      _: 0.195
+      _: 0.312
     },
     brakefail: {
-      _: 0.107
+      _: 0.166
     },
     chain: {
-      _: 0.488
+      _: 0.559
     },
     debris: {
-      _: 0.202
+      _: 0.249
     },
     drowsy: {
-      _: 0.27
+      _: 0.342
+    },
+    fallentree: {
+      _: 0.523
+    },
+    flooddip: {
+      _: 0.203
+    },
+    fogbank: {
+      _: 0.045
     },
     jackknife: {
-      _: 0.037
+      _: 0.079
     },
     leftturn: {
-      _: 0.161
+      _: 0.262
     },
     loadspill: {
-      _: 0.093
+      _: 0.202
+    },
+    lowgrip: {
+      _: 0.052
     },
     merge: {
-      _: 0.037
+      _: 0.07
+    },
+    overheight: {
+      _: 0.278
     },
     overspeed: {
-      _: 0.105
+      _: 0.189
     },
     pit: {
-      _: 0.128
+      _: 0.063
     },
     police: {
-      _: 0.207
+      _: 0.219
     },
     pullout: {
-      _: 0.031
+      _: 0.172
     },
     rampjump: {
-      _: 0.075
+      _: 0.104
     },
     redlight: {
-      _: 0.145
+      _: 0.223
+    },
+    rockslide: {
+      _: 0.364
     },
     rollover: {
-      _: 0.128
+      _: 0.107
     },
     stall: {
-      _: 0.22
+      _: 0.163
     },
     sunblind: {
-      _: 0.162
+      _: 0.294
     },
     tailgate: {
-      _: 0.034
+      _: 0.032
+    },
+    wideload: {
+      _: 0.281
     },
     wrongway: {
-      _: 0.479
+      _: 0.452
     }
   },
   crash: {
-    _: 0.273,
+    _: 0.297,
+    barrierdrop: {
+      _: 0.093,
+      agg: 0.071,
+      ambFar: 0.163,
+      ambNear: 0.138,
+      vic: 0.071
+    },
     blowout: {
-      _: 0.314,
-      actor: 0.293,
-      agg: 0.634,
-      ambNear: 0.153,
-      vic: 0.44
+      _: 0.396,
+      actor: 0.278,
+      agg: 0.705,
+      ambFar: 0.278,
+      ambNear: 0.209,
+      vic: 0.705
     },
     brakefail: {
-      _: 0.333,
-      actor: 0.164,
-      agg: 0.543,
-      ambFar: 0.205,
-      ambNear: 0.1,
-      vic: 0.806
+      _: 0.287,
+      actor: 0.266,
+      agg: 0.558,
+      ambFar: 0.049,
+      ambNear: 0.111,
+      vic: 0.645
     },
     chain: {
-      _: 0.458,
-      actor: 0.452,
-      agg: 0.401,
-      ambFar: 0.234,
-      ambNear: 0.165,
-      vic: 0.581
+      _: 0.429,
+      actor: 0.501,
+      agg: 0.4,
+      ambFar: 0.148,
+      ambNear: 0.073,
+      vic: 0.574
     },
     debris: {
-      _: 0.215,
-      actor: 0.182,
-      agg: 0.182,
-      ambNear: 0.209,
-      vic: 0.332
+      _: 0.319,
+      actor: 0.315,
+      agg: 0.452,
+      ambFar: 0.347,
+      ambNear: 0.203,
+      vic: 0.517
     },
     drowsy: {
-      _: 0.364,
-      actor: 0.331,
-      agg: 0.625,
-      ambFar: 0.059,
-      ambNear: 0.246,
-      vic: 0.552
+      _: 0.381,
+      actor: 0.291,
+      agg: 0.683,
+      ambFar: 0.186,
+      ambNear: 0.209,
+      vic: 0.683
+    },
+    fallentree: {
+      _: 0.509,
+      actor: 0.347,
+      agg: 0.739,
+      ambFar: 0.254,
+      ambNear: 0.279,
+      vic: 0.789
+    },
+    flooddip: {
+      _: 0.271,
+      actor: 0.222,
+      agg: 0.458,
+      ambNear: 0.178,
+      vic: 0.34
+    },
+    fogbank: {
+      _: 0.07,
+      actor: 0.067,
+      agg: 0.056,
+      ambNear: 0.116,
+      vic: 0.118
     },
     jackknife: {
-      _: 0.126,
-      actor: 0.164,
-      agg: 0.094,
-      ambNear: 0.186,
-      vic: 0.094
+      _: 0.166,
+      actor: 0.178,
+      agg: 0.154,
+      ambNear: 0.222,
+      vic: 0.09
     },
     leftturn: {
-      _: 0.223,
-      actor: 0.234,
-      agg: 0.244,
-      ambNear: 0.207,
-      vic: 0.297
+      _: 0.247,
+      agg: 0.399,
+      ambNear: 0.2,
+      vic: 0.281
     },
     loadspill: {
-      _: 0.222,
-      actor: 0.205,
-      agg: 0.165,
-      ambNear: 0.193,
-      vic: 0.393
+      _: 0.203,
+      actor: 0.344,
+      agg: 0.103,
+      ambNear: 0.185,
+      vic: 0.362
+    },
+    lowgrip: {
+      _: 0.102,
+      actor: 0.278,
+      agg: 0.064,
+      ambNear: 0.153,
+      vic: 0.064
     },
     merge: {
-      _: 0.112,
-      actor: 0.234,
-      agg: 0.094,
-      ambFar: 0.071,
-      ambNear: 0.184,
-      vic: 0.158
+      _: 0.116,
+      actor: 0.162,
+      agg: 0.137,
+      ambFar: 0.061,
+      ambNear: 0.158,
+      vic: 0.149
+    },
+    overheight: {
+      _: 0.346,
+      actor: 0.397,
+      agg: 0.174,
+      ambNear: 0.376,
+      vic: 0.361
     },
     overspeed: {
-      _: 0.192,
-      actor: 0.33,
-      agg: 0.164,
-      ambNear: 0.203
+      _: 0.315,
+      agg: 0.214,
+      ambNear: 0.366
     },
     pit: {
-      _: 0.125,
-      actor: 0.164,
-      agg: 0.165,
-      ambFar: 0.164,
-      ambNear: 0.162,
-      vic: 0.165
+      _: 0.165,
+      actor: 0.478,
+      agg: 0.077,
+      ambFar: 0.094,
+      ambNear: 0.25,
+      vic: 0.077
     },
     police: {
-      _: 0.283,
-      actor: 0.214,
-      agg: 0.254,
-      ambFar: 0.149,
-      ambNear: 0.147,
-      vic: 0.754
+      _: 0.29,
+      actor: 0.338,
+      agg: 0.245,
+      ambFar: 0.229,
+      ambNear: 0.185,
+      vic: 0.705
     },
     pullout: {
-      _: 0.15,
-      actor: 0.234,
-      agg: 0.166,
-      ambFar: 0.079,
-      ambNear: 0.075,
-      vic: 0.401
+      _: 0.265,
+      actor: 0.299,
+      agg: 0.414,
+      ambFar: 0.214,
+      ambNear: 0.133,
+      vic: 0.323
     },
     rampjump: {
-      _: 0.144,
-      actor: 0.205,
-      agg: 0.117,
-      ambFar: 0.097,
-      ambNear: 0.266
+      _: 0.134,
+      agg: 0.199,
+      ambFar: 0.127,
+      ambNear: 0.177
     },
     redlight: {
-      _: 0.329,
-      actor: 0.234,
-      agg: 0.554,
-      ambFar: 0.234,
-      ambNear: 0.156,
-      vic: 0.507
+      _: 0.338,
+      agg: 0.639,
+      ambFar: 0.254,
+      ambNear: 0.166,
+      vic: 0.539
+    },
+    rockslide: {
+      _: 0.425,
+      actor: 0.347,
+      agg: 0.652,
+      ambFar: 0.397,
+      ambNear: 0.194,
+      vic: 0.585
     },
     rollover: {
-      _: 0.26,
-      actor: 0.377,
-      agg: 0.29,
-      ambNear: 0.221
+      _: 0.25,
+      actor: 0.232,
+      agg: 0.338,
+      ambNear: 0.219
     },
     stall: {
-      _: 0.305,
-      actor: 0.189,
-      agg: 0.301,
-      ambFar: 0.234,
-      ambNear: 0.313,
-      vic: 0.333
+      _: 0.279,
+      actor: 0.222,
+      agg: 0.403,
+      ambFar: 0.171,
+      ambNear: 0.21,
+      vic: 0.387
     },
     sunblind: {
-      _: 0.339,
-      actor: 0.377,
-      agg: 0.546,
-      ambNear: 0.055,
-      vic: 0.826
+      _: 0.401,
+      actor: 0.398,
+      agg: 0.84,
+      ambNear: 0.135,
+      vic: 0.712
     },
     tailgate: {
-      _: 0.099,
-      actor: 0.205,
-      ambFar: 0.128,
-      vic: 0.053
+      _: 0.062,
+      actor: 0.232,
+      ambFar: 0.073,
+      vic: 0.039
+    },
+    wideload: {
+      _: 0.395,
+      actor: 0.397,
+      agg: 0.121,
+      ambNear: 0.475,
+      vic: 0.425
     },
     wrongway: {
-      _: 0.452,
-      actor: 0.205,
-      agg: 0.459,
-      ambNear: 0.356,
-      vic: 0.65
+      _: 0.437,
+      actor: 0.472,
+      agg: 0.576,
+      ambNear: 0.302,
+      vic: 0.623
     }
   },
   fire: {
-    _: 0.004,
-    blowout: {
+    _: 0.006,
+    barrierdrop: {
       _: 0,
-      actor: 0.003,
       agg: 0.001,
+      ambFar: 0.002,
       ambNear: 0,
       vic: 0.001
+    },
+    blowout: {
+      _: 0.003,
+      actor: 0.003,
+      agg: 0,
+      ambFar: 0.003,
+      ambNear: 0.004,
+      vic: 0
     },
     brakefail: {
-      _: 0,
-      actor: 0.002,
-      agg: 0.001,
-      ambFar: 0.003,
-      ambNear: 0,
-      vic: 0.001
-    },
-    chain: {
-      _: 0.015,
-      actor: 0.025,
-      agg: 0.001,
-      ambFar: 0.003,
-      ambNear: 0.001,
-      vic: 0.001
-    },
-    debris: {
-      _: 0,
-      actor: 0.003,
-      agg: 0.001,
-      ambNear: 0,
-      vic: 0.001
-    },
-    drowsy: {
       _: 0,
       actor: 0.002,
       agg: 0.001,
@@ -517,21 +657,73 @@ export const CALIB = {
       ambNear: 0,
       vic: 0.001
     },
-    jackknife: {
+    chain: {
+      _: 0.022,
+      actor: 0.038,
+      agg: 0,
+      ambFar: 0.003,
+      ambNear: 0,
+      vic: 0.011
+    },
+    debris: {
       _: 0,
-      actor: 0.002,
+      actor: 0.003,
+      agg: 0.001,
+      ambFar: 0.004,
+      ambNear: 0,
+      vic: 0.001
+    },
+    drowsy: {
+      _: 0.007,
+      actor: 0.003,
+      agg: 0.012,
+      ambFar: 0.001,
+      ambNear: 0.007,
+      vic: 0
+    },
+    fallentree: {
+      _: 0.024,
+      actor: 0.004,
+      agg: 0.052,
+      ambFar: 0.005,
+      ambNear: 0.019,
+      vic: 0.002
+    },
+    flooddip: {
+      _: 0.001,
+      actor: 0.004,
+      agg: 0.002,
+      ambNear: 0.001,
+      vic: 0.002
+    },
+    fogbank: {
+      _: 0,
+      actor: 0.001,
       agg: 0.001,
       ambNear: 0,
       vic: 0.001
     },
+    jackknife: {
+      _: 0.014,
+      actor: 0.003,
+      agg: 0.001,
+      ambNear: 0.012,
+      vic: 0.033
+    },
     leftturn: {
+      _: 0,
+      agg: 0.002,
+      ambNear: 0.001,
+      vic: 0.002
+    },
+    loadspill: {
       _: 0,
       actor: 0.003,
       agg: 0.001,
       ambNear: 0,
       vic: 0.001
     },
-    loadspill: {
+    lowgrip: {
       _: 0,
       actor: 0.003,
       agg: 0.001,
@@ -546,50 +738,62 @@ export const CALIB = {
       ambNear: 0,
       vic: 0.001
     },
+    overheight: {
+      _: 0.001,
+      actor: 0.005,
+      agg: 0.002,
+      ambNear: 0.001,
+      vic: 0.002
+    },
     overspeed: {
       _: 0.001,
-      actor: 0.003,
-      agg: 0.002,
-      ambNear: 0.002
+      agg: 0.003,
+      ambNear: 0.001
     },
     pit: {
       _: 0,
-      actor: 0.002,
+      actor: 0.003,
       agg: 0.001,
       ambFar: 0.002,
       ambNear: 0.001,
       vic: 0.001
     },
     police: {
-      _: 0.006,
+      _: 0.002,
       actor: 0.001,
-      agg: 0.001,
-      ambFar: 0.002,
-      ambNear: 0.011,
-      vic: 0.001
+      agg: 0,
+      ambFar: 0.001,
+      ambNear: 0.003,
+      vic: 0
     },
     pullout: {
-      _: 0.007,
-      actor: 0.003,
+      _: 0.008,
+      actor: 0.002,
       agg: 0.001,
-      ambFar: 0,
+      ambFar: 0.016,
       ambNear: 0.001,
-      vic: 0.03
+      vic: 0.001
     },
     rampjump: {
-      _: 0,
-      actor: 0.003,
+      _: 0.001,
       agg: 0.002,
-      ambFar: 0.001,
+      ambFar: 0.002,
       ambNear: 0.001
     },
     redlight: {
-      _: 0,
-      actor: 0.003,
-      agg: 0.001,
-      ambFar: 0.003,
-      ambNear: 0,
-      vic: 0.001
+      _: 0.012,
+      agg: 0.052,
+      ambFar: 0.005,
+      ambNear: 0.001,
+      vic: 0.002
+    },
+    rockslide: {
+      _: 0.018,
+      actor: 0.004,
+      agg: 0.002,
+      ambFar: 0.148,
+      ambNear: 0.001,
+      vic: 0.002
     },
     rollover: {
       _: 0.001,
@@ -598,11 +802,11 @@ export const CALIB = {
       ambNear: 0.001
     },
     stall: {
-      _: 0.007,
+      _: 0,
       actor: 0.002,
       agg: 0.001,
-      ambFar: 0.003,
-      ambNear: 0.012,
+      ambFar: 0.001,
+      ambNear: 0,
       vic: 0.001
     },
     sunblind: {
@@ -618,1170 +822,1645 @@ export const CALIB = {
       ambFar: 0,
       vic: 0.001
     },
+    wideload: {
+      _: 0,
+      actor: 0.005,
+      agg: 0.001,
+      ambNear: 0.001,
+      vic: 0.001
+    },
     wrongway: {
-      _: 0.022,
-      actor: 0.003,
-      agg: 0.049,
-      ambNear: 0.018,
+      _: 0.01,
+      actor: 0.004,
+      agg: 0.024,
+      ambNear: 0.008,
       vic: 0.001
     }
   },
   first: {
-    _: 0.188,
+    _: 0.185,
+    barrierdrop: {
+      _: 0.072,
+      agg: 0.044,
+      ambFar: 0.124,
+      ambNear: 0.104,
+      vic: 0.044
+    },
     blowout: {
-      _: 0.254,
-      actor: 0.125,
-      agg: 0.617,
-      ambNear: 0.069,
-      vic: 0.424
+      _: 0.265,
+      actor: 0.111,
+      agg: 0.696,
+      ambFar: 0.111,
+      ambNear: 0.034,
+      vic: 0.613
     },
     brakefail: {
-      _: 0.279,
-      actor: 0.113,
-      agg: 0.53,
-      ambFar: 0.141,
-      ambNear: 0.011,
-      vic: 0.793
+      _: 0.224,
+      actor: 0.062,
+      agg: 0.546,
+      ambFar: 0.031,
+      ambNear: 0.007,
+      vic: 0.634
     },
     chain: {
-      _: 0.198,
-      actor: 0.084,
-      agg: 0.285,
-      ambFar: 0.161,
-      ambNear: 0.071,
-      vic: 0.516
+      _: 0.182,
+      actor: 0.079,
+      agg: 0.382,
+      ambFar: 0.093,
+      ambNear: 0.023,
+      vic: 0.512
     },
     debris: {
-      _: 0.136,
-      actor: 0.125,
-      agg: 0.156,
-      ambNear: 0.081,
-      vic: 0.306
+      _: 0.187,
+      actor: 0.093,
+      agg: 0.437,
+      ambFar: 0.139,
+      ambNear: 0.059,
+      vic: 0.35
     },
     drowsy: {
-      _: 0.265,
-      actor: 0.194,
-      agg: 0.589,
-      ambFar: 0.04,
-      ambNear: 0.101,
-      vic: 0.467
+      _: 0.261,
+      actor: 0.162,
+      agg: 0.629,
+      ambFar: 0.036,
+      ambNear: 0.045,
+      vic: 0.652
+    },
+    fallentree: {
+      _: 0.192,
+      actor: 0.139,
+      agg: 0.706,
+      ambFar: 0.159,
+      ambNear: 0.021,
+      vic: 0.156
+    },
+    flooddip: {
+      _: 0.179,
+      actor: 0.139,
+      agg: 0.418,
+      ambNear: 0.082,
+      vic: 0.183
+    },
+    fogbank: {
+      _: 0.066,
+      actor: 0.056,
+      agg: 0.035,
+      ambNear: 0.106,
+      vic: 0.097
     },
     jackknife: {
-      _: 0.105,
-      actor: 0.113,
-      agg: 0.076,
-      ambNear: 0.149,
-      vic: 0.076
-    },
-    leftturn: {
-      _: 0.138,
-      actor: 0.161,
-      agg: 0.217,
-      ambNear: 0.1,
-      vic: 0.217
-    },
-    loadspill: {
-      _: 0.156,
-      actor: 0.141,
-      agg: 0.142,
-      ambNear: 0.123,
-      vic: 0.279
-    },
-    merge: {
-      _: 0.078,
-      actor: 0.161,
-      agg: 0.076,
-      ambFar: 0.049,
-      ambNear: 0.109,
-      vic: 0.136
-    },
-    overspeed: {
-      _: 0.165,
-      actor: 0.266,
-      agg: 0.113,
-      ambNear: 0.164
-    },
-    pit: {
-      _: 0.089,
-      actor: 0.113,
-      agg: 0.071,
-      ambFar: 0.113,
-      ambNear: 0.125,
-      vic: 0.133
-    },
-    police: {
-      _: 0.189,
-      actor: 0.125,
-      agg: 0.18,
-      ambFar: 0.103,
-      ambNear: 0.023,
-      vic: 0.71
-    },
-    pullout: {
-      _: 0.133,
-      actor: 0.161,
-      agg: 0.151,
-      ambFar: 0.044,
-      ambNear: 0.051,
-      vic: 0.386
-    },
-    rampjump: {
-      _: 0.112,
-      actor: 0.141,
-      agg: 0.081,
-      ambFar: 0.066,
-      ambNear: 0.205
-    },
-    redlight: {
-      _: 0.249,
-      actor: 0.161,
-      agg: 0.53,
-      ambFar: 0.161,
-      ambNear: 0.043,
-      vic: 0.435
-    },
-    rollover: {
-      _: 0.223,
-      actor: 0.304,
-      agg: 0.258,
-      ambNear: 0.171
-    },
-    stall: {
-      _: 0.176,
-      actor: 0.081,
-      agg: 0.285,
-      ambFar: 0.161,
-      ambNear: 0.099,
-      vic: 0.317
-    },
-    sunblind: {
-      _: 0.306,
-      actor: 0.161,
-      agg: 0.525,
-      ambNear: 0.017,
-      vic: 0.805
-    },
-    tailgate: {
-      _: 0.086,
-      actor: 0.141,
-      ambFar: 0.111,
+      _: 0.106,
+      actor: 0.111,
+      agg: 0.133,
+      ambNear: 0.136,
       vic: 0.036
     },
+    leftturn: {
+      _: 0.159,
+      agg: 0.359,
+      ambNear: 0.113,
+      vic: 0.124
+    },
+    loadspill: {
+      _: 0.143,
+      actor: 0.192,
+      agg: 0.078,
+      ambNear: 0.101,
+      vic: 0.337
+    },
+    lowgrip: {
+      _: 0.081,
+      actor: 0.211,
+      agg: 0.04,
+      ambNear: 0.118,
+      vic: 0.04
+    },
+    merge: {
+      _: 0.071,
+      actor: 0.101,
+      agg: 0.117,
+      ambFar: 0.038,
+      ambNear: 0.105,
+      vic: 0.035
+    },
+    overheight: {
+      _: 0.192,
+      actor: 0.159,
+      agg: 0.069,
+      ambNear: 0.193,
+      vic: 0.319
+    },
+    overspeed: {
+      _: 0.197,
+      agg: 0.085,
+      ambNear: 0.255
+    },
+    pit: {
+      _: 0.133,
+      actor: 0.411,
+      agg: 0.048,
+      ambFar: 0.058,
+      ambNear: 0.192,
+      vic: 0.048
+    },
+    police: {
+      _: 0.178,
+      actor: 0.048,
+      agg: 0.226,
+      ambFar: 0.062,
+      ambNear: 0.033,
+      vic: 0.698
+    },
+    pullout: {
+      _: 0.183,
+      actor: 0.194,
+      agg: 0.402,
+      ambFar: 0.073,
+      ambNear: 0.031,
+      vic: 0.311
+    },
+    rampjump: {
+      _: 0.096,
+      agg: 0.151,
+      ambFar: 0.079,
+      ambNear: 0.115
+    },
+    redlight: {
+      _: 0.263,
+      agg: 0.606,
+      ambFar: 0.159,
+      ambNear: 0.053,
+      vic: 0.506
+    },
+    rockslide: {
+      _: 0.234,
+      actor: 0.139,
+      agg: 0.607,
+      ambFar: 0.159,
+      ambNear: 0.032,
+      vic: 0.341
+    },
+    rollover: {
+      _: 0.192,
+      actor: 0.176,
+      agg: 0.309,
+      ambNear: 0.128
+    },
+    stall: {
+      _: 0.18,
+      actor: 0.124,
+      agg: 0.392,
+      ambFar: 0.111,
+      ambNear: 0.027,
+      vic: 0.377
+    },
+    sunblind: {
+      _: 0.307,
+      actor: 0.093,
+      agg: 0.823,
+      ambNear: 0.009,
+      vic: 0.695
+    },
+    tailgate: {
+      _: 0.059,
+      actor: 0.176,
+      ambFar: 0.069,
+      vic: 0.024
+    },
+    wideload: {
+      _: 0.254,
+      actor: 0.159,
+      agg: 0.092,
+      ambNear: 0.315,
+      vic: 0.266
+    },
     wrongway: {
-      _: 0.235,
-      actor: 0.141,
-      agg: 0.435,
-      ambNear: 0.088,
-      vic: 0.435
+      _: 0.244,
+      actor: 0.264,
+      agg: 0.561,
+      ambNear: 0.057,
+      vic: 0.444
     }
   },
   flip: {
-    _: 0.023,
-    blowout: {
-      _: 0.043,
-      actor: 0.015,
-      agg: 0.004,
-      ambNear: 0.069,
-      vic: 0.004
-    },
-    brakefail: {
+    _: 0.018,
+    barrierdrop: {
       _: 0.001,
-      actor: 0.014,
       agg: 0.004,
-      ambFar: 0.017,
+      ambFar: 0.006,
       ambNear: 0.001,
       vic: 0.004
     },
+    blowout: {
+      _: 0.024,
+      actor: 0.011,
+      agg: 0.001,
+      ambFar: 0.011,
+      ambNear: 0.038,
+      vic: 0.001
+    },
+    brakefail: {
+      _: 0,
+      actor: 0.006,
+      agg: 0.002,
+      ambFar: 0.003,
+      ambNear: 0.001,
+      vic: 0.002
+    },
     chain: {
-      _: 0.021,
-      actor: 0.018,
-      agg: 0.029,
-      ambFar: 0.02,
-      ambNear: 0.071,
-      vic: 0.004
+      _: 0.009,
+      actor: 0.007,
+      agg: 0.012,
+      ambFar: 0.009,
+      ambNear: 0.012,
+      vic: 0.012
     },
     debris: {
-      _: 0.014,
-      actor: 0.015,
-      agg: 0.007,
-      ambNear: 0.022,
-      vic: 0.007
+      _: 0.018,
+      actor: 0.009,
+      agg: 0.002,
+      ambFar: 0.138,
+      ambNear: 0.023,
+      vic: 0.002
     },
     drowsy: {
-      _: 0.016,
+      _: 0.026,
+      actor: 0.008,
+      agg: 0.048,
+      ambFar: 0.003,
+      ambNear: 0.03,
+      vic: 0.001
+    },
+    fallentree: {
+      _: 0.096,
+      actor: 0.138,
+      agg: 0.005,
+      ambFar: 0.015,
+      ambNear: 0.134,
+      vic: 0.005
+    },
+    flooddip: {
+      _: 0.018,
       actor: 0.013,
-      agg: 0.028,
-      ambFar: 0.005,
-      ambNear: 0.021,
+      agg: 0.006,
+      ambNear: 0.003,
+      vic: 0.065
+    },
+    fogbank: {
+      _: 0.001,
+      actor: 0.002,
+      agg: 0.003,
+      ambNear: 0.002,
       vic: 0.003
     },
     jackknife: {
-      _: 0.001,
-      actor: 0.014,
-      agg: 0.005,
-      ambNear: 0.002,
-      vic: 0.005
+      _: 0.008,
+      actor: 0.011,
+      agg: 0.036,
+      ambNear: 0.001,
+      vic: 0.003
     },
     leftturn: {
-      _: 0.013,
-      actor: 0.02,
-      agg: 0.06,
-      ambNear: 0.002,
-      vic: 0.007
-    },
-    loadspill: {
-      _: 0.014,
-      actor: 0.017,
-      agg: 0.052,
-      ambNear: 0.003,
-      vic: 0.006
-    },
-    merge: {
       _: 0.001,
-      actor: 0.02,
-      agg: 0.005,
-      ambFar: 0.006,
-      ambNear: 0.003,
-      vic: 0.006
-    },
-    overspeed: {
-      _: 0.007,
-      actor: 0.017,
-      agg: 0.014,
-      ambNear: 0.011
-    },
-    pit: {
-      _: 0.002,
-      actor: 0.014,
-      agg: 0.009,
-      ambFar: 0.014,
-      ambNear: 0.003,
-      vic: 0.009
-    },
-    police: {
-      _: 0.049,
-      actor: 0.067,
-      agg: 0.092,
-      ambFar: 0.013,
-      ambNear: 0.044,
-      vic: 0.004
-    },
-    pullout: {
-      _: 0.001,
-      actor: 0.02,
-      agg: 0.004,
-      ambFar: 0.002,
-      ambNear: 0.006,
-      vic: 0.004
-    },
-    rampjump: {
-      _: 0.003,
-      actor: 0.017,
-      agg: 0.01,
-      ambFar: 0.008,
-      ambNear: 0.006
-    },
-    redlight: {
-      _: 0.026,
-      actor: 0.02,
-      agg: 0.102,
-      ambFar: 0.02,
-      ambNear: 0.003,
-      vic: 0.007
-    },
-    rollover: {
-      _: 0.003,
-      actor: 0.02,
-      agg: 0.009,
-      ambNear: 0.005
-    },
-    stall: {
-      _: 0.099,
-      actor: 0.081,
-      agg: 0.004,
-      ambFar: 0.02,
-      ambNear: 0.16,
-      vic: 0.004
-    },
-    sunblind: {
-      _: 0.001,
-      actor: 0.02,
       agg: 0.006,
       ambNear: 0.002,
       vic: 0.006
     },
+    loadspill: {
+      _: 0.009,
+      actor: 0.01,
+      agg: 0.041,
+      ambNear: 0.001,
+      vic: 0.004
+    },
+    lowgrip: {
+      _: 0.001,
+      actor: 0.011,
+      agg: 0.004,
+      ambNear: 0.001,
+      vic: 0.004
+    },
+    merge: {
+      _: 0.001,
+      actor: 0.01,
+      agg: 0.003,
+      ambFar: 0.004,
+      ambNear: 0.001,
+      vic: 0.003
+    },
+    overheight: {
+      _: 0.018,
+      actor: 0.015,
+      agg: 0.069,
+      ambNear: 0.003,
+      vic: 0.007
+    },
+    overspeed: {
+      _: 0.132,
+      agg: 0.085,
+      ambNear: 0.129
+    },
+    pit: {
+      _: 0.001,
+      actor: 0.011,
+      agg: 0.005,
+      ambFar: 0.006,
+      ambNear: 0.002,
+      vic: 0.005
+    },
+    police: {
+      _: 0.031,
+      actor: 0.048,
+      agg: 0.012,
+      ambFar: 0.121,
+      ambNear: 0.033,
+      vic: 0.001
+    },
+    pullout: {
+      _: 0.004,
+      actor: 0.007,
+      agg: 0.002,
+      ambFar: 0.009,
+      ambNear: 0.003,
+      vic: 0.002
+    },
+    rampjump: {
+      _: 0.002,
+      agg: 0.008,
+      ambFar: 0.008,
+      ambNear: 0.004
+    },
+    redlight: {
+      _: 0.013,
+      agg: 0.055,
+      ambFar: 0.015,
+      ambNear: 0.002,
+      vic: 0.005
+    },
+    rockslide: {
+      _: 0.055,
+      actor: 0.013,
+      agg: 0.007,
+      ambFar: 0.158,
+      ambNear: 0.06,
+      vic: 0.007
+    },
+    rollover: {
+      _: 0.049,
+      actor: 0.009,
+      agg: 0.005,
+      ambNear: 0.078
+    },
+    stall: {
+      _: 0,
+      actor: 0.006,
+      agg: 0.002,
+      ambFar: 0.004,
+      ambNear: 0.001,
+      vic: 0.002
+    },
+    sunblind: {
+      _: 0.006,
+      actor: 0.009,
+      agg: 0.003,
+      ambNear: 0.009,
+      vic: 0.003
+    },
     tailgate: {
       _: 0.001,
-      actor: 0.017,
-      ambFar: 0.002,
-      vic: 0.004
+      actor: 0.009,
+      ambFar: 0.001,
+      vic: 0.002
+    },
+    wideload: {
+      _: 0.001,
+      actor: 0.015,
+      agg: 0.005,
+      ambNear: 0.002,
+      vic: 0.005
     },
     wrongway: {
       _: 0.09,
-      actor: 0.017,
-      agg: 0.054,
-      ambNear: 0.089,
-      vic: 0.102
+      actor: 0.013,
+      agg: 0.026,
+      ambNear: 0.113,
+      vic: 0.072
     }
   },
   headline: {
-    _: 0.725,
+    _: 0.761,
+    barrierdrop: {
+      _: 0.503,
+      nm: 0.657
+    },
     blowout: {
-      _: 0.85,
-      nm: 0.669
+      _: 0.897,
+      nm: 0.736
     },
     brakefail: {
-      _: 0.93,
-      nm: 0.764
+      _: 0.887,
+      nm: 0.857
     },
     chain: {
-      _: 0.855,
-      nm: 0.862
+      _: 0.876,
+      nm: 0.809
     },
     debris: {
-      _: 0.667,
-      nm: 0.706
+      _: 0.817,
+      nm: 0.779
     },
     drowsy: {
-      _: 0.838,
-      nm: 0.817
+      _: 0.879,
+      nm: 0.714
+    },
+    fallentree: {
+      _: 0.928,
+      nm: 0.795
+    },
+    flooddip: {
+      _: 0.739,
+      nm: 0.652
+    },
+    fogbank: {
+      _: 0.424,
+      nm: 0.619
     },
     jackknife: {
-      _: 0.512,
-      nm: 0.594
+      _: 0.567,
+      nm: 0.54
     },
     leftturn: {
-      _: 0.755,
-      nm: 0.764
+      _: 0.798,
+      nm: 0.795
     },
     loadspill: {
-      _: 0.652,
-      nm: 0.764
+      _: 0.688,
+      nm: 0.73
+    },
+    lowgrip: {
+      _: 0.449,
+      nm: 0.841
     },
     merge: {
-      _: 0.405,
-      nm: 0.544
+      _: 0.445,
+      nm: 0.696
+    },
+    overheight: {
+      _: 0.848,
+      nm: 0.795
     },
     overspeed: {
-      _: 0.635
+      _: 0.659
     },
     pit: {
-      _: 0.522,
-      nm: 0.621
+      _: 0.677,
+      nm: 0.795
     },
     police: {
-      _: 0.863,
-      nm: 0.817
+      _: 0.849,
+      nm: 0.848
     },
     pullout: {
-      _: 0.657,
-      nm: 0.544
+      _: 0.792,
+      nm: 0.798
     },
     rampjump: {
-      _: 0.596
+      _: 0.54
     },
     redlight: {
-      _: 0.826,
-      nm: 0.764
+      _: 0.928,
+      nm: 0.821
+    },
+    rockslide: {
+      _: 0.904
     },
     rollover: {
-      _: 0.647
+      _: 0.677
     },
     stall: {
-      _: 0.792,
-      nm: 0.544
+      _: 0.759,
+      nm: 0.881
     },
     sunblind: {
-      _: 0.934,
-      nm: 0.764
+      _: 0.963,
+      nm: 0.857
     },
     tailgate: {
-      _: 0.366,
-      nm: 0.706
+      _: 0.338,
+      nm: 0.619
+    },
+    wideload: {
+      _: 0.851,
+      nm: 0.821
     },
     wrongway: {
-      _: 0.826,
-      nm: 0.794
+      _: 0.827,
+      nm: 0.898
     }
   },
   offroad: {
-    _: 0.126,
+    _: 0.071,
+    barrierdrop: {
+      _: 0.003,
+      agg: 0.017,
+      ambFar: 0.025,
+      ambNear: 0.005,
+      vic: 0.017
+    },
     blowout: {
-      _: 0.055,
-      actor: 0.084,
-      agg: 0.153,
-      ambNear: 0.031,
-      vic: 0.057
+      _: 0.083,
+      actor: 0.043,
+      agg: 0.145,
+      ambFar: 0.043,
+      ambNear: 0.073,
+      vic: 0.061
     },
     brakefail: {
-      _: 0.072,
-      actor: 0.076,
-      agg: 0.099,
-      ambFar: 0.094,
-      ambNear: 0.092,
-      vic: 0.02
+      _: 0.059,
+      actor: 0.135,
+      agg: 0.06,
+      ambFar: 0.012,
+      ambNear: 0.082,
+      vic: 0.007
     },
     chain: {
-      _: 0.095,
-      actor: 0.097,
-      agg: 0.096,
-      ambFar: 0.108,
-      ambNear: 0.11,
-      vic: 0.096
+      _: 0.014,
+      actor: 0.017,
+      agg: 0.016,
+      ambFar: 0.036,
+      ambNear: 0.015,
+      vic: 0.016
     },
     debris: {
-      _: 0.119,
-      actor: 0.084,
-      agg: 0.488,
-      ambNear: 0.015,
-      vic: 0.038
+      _: 0.064,
+      actor: 0.036,
+      agg: 0.314,
+      ambFar: 0.053,
+      ambNear: 0.003,
+      vic: 0.009
     },
     drowsy: {
-      _: 0.1,
-      actor: 0.16,
-      agg: 0.067,
-      ambFar: 0.027,
-      ambNear: 0.128,
-      vic: 0.116
+      _: 0.048,
+      actor: 0.11,
+      agg: 0.051,
+      ambFar: 0.014,
+      ambNear: 0.053,
+      vic: 0.04
+    },
+    fallentree: {
+      _: 0.005,
+      actor: 0.053,
+      agg: 0.021,
+      ambFar: 0.061,
+      ambNear: 0.008,
+      vic: 0.021
+    },
+    flooddip: {
+      _: 0.088,
+      actor: 0.053,
+      agg: 0.319,
+      ambNear: 0.011,
+      vic: 0.025
+    },
+    fogbank: {
+      _: 0.003,
+      actor: 0.008,
+      agg: 0.013,
+      ambNear: 0.006,
+      vic: 0.013
     },
     jackknife: {
-      _: 0.119,
-      actor: 0.076,
-      agg: 0.491,
-      ambNear: 0.011,
-      vic: 0.027
+      _: 0.136,
+      actor: 0.043,
+      agg: 0.627,
+      ambNear: 0.005,
+      vic: 0.014
     },
     leftturn: {
-      _: 0.384,
-      actor: 0.108,
-      agg: 0.303,
-      ambNear: 0.389,
-      vic: 0.303
+      _: 0.308,
+      agg: 0.202,
+      ambNear: 0.323,
+      vic: 0.202
     },
     loadspill: {
-      _: 0.092,
-      actor: 0.094,
-      agg: 0.353,
-      ambNear: 0.015,
-      vic: 0.034
+      _: 0.027,
+      actor: 0.039,
+      agg: 0.127,
+      ambNear: 0.005,
+      vic: 0.016
+    },
+    lowgrip: {
+      _: 0.003,
+      actor: 0.043,
+      agg: 0.015,
+      ambNear: 0.006,
+      vic: 0.015
     },
     merge: {
-      _: 0.257,
-      actor: 0.108,
-      agg: 0.563,
-      ambFar: 0.033,
-      ambNear: 0.186,
-      vic: 0.163
+      _: 0.279,
+      actor: 0.312,
+      agg: 0.555,
+      ambFar: 0.015,
+      ambNear: 0.246,
+      vic: 0.138
+    },
+    overheight: {
+      _: 0.007,
+      actor: 0.061,
+      agg: 0.027,
+      ambNear: 0.01,
+      vic: 0.027
     },
     overspeed: {
-      _: 0.04,
-      actor: 0.094,
-      agg: 0.076,
-      ambNear: 0.058
+      _: 0.014,
+      agg: 0.033,
+      ambNear: 0.018
     },
     pit: {
-      _: 0.257,
-      actor: 0.176,
-      agg: 0.547,
-      ambFar: 0.076,
-      ambNear: 0.018,
-      vic: 0.547
+      _: 0.293,
+      actor: 0.143,
+      agg: 0.714,
+      ambFar: 0.022,
+      ambNear: 0.007,
+      vic: 0.714
     },
     police: {
-      _: 0.18,
-      actor: 0.28,
-      agg: 0.14,
-      ambFar: 0.069,
-      ambNear: 0.18,
-      vic: 0.169
+      _: 0.085,
+      actor: 0.019,
+      agg: 0.095,
+      ambFar: 0.013,
+      ambNear: 0.094,
+      vic: 0.083
     },
     pullout: {
-      _: 0.158,
-      actor: 0.108,
-      agg: 0.022,
-      ambFar: 0.222,
-      ambNear: 0.125,
-      vic: 0.169
+      _: 0.196,
+      actor: 0.214,
+      agg: 0.008,
+      ambFar: 0.283,
+      ambNear: 0.123,
+      vic: 0.171
     },
     rampjump: {
-      _: 0.038,
-      actor: 0.219,
-      agg: 0.054,
-      ambFar: 0.044,
-      ambNear: 0.03
+      _: 0.01,
+      agg: 0.03,
+      ambFar: 0.03,
+      ambNear: 0.016
     },
     redlight: {
-      _: 0.33,
-      actor: 0.108,
-      agg: 0.417,
-      ambFar: 0.108,
-      ambNear: 0.24,
-      vic: 0.369
+      _: 0.209,
+      agg: 0.321,
+      ambFar: 0.061,
+      ambNear: 0.126,
+      vic: 0.271
+    },
+    rockslide: {
+      _: 0.025,
+      actor: 0.053,
+      agg: 0.095,
+      ambFar: 0.061,
+      ambNear: 0.012,
+      vic: 0.028
     },
     rollover: {
-      _: 0.092,
-      actor: 0.108,
-      agg: 0.235,
-      ambNear: 0.025
+      _: 0.166,
+      actor: 0.036,
+      agg: 0.453,
+      ambNear: 0.011
     },
     stall: {
-      _: 0.005,
-      actor: 0.054,
-      agg: 0.024,
-      ambFar: 0.108,
-      ambNear: 0.009,
-      vic: 0.024
+      _: 0.001,
+      actor: 0.025,
+      agg: 0.007,
+      ambFar: 0.015,
+      ambNear: 0.003,
+      vic: 0.007
     },
     sunblind: {
-      _: 0.007,
-      actor: 0.108,
-      agg: 0.03,
-      ambNear: 0.011,
-      vic: 0.03
+      _: 0.002,
+      actor: 0.036,
+      agg: 0.011,
+      ambNear: 0.004,
+      vic: 0.011
     },
     tailgate: {
-      _: 0.176,
-      actor: 0.094,
-      ambFar: 0.173,
-      vic: 0.186
+      _: 0.055,
+      actor: 0.119,
+      ambFar: 0.052,
+      vic: 0.053
+    },
+    wideload: {
+      _: 0.029,
+      actor: 0.061,
+      agg: 0.106,
+      ambNear: 0.009,
+      vic: 0.019
     },
     wrongway: {
-      _: 0.02,
-      actor: 0.094,
-      agg: 0.084,
-      ambNear: 0.013,
-      vic: 0.036
+      _: 0.017,
+      actor: 0.053,
+      agg: 0.08,
+      ambNear: 0.003,
+      vic: 0.01
     }
   },
   over: {
-    _: 0.43,
+    _: 0.504,
+    barrierdrop: {
+      _: 0.161
+    },
     blowout: {
-      _: 0.599
+      _: 0.764
     },
     brakefail: {
-      _: 0.647
+      _: 0.509
     },
     chain: {
-      _: 0.605
+      _: 0.642
     },
     debris: {
-      _: 0.329
+      _: 0.501
     },
     drowsy: {
-      _: 0.697
+      _: 0.744
+    },
+    fallentree: {
+      _: 0.851
+    },
+    flooddip: {
+      _: 0.472
+    },
+    fogbank: {
+      _: 0.126
     },
     jackknife: {
-      _: 0.199
+      _: 0.323
     },
     leftturn: {
-      _: 0.294
+      _: 0.472
     },
     loadspill: {
-      _: 0.39
+      _: 0.334
+    },
+    lowgrip: {
+      _: 0.215
     },
     merge: {
-      _: 0.199
+      _: 0.229
+    },
+    overheight: {
+      _: 0.689
     },
     overspeed: {
-      _: 0.258
+      _: 0.464
     },
     pit: {
-      _: 0.286
+      _: 0.392
     },
     police: {
-      _: 0.458
+      _: 0.562
     },
     pullout: {
-      _: 0.135
+      _: 0.437
     },
     rampjump: {
-      _: 0.256
+      _: 0.288
     },
     redlight: {
-      _: 0.599
+      _: 0.651
+    },
+    rockslide: {
+      _: 0.602
     },
     rollover: {
-      _: 0.286
+      _: 0.175
     },
     stall: {
-      _: 0.456
+      _: 0.454
     },
     sunblind: {
-      _: 0.583
+      _: 0.744
     },
     tailgate: {
-      _: 0.18
+      _: 0.066
+    },
+    wideload: {
+      _: 0.566
     },
     wrongway: {
-      _: 0.647
+      _: 0.698
     }
   },
   prophit: {
-    _: 0.046,
+    _: 0.055,
+    barrierdrop: {
+      _: 0.069,
+      far: 0.007,
+      mid: 0.056,
+      near: 0.112
+    },
     blowout: {
-      _: 0.021,
-      far: 0.013,
-      mid: 0.074,
-      near: 0.002
+      _: 0.03,
+      far: 0.06,
+      mid: 0.051,
+      near: 0.001
     },
     brakefail: {
-      _: 0.032,
-      far: 0.009,
-      mid: 0.088,
-      near: 0.007
+      _: 0.015,
+      far: 0.057,
+      mid: 0.016,
+      near: 0.002
     },
     chain: {
-      _: 0.012,
-      far: 0.008,
-      mid: 0.022,
-      near: 0.003
-    },
-    debris: {
-      _: 0.135,
-      far: 0.031,
-      mid: 0.147,
-      near: 0.13
-    },
-    drowsy: {
-      _: 0.01,
-      far: 0.01,
-      mid: 0.008,
-      near: 0.014
-    },
-    jackknife: {
-      _: 0.033,
-      far: 0.021,
-      mid: 0.108,
-      near: 0.002
-    },
-    leftturn: {
-      _: 0.051,
-      far: 0.008,
-      mid: 0.13,
-      near: 0.009
-    },
-    loadspill: {
-      _: 0.345,
-      mid: 0.187,
-      near: 0.374
-    },
-    merge: {
-      _: 0.006,
-      far: 0.014,
-      mid: 0.003,
-      near: 0.009
-    },
-    overspeed: {
-      _: 0.005,
+      _: 0.041,
+      far: 0.112,
+      mid: 0.043,
       near: 0.005
     },
-    pit: {
-      _: 0.042,
-      mid: 0.067,
-      near: 0.022
+    debris: {
+      _: 0.172,
+      far: 0.165,
+      mid: 0.046,
+      near: 0.264
     },
-    police: {
-      _: 0.011,
-      far: 0.007,
-      mid: 0.031,
-      near: 0.003
+    drowsy: {
+      _: 0.033,
+      far: 0.092,
+      mid: 0.021,
+      near: 0.006
     },
-    pullout: {
-      _: 0.02,
-      far: 0.008,
-      mid: 0.039,
-      near: 0.003
+    fallentree: {
+      _: 0.165,
+      far: 0.011,
+      mid: 0.01,
+      near: 0.43
     },
-    rampjump: {
-      _: 0.036,
+    flooddip: {
+      _: 0.131,
+      far: 0.43,
       mid: 0.007,
-      near: 0.059
+      near: 0.017
     },
-    redlight: {
-      _: 0.063,
-      far: 0.009,
-      mid: 0.149,
+    fogbank: {
+      _: 0.033,
+      far: 0.17,
+      mid: 0.005,
+      near: 0.003
+    },
+    jackknife: {
+      _: 0.024,
+      far: 0.046,
+      mid: 0.083,
+      near: 0.007
+    },
+    leftturn: {
+      _: 0.053,
+      far: 0.01,
+      mid: 0.14,
       near: 0.008
     },
+    loadspill: {
+      _: 0.321,
+      far: 0.047,
+      mid: 0.08,
+      near: 0.347
+    },
+    lowgrip: {
+      _: 0.027,
+      far: 0.057,
+      mid: 0.005,
+      near: 0.022
+    },
+    merge: {
+      _: 0.012,
+      far: 0.008,
+      mid: 0.003,
+      near: 0.023
+    },
+    overheight: {
+      _: 0.012,
+      mid: 0.014,
+      near: 0.014
+    },
+    overspeed: {
+      _: 0.007,
+      far: 0.016,
+      mid: 0.017,
+      near: 0.021
+    },
+    pit: {
+      _: 0.027,
+      far: 0.047,
+      mid: 0.041,
+      near: 0.019
+    },
+    police: {
+      _: 0.034,
+      far: 0.057,
+      mid: 0.046,
+      near: 0.012
+    },
+    pullout: {
+      _: 0.042,
+      far: 0.1,
+      mid: 0.045,
+      near: 0.007
+    },
+    rampjump: {
+      _: 0.024,
+      mid: 0.009,
+      near: 0.034
+    },
+    redlight: {
+      _: 0.052,
+      far: 0.007,
+      mid: 0.137,
+      near: 0.027
+    },
+    rockslide: {
+      _: 0.16,
+      far: 0.013,
+      mid: 0.016,
+      near: 0.49
+    },
     rollover: {
-      _: 0.003,
-      far: 0.028,
-      mid: 0.021,
-      near: 0.003
+      _: 0.013,
+      far: 0.009,
+      mid: 0.014,
+      near: 0.026
     },
     stall: {
-      _: 0.107,
-      far: 0.012,
-      mid: 0.106,
-      near: 0.119
+      _: 0.1,
+      far: 0.069,
+      mid: 0.044,
+      near: 0.166
     },
     sunblind: {
-      _: 0.015,
-      far: 0.035,
-      mid: 0.066,
-      near: 0.002
+      _: 0.038,
+      far: 0.213,
+      mid: 0.074,
+      near: 0.001
     },
     tailgate: {
-      _: 0.001,
-      far: 0.008,
-      mid: 0.004,
-      near: 0.002
+      _: 0.03,
+      far: 0.167,
+      mid: 0.002,
+      near: 0.006
+    },
+    wideload: {
+      _: 0.019,
+      far: 0.166,
+      mid: 0.044,
+      near: 0.009
     },
     wrongway: {
-      _: 0.038,
-      far: 0.028,
-      mid: 0.134,
-      near: 0.012
+      _: 0.053,
+      far: 0.134,
+      mid: 0.042,
+      near: 0.011
     }
   },
   propsafe: {
-    _: 0.954,
+    _: 0.945,
+    barrierdrop: {
+      _: 0.931,
+      far: 0.993,
+      mid: 0.944,
+      near: 0.888
+    },
     blowout: {
-      _: 0.979,
-      far: 0.987,
-      mid: 0.926,
-      near: 0.998
+      _: 0.97,
+      far: 0.94,
+      mid: 0.949,
+      near: 0.999
     },
     brakefail: {
-      _: 0.968,
-      far: 0.991,
-      mid: 0.912,
-      near: 0.993
+      _: 0.985,
+      far: 0.943,
+      mid: 0.984,
+      near: 0.998
     },
     chain: {
-      _: 0.988,
-      far: 0.992,
-      mid: 0.978,
-      near: 0.997
-    },
-    debris: {
-      _: 0.865,
-      far: 0.969,
-      mid: 0.853,
-      near: 0.87
-    },
-    drowsy: {
-      _: 0.99,
-      far: 0.99,
-      mid: 0.992,
-      near: 0.986
-    },
-    jackknife: {
-      _: 0.967,
-      far: 0.979,
-      mid: 0.892,
-      near: 0.998
-    },
-    leftturn: {
-      _: 0.949,
-      far: 0.992,
-      mid: 0.87,
-      near: 0.991
-    },
-    loadspill: {
-      _: 0.655,
-      mid: 0.813,
-      near: 0.626
-    },
-    merge: {
-      _: 0.994,
-      far: 0.986,
-      mid: 0.997,
-      near: 0.991
-    },
-    overspeed: {
-      _: 0.995,
+      _: 0.959,
+      far: 0.888,
+      mid: 0.957,
       near: 0.995
     },
-    pit: {
-      _: 0.958,
-      mid: 0.933,
-      near: 0.978
+    debris: {
+      _: 0.828,
+      far: 0.835,
+      mid: 0.954,
+      near: 0.736
     },
-    police: {
-      _: 0.989,
-      far: 0.993,
-      mid: 0.969,
-      near: 0.997
+    drowsy: {
+      _: 0.967,
+      far: 0.908,
+      mid: 0.979,
+      near: 0.994
     },
-    pullout: {
-      _: 0.98,
-      far: 0.992,
-      mid: 0.961,
-      near: 0.997
+    fallentree: {
+      _: 0.835,
+      far: 0.989,
+      mid: 0.99,
+      near: 0.57
     },
-    rampjump: {
-      _: 0.964,
+    flooddip: {
+      _: 0.869,
+      far: 0.57,
       mid: 0.993,
-      near: 0.941
+      near: 0.983
     },
-    redlight: {
-      _: 0.937,
-      far: 0.991,
-      mid: 0.851,
+    fogbank: {
+      _: 0.967,
+      far: 0.83,
+      mid: 0.995,
+      near: 0.997
+    },
+    jackknife: {
+      _: 0.976,
+      far: 0.954,
+      mid: 0.917,
+      near: 0.993
+    },
+    leftturn: {
+      _: 0.947,
+      far: 0.99,
+      mid: 0.86,
       near: 0.992
     },
+    loadspill: {
+      _: 0.679,
+      far: 0.953,
+      mid: 0.92,
+      near: 0.653
+    },
+    lowgrip: {
+      _: 0.973,
+      far: 0.943,
+      mid: 0.995,
+      near: 0.978
+    },
+    merge: {
+      _: 0.988,
+      far: 0.992,
+      mid: 0.997,
+      near: 0.977
+    },
+    overheight: {
+      _: 0.988,
+      mid: 0.986,
+      near: 0.986
+    },
+    overspeed: {
+      _: 0.993,
+      far: 0.984,
+      mid: 0.983,
+      near: 0.979
+    },
+    pit: {
+      _: 0.973,
+      far: 0.953,
+      mid: 0.959,
+      near: 0.981
+    },
+    police: {
+      _: 0.966,
+      far: 0.943,
+      mid: 0.954,
+      near: 0.988
+    },
+    pullout: {
+      _: 0.958,
+      far: 0.9,
+      mid: 0.955,
+      near: 0.993
+    },
+    rampjump: {
+      _: 0.976,
+      mid: 0.991,
+      near: 0.966
+    },
+    redlight: {
+      _: 0.948,
+      far: 0.993,
+      mid: 0.863,
+      near: 0.973
+    },
+    rockslide: {
+      _: 0.84,
+      far: 0.987,
+      mid: 0.984,
+      near: 0.51
+    },
     rollover: {
-      _: 0.997,
-      far: 0.972,
-      mid: 0.979,
-      near: 0.997
+      _: 0.987,
+      far: 0.991,
+      mid: 0.986,
+      near: 0.974
     },
     stall: {
-      _: 0.893,
-      far: 0.988,
-      mid: 0.894,
-      near: 0.881
+      _: 0.9,
+      far: 0.931,
+      mid: 0.956,
+      near: 0.834
     },
     sunblind: {
-      _: 0.985,
-      far: 0.965,
-      mid: 0.934,
-      near: 0.998
+      _: 0.962,
+      far: 0.787,
+      mid: 0.926,
+      near: 0.999
     },
     tailgate: {
-      _: 0.999,
-      far: 0.992,
-      mid: 0.996,
-      near: 0.998
+      _: 0.97,
+      far: 0.833,
+      mid: 0.998,
+      near: 0.994
+    },
+    wideload: {
+      _: 0.981,
+      far: 0.834,
+      mid: 0.956,
+      near: 0.991
     },
     wrongway: {
-      _: 0.962,
-      far: 0.972,
-      mid: 0.866,
-      near: 0.988
+      _: 0.947,
+      far: 0.866,
+      mid: 0.958,
+      near: 0.989
     }
   },
   special: {
-    _: 0.735,
+    _: 0.61,
+    barrierdrop: {
+      _: 0.146,
+      nm: 0.366
+    },
     blowout: {
-      _: 0.626,
-      nm: 0.551
+      _: 0.745,
+      nm: 0.358
     },
     brakefail: {
-      _: 0.879,
-      nm: 0.773
+      _: 0.678,
+      nm: 0.766
     },
     chain: {
-      _: 0.575,
-      nm: 0.534
+      _: 0.583,
+      nm: 0.537
     },
     drowsy: {
-      _: 0.62,
-      nm: 0.49
+      _: 0.705,
+      nm: 0.305
+    },
+    fallentree: {
+      _: 0.833,
+      nm: 0.666
+    },
+    flooddip: {
+      _: 0.568,
+      nm: 0.523
+    },
+    fogbank: {
+      _: 0.114,
+      nm: 0.407
+    },
+    lowgrip: {
+      _: 0.131,
+      nm: 0.407
+    },
+    overheight: {
+      _: 0.479,
+      nm: 0.666
     },
     overspeed: {
-      _: 0.441
+      _: 0.282
     },
     police: {
-      _: 0.836,
-      nm: 0.823
+      _: 0.727,
+      nm: 0.541
     },
     pullout: {
-      _: 0.865,
-      nm: 0.801
+      _: 0.885,
+      nm: 0.745
     },
     redlight: {
-      _: 0.924,
-      nm: 0.773
+      _: 0.883,
+      nm: 0.707
+    },
+    rockslide: {
+      _: 0.777
+    },
+    wideload: {
+      _: 0.203,
+      nm: 0.457
     }
   },
   untouched: {
-    _: 0.459,
+    _: 0.435,
+    barrierdrop: {
+      _: 0.816,
+      agg: 0.825,
+      ambFar: 0.742,
+      ambNear: 0.726,
+      vic: 0.865
+    },
     blowout: {
-      _: 0.407,
-      actor: 0.528,
-      agg: 0.315,
-      ambNear: 0.492,
-      vic: 0.25
+      _: 0.346,
+      actor: 0.561,
+      agg: 0.217,
+      ambFar: 0.361,
+      ambNear: 0.448,
+      vic: 0.134
     },
     brakefail: {
-      _: 0.402,
-      actor: 0.575,
-      agg: 0.099,
-      ambFar: 0.594,
-      ambNear: 0.611,
-      vic: 0.072
+      _: 0.477,
+      actor: 0.423,
+      agg: 0.081,
+      ambFar: 0.878,
+      ambNear: 0.68,
+      vic: 0.081
     },
     chain: {
-      _: 0.246,
-      actor: 0.271,
-      agg: 0.122,
-      ambFar: 0.536,
-      ambNear: 0.735,
-      vic: 0.173
+      _: 0.299,
+      actor: 0.287,
+      agg: 0.126,
+      ambFar: 0.718,
+      ambNear: 0.695,
+      vic: 0.094
     },
     debris: {
-      _: 0.436,
-      actor: 0.417,
-      agg: 0.638,
-      ambNear: 0.446,
-      vic: 0.238
+      _: 0.381,
+      actor: 0.384,
+      agg: 0.448,
+      ambFar: 0.327,
+      ambNear: 0.406,
+      vic: 0.274
     },
     drowsy: {
-      _: 0.339,
-      actor: 0.523,
-      agg: 0.189,
-      ambFar: 0.813,
-      ambNear: 0.348,
-      vic: 0.165
+      _: 0.318,
+      actor: 0.509,
+      agg: 0.147,
+      ambFar: 0.729,
+      ambNear: 0.388,
+      vic: 0.123
+    },
+    fallentree: {
+      _: 0.353,
+      actor: 0.327,
+      agg: 0.181,
+      ambFar: 0.373,
+      ambNear: 0.54,
+      vic: 0.131
+    },
+    flooddip: {
+      _: 0.413,
+      actor: 0.452,
+      agg: 0.448,
+      ambNear: 0.437,
+      vic: 0.33
+    },
+    fogbank: {
+      _: 0.649,
+      actor: 0.725,
+      agg: 0.55,
+      ambNear: 0.636,
+      vic: 0.519
     },
     jackknife: {
-      _: 0.679,
-      actor: 0.575,
-      agg: 0.848,
-      ambNear: 0.496,
-      vic: 0.848
+      _: 0.648,
+      actor: 0.461,
+      agg: 0.794,
+      ambNear: 0.501,
+      vic: 0.858
     },
     leftturn: {
       _: 0.429,
-      actor: 0.393,
-      agg: 0.461,
-      ambNear: 0.488,
-      vic: 0.25
+      agg: 0.389,
+      ambNear: 0.456,
+      vic: 0.389
     },
     loadspill: {
-      _: 0.58,
-      actor: 0.469,
-      agg: 0.761,
-      ambNear: 0.555,
-      vic: 0.398
+      _: 0.485,
+      actor: 0.51,
+      agg: 0.8,
+      ambNear: 0.445,
+      vic: 0.245
+    },
+    lowgrip: {
+      _: 0.701,
+      actor: 0.261,
+      agg: 0.879,
+      ambNear: 0.566,
+      vic: 0.879
     },
     merge: {
-      _: 0.7,
-      actor: 0.393,
-      agg: 0.813,
-      ambFar: 0.815,
-      ambNear: 0.484,
-      vic: 0.728
+      _: 0.639,
+      actor: 0.51,
+      agg: 0.76,
+      ambFar: 0.676,
+      ambNear: 0.547,
+      vic: 0.613
+    },
+    overheight: {
+      _: 0.359,
+      actor: 0.373,
+      agg: 0.663,
+      ambNear: 0.3,
+      vic: 0.288
     },
     overspeed: {
-      _: 0.461,
-      actor: 0.469,
-      agg: 0.675,
-      ambNear: 0.289
+      _: 0.342,
+      agg: 0.663,
+      ambNear: 0.192
     },
     pit: {
-      _: 0.562,
-      actor: 0.675,
-      agg: 0.61,
-      ambFar: 0.675,
-      ambNear: 0.409,
-      vic: 0.61
+      _: 0.611,
+      actor: 0.361,
+      agg: 0.809,
+      ambFar: 0.822,
+      ambNear: 0.391,
+      vic: 0.766
     },
     police: {
-      _: 0.38,
-      actor: 0.397,
-      agg: 0.081,
-      ambFar: 0.705,
-      ambNear: 0.578,
-      vic: 0.081
+      _: 0.358,
+      actor: 0.461,
+      agg: 0.063,
+      ambFar: 0.636,
+      ambNear: 0.509,
+      vic: 0.029
     },
     pullout: {
-      _: 0.547,
-      actor: 0.393,
-      agg: 0.346,
-      ambFar: 0.701,
-      ambNear: 0.761,
-      vic: 0.257
+      _: 0.443,
+      actor: 0.476,
+      agg: 0.357,
+      ambFar: 0.461,
+      ambNear: 0.739,
+      vic: 0.284
     },
     rampjump: {
-      _: 0.603,
-      actor: 0.469,
-      agg: 0.625,
-      ambFar: 0.809,
-      ambNear: 0.39
+      _: 0.619,
+      agg: 0.615,
+      ambFar: 0.758,
+      ambNear: 0.467
     },
     redlight: {
-      _: 0.441,
-      actor: 0.536,
+      _: 0.462,
       agg: 0.131,
-      ambFar: 0.536,
-      ambNear: 0.668,
-      vic: 0.179
+      ambFar: 0.516,
+      ambNear: 0.621,
+      vic: 0.281
+    },
+    rockslide: {
+      _: 0.297,
+      actor: 0.327,
+      agg: 0.241,
+      ambFar: 0.373,
+      ambNear: 0.418,
+      vic: 0.241
     },
     rollover: {
-      _: 0.433,
-      actor: 0.393,
-      agg: 0.547,
-      ambNear: 0.392
+      _: 0.359,
+      actor: 0.218,
+      agg: 0.592,
+      ambNear: 0.29
     },
     stall: {
-      _: 0.383,
-      actor: 0.554,
-      agg: 0.367,
-      ambFar: 0.393,
-      ambNear: 0.424,
-      vic: 0.274
+      _: 0.369,
+      actor: 0.448,
+      agg: 0.322,
+      ambFar: 0.7,
+      ambNear: 0.382,
+      vic: 0.244
     },
     sunblind: {
-      _: 0.464,
-      actor: 0.393,
-      agg: 0.11,
-      ambNear: 0.739,
-      vic: 0.11
+      _: 0.379,
+      actor: 0.468,
+      agg: 0.093,
+      ambNear: 0.578,
+      vic: 0.067
     },
     tailgate: {
-      _: 0.752,
-      actor: 0.469,
-      ambFar: 0.69,
-      vic: 0.895
+      _: 0.761,
+      actor: 0.468,
+      ambFar: 0.712,
+      vic: 0.926
+    },
+    wideload: {
+      _: 0.369,
+      actor: 0.373,
+      agg: 0.766,
+      ambNear: 0.284,
+      vic: 0.201
     },
     wrongway: {
-      _: 0.364,
-      actor: 0.594,
-      agg: 0.322,
-      ambNear: 0.41,
-      vic: 0.274
+      _: 0.361,
+      actor: 0.327,
+      agg: 0.34,
+      ambNear: 0.461,
+      vic: 0.131
     }
   },
   wheel: {
-    _: 0.025,
-    blowout: {
-      _: 0.029,
-      actor: 0.017,
-      agg: 0.037,
-      ambNear: 0.013,
-      vic: 0.069
-    },
-    brakefail: {
-      _: 0.007,
-      actor: 0.015,
-      agg: 0.004,
-      ambFar: 0.019,
-      ambNear: 0.001,
-      vic: 0.03
-    },
-    chain: {
-      _: 0.082,
-      actor: 0.067,
-      agg: 0.03,
-      ambFar: 0.022,
-      ambNear: 0.01,
-      vic: 0.183
-    },
-    debris: {
-      _: 0.002,
-      actor: 0.017,
-      agg: 0.008,
-      ambNear: 0.003,
-      vic: 0.008
-    },
-    drowsy: {
-      _: 0.026,
-      actor: 0.014,
-      agg: 0.052,
-      ambFar: 0.005,
-      ambNear: 0.012,
-      vic: 0.052
-    },
-    jackknife: {
-      _: 0.01,
-      actor: 0.015,
-      agg: 0.005,
-      ambNear: 0.017,
-      vic: 0.005
-    },
-    leftturn: {
-      _: 0.013,
-      actor: 0.022,
-      agg: 0.008,
-      ambNear: 0.019,
-      vic: 0.008
-    },
-    loadspill: {
-      _: 0.002,
-      actor: 0.019,
-      agg: 0.007,
-      ambNear: 0.003,
-      vic: 0.007
-    },
-    merge: {
+    _: 0.026,
+    barrierdrop: {
       _: 0.001,
-      actor: 0.022,
-      agg: 0.005,
-      ambFar: 0.007,
-      ambNear: 0.003,
-      vic: 0.007
-    },
-    overspeed: {
-      _: 0.008,
-      actor: 0.019,
-      agg: 0.015,
-      ambNear: 0.012
-    },
-    pit: {
-      _: 0.002,
-      actor: 0.015,
-      agg: 0.01,
-      ambFar: 0.015,
-      ambNear: 0.004,
-      vic: 0.01
-    },
-    police: {
-      _: 0.049,
-      actor: 0.009,
-      agg: 0.093,
-      ambFar: 0.014,
-      ambNear: 0.034,
-      vic: 0.063
-    },
-    pullout: {
-      _: 0.008,
-      actor: 0.022,
-      agg: 0.004,
-      ambFar: 0.002,
-      ambNear: 0.007,
-      vic: 0.034
-    },
-    rampjump: {
-      _: 0.003,
-      actor: 0.019,
-      agg: 0.011,
-      ambFar: 0.009,
-      ambNear: 0.006
-    },
-    redlight: {
-      _: 0.064,
-      actor: 0.022,
-      agg: 0.15,
-      ambFar: 0.022,
-      ambNear: 0.003,
-      vic: 0.102
-    },
-    rollover: {
-      _: 0.004,
-      actor: 0.022,
-      agg: 0.01,
-      ambNear: 0.005
-    },
-    stall: {
-      _: 0.036,
-      actor: 0.011,
-      agg: 0.005,
-      ambFar: 0.022,
-      ambNear: 0.063,
-      vic: 0.005
-    },
-    sunblind: {
-      _: 0.001,
-      actor: 0.022,
       agg: 0.006,
+      ambFar: 0.009,
       ambNear: 0.002,
       vic: 0.006
     },
-    tailgate: {
-      _: 0.01,
-      actor: 0.019,
+    blowout: {
+      _: 0.027,
+      actor: 0.016,
+      agg: 0.03,
+      ambFar: 0.016,
+      ambNear: 0.022,
+      vic: 0.044
+    },
+    brakefail: {
+      _: 0.007,
+      actor: 0.009,
+      agg: 0.02,
+      ambFar: 0.004,
+      ambNear: 0.001,
+      vic: 0.02
+    },
+    chain: {
+      _: 0.086,
+      actor: 0.098,
+      agg: 0.056,
       ambFar: 0.013,
+      ambNear: 0.002,
+      vic: 0.154
+    },
+    debris: {
+      _: 0.018,
+      actor: 0.013,
+      agg: 0.025,
+      ambFar: 0.02,
+      ambNear: 0.016,
+      vic: 0.025
+    },
+    drowsy: {
+      _: 0.041,
+      actor: 0.089,
+      agg: 0.095,
+      ambFar: 0.005,
+      ambNear: 0.019,
+      vic: 0.06
+    },
+    fallentree: {
+      _: 0.05,
+      actor: 0.02,
+      agg: 0.158,
+      ambFar: 0.023,
+      ambNear: 0.022,
+      vic: 0.008
+    },
+    flooddip: {
+      _: 0.019,
+      actor: 0.02,
+      agg: 0.068,
+      ambNear: 0.004,
+      vic: 0.009
+    },
+    fogbank: {
+      _: 0.001,
+      actor: 0.003,
+      agg: 0.005,
+      ambNear: 0.002,
       vic: 0.005
     },
-    wrongway: {
-      _: 0.057,
-      actor: 0.019,
-      agg: 0.15,
-      ambNear: 0.037,
+    jackknife: {
+      _: 0.022,
+      actor: 0.016,
+      agg: 0.005,
+      ambNear: 0.024,
+      vic: 0.037
+    },
+    leftturn: {
+      _: 0.028,
+      agg: 0.009,
+      ambNear: 0.04,
+      vic: 0.009
+    },
+    loadspill: {
+      _: 0.025,
+      actor: 0.014,
+      agg: 0.006,
+      ambNear: 0.027,
+      vic: 0.043
+    },
+    lowgrip: {
+      _: 0.017,
+      actor: 0.016,
+      agg: 0.006,
+      ambNear: 0.028,
+      vic: 0.006
+    },
+    merge: {
+      _: 0.001,
+      actor: 0.014,
+      agg: 0.005,
+      ambFar: 0.005,
+      ambNear: 0.002,
+      vic: 0.005
+    },
+    overheight: {
+      _: 0.018,
+      actor: 0.023,
+      agg: 0.01,
+      ambNear: 0.028,
+      vic: 0.01
+    },
+    overspeed: {
+      _: 0.037,
+      agg: 0.012,
+      ambNear: 0.048
+    },
+    pit: {
+      _: 0.019,
+      actor: 0.016,
+      agg: 0.007,
+      ambFar: 0.008,
+      ambNear: 0.034,
       vic: 0.007
+    },
+    police: {
+      _: 0.014,
+      actor: 0.007,
+      agg: 0.024,
+      ambFar: 0.005,
+      ambNear: 0.007,
+      vic: 0.035
+    },
+    pullout: {
+      _: 0.016,
+      actor: 0.01,
+      agg: 0.003,
+      ambFar: 0.033,
+      ambNear: 0.004,
+      vic: 0.003
+    },
+    rampjump: {
+      _: 0.004,
+      agg: 0.011,
+      ambFar: 0.011,
+      ambNear: 0.006
+    },
+    redlight: {
+      _: 0.025,
+      agg: 0.108,
+      ambFar: 0.023,
+      ambNear: 0.003,
+      vic: 0.008
+    },
+    rockslide: {
+      _: 0.039,
+      actor: 0.02,
+      agg: 0.077,
+      ambFar: 0.165,
+      ambNear: 0.005,
+      vic: 0.011
+    },
+    rollover: {
+      _: 0.018,
+      actor: 0.013,
+      agg: 0.007,
+      ambNear: 0.029
+    },
+    stall: {
+      _: 0.004,
+      actor: 0.009,
+      agg: 0.002,
+      ambFar: 0.006,
+      ambNear: 0.008,
+      vic: 0.002
+    },
+    sunblind: {
+      _: 0.001,
+      actor: 0.013,
+      agg: 0.004,
+      ambNear: 0.001,
+      vic: 0.004
+    },
+    tailgate: {
+      _: 0.001,
+      actor: 0.013,
+      ambFar: 0.001,
+      vic: 0.003
+    },
+    wideload: {
+      _: 0.038,
+      actor: 0.023,
+      agg: 0.007,
+      ambNear: 0.066,
+      vic: 0.007
+    },
+    wrongway: {
+      _: 0.051,
+      actor: 0.02,
+      agg: 0.12,
+      ambNear: 0.041,
+      vic: 0.004
     }
   }
 };
