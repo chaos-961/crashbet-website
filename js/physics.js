@@ -880,6 +880,11 @@ export class CrashSim {
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
     const rec = { spec, group: built.group, body, handles: [] };
     for (const s of built.shapes) {
+      // every road recipe is a box today (curbs, guardrails); a future
+      // hull/cyl recipe would silently become cuboid(undefined) here, so
+      // fail loud instead (ledger #24 — dev-time content error, never taken
+      // at runtime for shipped content)
+      if (s.kind && s.kind !== 'box') throw new Error(`road shape kind '${s.kind}' unsupported by _addRoadRig`);
       const c = this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(s.he[0], s.he[1], s.he[2])
           .setTranslation(s.pos[0], s.pos[1], s.pos[2])

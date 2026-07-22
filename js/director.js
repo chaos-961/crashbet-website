@@ -22,7 +22,7 @@ import { TERRAIN_FOR_ENV } from './terrain.js';
 // weather.js's roll is pure data (no THREE objects, no side effects), which is
 // what lets the scene carry its own weather — see the `world.weather` note in
 // generateScene for why that has to be the scenario's job and not main.js's.
-import { rollWeather, gripFor } from './weather.js';
+import { rollWeather, gripFor, WEATHER_ENVS } from './weather.js';
 
 export const INCIDENT_TICK = 600; // T = 10 s at 60 Hz — the moment it goes wrong
 export const RESOLVE_TICKS = 1800; // ≤ 30 s of aftermath before the hard cap
@@ -2714,6 +2714,46 @@ Object.assign(TEMPLATES, {
   }
 }
 
+/* Per-topology environment pools (G6). The pool never includes 'proving' or
+   'grid': those stay dev surfaces. Hoisted to module scope so the id check
+   below runs once at load — an env id ENVS lacks fails SILENTLY at runtime
+   (env.apply() falls back to proving; ledger #5 shipped that way for a whole
+   generation, ledger #31 asked for this assert). WEATHER_ENVS is the checkable
+   proxy: director must not import render-side env.js, and tests/weather.mjs
+   pins WEATHER_ENVS ≡ ENVS in both directions. */
+const ENV_POOLS = {
+  intersection: ['city', 'dawn', 'dusk', 'night', 'suburb'],
+  suburb: ['suburb', 'suburb', 'dawn', 'dusk'],
+  city: ['city', 'city', 'night', 'dusk', 'dawn'],
+  highway: ['desert', 'dawn', 'dusk', 'coastal', 'salt'],
+  causeway: ['salt', 'coastal', 'dawn', 'dusk'],
+  switchback: ['alpine', 'alpine', 'dawn', 'dusk'],
+  schoolzone: ['suburb', 'suburb', 'city', 'dawn'],
+  tramcrossing: ['suburb', 'dawn', 'dusk', 'coastal'],
+  parkinglot: ['city', 'night', 'dusk', 'dawn'],
+  roundabout: ['city', 'suburb', 'dusk', 'dawn'],
+  boulevard: ['dusk', 'dusk', 'city', 'night', 'dawn'],
+  tunnelmouth: ['dawn', 'dusk', 'night', 'alpine'],
+  industrialyard: ['night', 'night', 'dusk', 'dawn'],
+  tjunction: ['suburb', 'suburb', 'dawn', 'dusk', 'city'],
+  overpass: ['city', 'dawn', 'dusk', 'night'],
+  cloverleaf: ['dawn', 'dusk', 'desert', 'coastal'],
+  forestroad: ['alpine', 'suburb', 'dawn', 'dusk'],
+  mountainpass: ['alpine', 'alpine', 'dawn', 'dusk'],
+  canyon: ['desert', 'desert', 'dawn', 'dusk'],
+  coastalcliff: ['coastal', 'coastal', 'dawn', 'dusk'],
+  riverside: ['coastal', 'suburb', 'dawn', 'dusk'],
+  harbourramp: ['coastal', 'coastal', 'night', 'dawn', 'dusk'],
+};
+{
+  const known = new Set(WEATHER_ENVS);
+  for (const [tp, pool] of Object.entries(ENV_POOLS)) {
+    for (const id of pool) {
+      if (!known.has(id)) throw new Error(`ENV_POOLS.${tp} names unknown env '${id}'`);
+    }
+  }
+}
+
 /* ---------------- conflict scrub ----------------
    Nothing may collide before tick 600. Same-lane pairs are placed with
    matched speeds + headway by construction; this pass handles CROSSING
@@ -2814,30 +2854,6 @@ export function generateScene(seed, d = 1) {
      OWN stream ('scn:'+seed+':env') so no existing facet shifts by a draw.
      The pool never includes 'proving' or 'grid': those stay dev surfaces. */
   const rEnv = makeRng('scn:' + seed + ':env');
-  const ENV_POOLS = {
-    intersection: ['city', 'dawn', 'dusk', 'night', 'suburb'],
-    suburb: ['suburb', 'suburb', 'dawn', 'dusk'],
-    city: ['city', 'city', 'night', 'dusk', 'dawn'],
-    highway: ['desert', 'dawn', 'dusk', 'coastal', 'salt'],
-    causeway: ['salt', 'coastal', 'dawn', 'dusk'],
-    switchback: ['alpine', 'alpine', 'dawn', 'dusk'],
-    schoolzone: ['suburb', 'suburb', 'city', 'dawn'],
-    tramcrossing: ['suburb', 'dawn', 'dusk', 'coastal'],
-    parkinglot: ['city', 'night', 'dusk', 'dawn'],
-    roundabout: ['city', 'suburb', 'dusk', 'dawn'],
-    boulevard: ['dusk', 'dusk', 'city', 'night', 'dawn'],
-    tunnelmouth: ['dawn', 'dusk', 'night', 'alpine'],
-    industrialyard: ['night', 'night', 'dusk', 'dawn'],
-    tjunction: ['suburb', 'suburb', 'dawn', 'dusk', 'city'],
-    overpass: ['city', 'dawn', 'dusk', 'night'],
-    cloverleaf: ['dawn', 'dusk', 'desert', 'coastal'],
-    forestroad: ['alpine', 'suburb', 'dawn', 'dusk'],
-    mountainpass: ['alpine', 'alpine', 'dawn', 'dusk'],
-    canyon: ['desert', 'desert', 'dawn', 'dusk'],
-    coastalcliff: ['coastal', 'coastal', 'dawn', 'dusk'],
-    riverside: ['coastal', 'suburb', 'dawn', 'dusk'],
-    harbourramp: ['coastal', 'coastal', 'night', 'dawn', 'dusk'],
-  };
   const envPool = ENV_POOLS[topo.name];
   if (envPool) topo.world.env = rEnv.pick(envPool);
   /* ---- G6: every scene gets a landscape ----

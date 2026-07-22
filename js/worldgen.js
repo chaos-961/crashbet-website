@@ -35,7 +35,10 @@ const r2 = (v) => Math.round(v * 100) / 100;
 // placement clamp half-extent — set by each generator to fit its arena
 let EXT = 99;
 
-// frame on a road: position + tangent/left-normal at parameter u (arc-length)
+// frame on a road: position + tangent/left-normal at parameter u (arc-length).
+// Deliberately 2D — p.y is dropped (ledger #26): every worldgen road is flat,
+// so props land at ground level by construction. If a generator ever emits an
+// elevated road, this frame must carry p.y or placement silently ignores it.
 function frameOn(curve, u) {
   const p = curve.getPointAt(u);
   const t = curve.getTangentAt(u);
