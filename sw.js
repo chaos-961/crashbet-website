@@ -3,7 +3,7 @@
 // activate, so a version bump is what stops returning PWA users pairing new JS
 // with a stale cached index.html. The ASSETS list must name EVERY imported
 // module, or offline load fails on whichever one is missing.
-const CACHE = 'crash-bet-v9'; // G6: incident library 28→~118, real roundabout, awareness, env pools, new menu
+const CACHE = 'crash-bet-v10'; // P4: QA sheets (?sheet=scenes/weather), rollWeather forceKind, ledger closes
 const ASSETS = [
   '.', 'index.html', 'css/style.css', 'icon.svg', 'manifest.webmanifest',
   'js/main.js', 'js/lib.js', 'js/parts.js', 'js/families.js', 'js/vehicles.js', 'js/names.js',

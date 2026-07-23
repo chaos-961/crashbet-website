@@ -12,7 +12,7 @@ import { buildRoad } from './roads.js';
 import { signalAt } from './signals.js';
 import { disposeGroup, clamp, makeRng, mergeByMaterial } from './lib.js';
 import { initEnv, ENVS } from './env.js';
-import { rollWeather, initWeather, applyWetness } from './weather.js';
+import { rollWeather, initWeather, applyWetness, WEATHER_KINDS } from './weather.js';
 import { initVegetation } from './vegetation.js';
 import { initFX } from './fx.js';
 import * as Econ from './economy.js';
@@ -29,6 +29,11 @@ const stage = $('stage');
 // enable it but never overrides an explicit system preference back to "full".
 const osReduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let reduceMotion = osReduceMotion;
+// P4/4F rain bed: the round's precip level for Sfx. Fed by startScene, zeroed
+// with the rest of the weather on the way to the menu; frame() drives the
+// actual gain (0 while frozen/reduced) through a change-guard so the audio
+// duck envelopes are never re-scheduled mid-flight.
+let rainLvl = 0, rainSet = -1;
 
 /* ---------------- renderer / scene ---------------- */
 // small screens get a lighter renderer: DPR cap 1.5 + 1024 shadow map
@@ -1028,7 +1033,10 @@ let roundSeedN = 0;
    One profile per browser, persisted through economy.js. The campaign seed
    stream is hidden inside it — startScene never invents a seed for a money
    round, it asks the profile for the next one. */
-const store = Econ.localStore();
+// Dev sheets never write the player's profile: a QA sweep deals dozens of
+// exhibition rounds, and the round cursor those would leave in localStorage
+// hijacks the next boot's resume. (Parsed inline — q0 is declared later.)
+const store = new URLSearchParams(location.search).has('sheet') ? Econ.memoryStore() : Econ.localStore();
 let profile = null;
 
 function initProfile() {
@@ -1070,6 +1078,7 @@ function destroyRound() {
   env.setWater(null); // otherwise the channel follows you into the showroom
   env.setTerrain(null); // ditto the landscape
   weather.set(null);    // and the rain must not follow you into the menu
+  rainLvl = 0;          // …nor its sound
   veg.clear();          // ditto the forest
   env.applyWeather(null);
   $('povfx').className = '';
@@ -1183,6 +1192,8 @@ async function startScene(seedArg, dArg, wantFullscreen = true, mode = null) {
     const wx = sc.world.weather || rollWeather(seed, env.current);
     env.applyWeather(wx);
     weather.set(wx);
+    // audible rain only for actual rain — snow falls silent, dust is a look
+    rainLvl = wx.precip === 'rain' ? clamp(wx.intensity, 0, 1) : 0;
     // Terrain (1A). Render-side and opt-in: the scenario may name a preset,
     // otherwise the seed alone is enough and the env preset picks the
     // landscape. playR defaults to the ground radius set above, which is what
@@ -2052,7 +2063,12 @@ function frame(now) {
   // through the freeze, which is the longest UI phase and precisely when the
   // player wants a steady frame to read rather than a scene that never settles.
   const frozen = !!round && round.phase === 'freeze';
-  if (weather.update(dt, camera, frozen)) animating = true;
+  // reduced motion parks the precipitation exactly like the freeze does —
+  // hanging rain is already the shipped fiction there, and a paused volume
+  // also lets render-on-demand sleep (P4/4F)
+  if (weather.update(dt, camera, frozen || reduceMotion)) animating = true;
+  const wantRain = frozen || reduceMotion ? 0 : rainLvl;
+  if (crashFx && wantRain !== rainSet) { crashFx.sfx.setRain(wantRain); rainSet = wantRain; }
   // the canopies stop with the rain — same reasoning: the freeze is for reading
   // the scene, and a landscape that never settles defeats render-on-demand
   if (!frozen && !reduceMotion && veg.update(dt)) animating = true;
@@ -2076,10 +2092,12 @@ function frame(now) {
   if (round) syncFogScale();
   if (animating || moved || needsRender > 0) {
     // camera shake is applied for the render only, then undone — orbit and
-    // freecam state never see the jitter
-    if (crashFx) crashFx.applyShake(camera);
+    // freecam state never see the jitter. Skipped entirely under reduced
+    // motion: shake is the one true vestibular trigger in the game (P4/4F).
+    // Skipping both calls is symmetric — shakeOff is zeroed by the last undo.
+    if (crashFx && !reduceMotion) crashFx.applyShake(camera);
     renderer.render(scene, camera);
-    if (crashFx) crashFx.undoShake(camera);
+    if (crashFx && !reduceMotion) crashFx.undoShake(camera);
     if (needsRender > 0) needsRender--;
   }
 }
@@ -2171,6 +2189,175 @@ function contactSheet() {
   console.log(`SHEET DONE: ${list.length} ${scen ? 'scenery' : 'vehicle'} types, seed ${seed}`);
 }
 
+/* P4/4A — the GAME contact sheets. ?sheet=1/scenery review MODELS; these
+   review the assembled game, because 22 topologies × weather × difficulty is
+   far past eyeballing one round at a time.
+   - ?sheet=scenes: one seed per topology (scanned off a fixed list — the
+     topology draw is a function of the seed alone), dealt through the REAL
+     startScene at d 1/5/10 — recorder, env pool, terrain, veg, wetness,
+     merge/freeze, nothing mocked — fast-forwarded to the incident tick with
+     the render hooks nulled (the scrub trick), then captured at the wide fit.
+   - ?sheet=weather: every env × every weather kind over a fixed two-car
+     vignette. rollWeather's forceKind renders the off-distribution cells a
+     roll can never deal (a desert blizzard belongs on a QA sheet even though
+     WEIGHTS bars it from the game). Terrain is baked once per row under the
+     row's first kind, so under the heaviest-haze cells the LANDSCAPE horizon
+     can read slightly stale — the true bake-time agreement is reviewed on the
+     scenes sheet, where every round bakes exactly as shipped.
+   Both land on window.__sheet with per-cell renderer stats (draw calls,
+   triangles, geometries, heap) on window.__sheetStats — the 4D budget
+   numbers fall out of the same pass. Both run on the memory store (see
+   `store`), so a QA sweep can never move the player's profile. Async, unlike
+   the synchronous model sheets: they need the boot preload (Rapier). */
+async function sceneSheet() {
+  const { generateScene } = await import('./director.js');
+  const byTopo = new Map();
+  for (let i = 0; i < 400 && byTopo.size < 22; i++) {
+    const sc0 = generateScene('qa' + i, 5);
+    if (!byTopo.has(sc0.meta.topo)) byTopo.set(sc0.meta.topo, 'qa' + i);
+  }
+  const topos = [...byTopo.keys()].sort();
+  const DS = [1, 5, 10];
+  const tw = 512, th = 288;
+  const sheet = document.createElement('canvas');
+  sheet.width = DS.length * tw;
+  sheet.height = topos.length * th;
+  const c2 = sheet.getContext('2d');
+  c2.fillStyle = '#101318';
+  c2.fillRect(0, 0, sheet.width, sheet.height);
+  renderer.setPixelRatio(1);
+  renderer.setSize(tw, th);
+  camera.aspect = tw / th;
+  camera.updateProjectionMatrix();
+  const stats = [];
+  window.__sheetStats = stats; // exposed early so a hung run still shows partials
+  for (let rI = 0; rI < topos.length; rI++) {
+    const topo = topos[rI], sd = byTopo.get(topo);
+    for (let cI = 0; cI < DS.length; cI++) {
+      const d = DS[cI];
+      const x = cI * tw, y = rI * th;
+      let cell = `${topo} ${sd}~${d}`;
+      try {
+        await startScene(sd, d, false);
+        if (!round || round.seed !== sd) throw new Error('round failed to mount');
+        const sim = round.sim;
+        // the scrub trick: fast-forward the quiet preview without dumping
+        // 600 ticks of fx and audio into a single frame
+        sim.onImpact = sim.onScrape = sim.onGlass = sim.onDetach = sim.onSplash = sim.onSunk = null;
+        while (sim.tick < round.incidentTick) sim.stepOnce();
+        // two real frames: the first runs freeze-entry (strip build included —
+        // which QAs buildStrip on every topology for free), the second renders
+        // the settled study frame the player actually gets
+        invalidate(); frame(performance.now());
+        invalidate(); frame(performance.now());
+        c2.drawImage(renderer.domElement, x, y, tw, th);
+        const inf = renderer.info;
+        stats.push({
+          topo, seed: sd, d, env: round.scene.world.env,
+          wx: (round.scene.world.weather || {}).kind,
+          calls: inf.render.calls, tris: inf.render.triangles,
+          geos: inf.memory.geometries, tex: inf.memory.textures,
+          heap: performance.memory ? performance.memory.usedJSHeapSize : 0,
+        });
+        cell += `  ${round.scene.world.env} · ${(round.scene.world.weather || {}).kind} · ${inf.render.calls}dc`;
+      } catch (err) {
+        console.error('SCENE SHEET FAIL', topo, sd, d, err);
+        c2.fillStyle = '#7a2020';
+        c2.fillRect(x, y, tw, th);
+      }
+      c2.fillStyle = '#ffffff';
+      c2.font = 'bold 13px monospace';
+      c2.fillText(cell, x + 8, y + 18);
+      c2.strokeStyle = 'rgba(255,255,255,0.14)';
+      c2.strokeRect(x + 0.5, y + 0.5, tw, th);
+    }
+  }
+  destroyCrashSim();
+  destroyRound();
+  showShowroom(false);
+  window.__sheet = sheet;
+  document.body.replaceChildren(sheet);
+  sheet.style.cssText = 'max-width:100%;height:auto;display:block';
+  console.log(`SHEET DONE: ${topos.length} topologies × d ${DS.join('/')}`);
+}
+
+async function weatherSheet() {
+  showShowroom(false);
+  const envIds = ENVS.map((e) => e.id);
+  const tw = 384, th = 216;
+  const sheet = document.createElement('canvas');
+  sheet.width = WEATHER_KINDS.length * tw;
+  sheet.height = envIds.length * th;
+  const c2 = sheet.getContext('2d');
+  c2.fillStyle = '#101318';
+  c2.fillRect(0, 0, sheet.width, sheet.height);
+  renderer.setPixelRatio(1);
+  renderer.setSize(tw, th);
+  camera.aspect = tw / th;
+  camera.updateProjectionMatrix();
+  // fixed vignette: one car, one heavy — paint readability against every sky
+  const carA = buildVehicle('wxqa1', REG[0].id).group;
+  carA.position.set(2.6, 0, 1.4);
+  carA.rotation.y = 0.55;
+  const heavyE = REG.find((e) => /truck|heavy/i.test(e.cat || '')) || REG[1];
+  const carB = buildVehicle('wxqa2', heavyE.id).group;
+  carB.position.set(-4.6, 0, -2.8);
+  carB.rotation.y = -2.1;
+  scene.add(carA, carB);
+  camera.position.set(21, 7.5, 21);
+  controls.target.set(0, 1.4, 0);
+  const stats = [];
+  window.__sheetStats = stats;
+  for (let rI = 0; rI < envIds.length; rI++) {
+    const id = envIds[rI];
+    env.apply(id);
+    env.setGroundRadius(90);
+    // bake the row's landscape under its first (calmest) kind — see the
+    // header comment for why heavy-haze cells may read slightly stale
+    env.applyWeather(rollWeather('wxqa:' + id, id, WEATHER_KINDS[0]));
+    env.setTerrain({ seed: 'wxqa' });
+    veg.clear();
+    veg.build(env.terrainField, 'wxqa', { density: 1, value: env.terrainValue });
+    for (let cI = 0; cI < WEATHER_KINDS.length; cI++) {
+      const kind = WEATHER_KINDS[cI];
+      const x = cI * tw, y = rI * th;
+      try {
+        const wx = rollWeather('wxqa:' + id, id, kind);
+        env.applyWeather(wx);
+        weather.set(wx);
+        veg.setWind(wx);
+        // let the precip volume advance so streaks/flakes render mid-fall
+        for (let k = 0; k < 5; k++) weather.update(0.35, camera, false);
+        invalidate();
+        frame(performance.now());
+        c2.drawImage(renderer.domElement, x, y, tw, th);
+        const inf = renderer.info;
+        stats.push({
+          env: id, kind, calls: inf.render.calls, tris: inf.render.triangles,
+          heap: performance.memory ? performance.memory.usedJSHeapSize : 0,
+        });
+      } catch (err) {
+        console.error('WX SHEET FAIL', id, kind, err);
+        c2.fillStyle = '#7a2020';
+        c2.fillRect(x, y, tw, th);
+      }
+      c2.fillStyle = '#ffffff';
+      c2.font = 'bold 13px monospace';
+      c2.fillText(`${id} · ${kind}`, x + 8, y + 18);
+      c2.strokeStyle = 'rgba(255,255,255,0.14)';
+      c2.strokeRect(x + 0.5, y + 0.5, tw, th);
+    }
+  }
+  scene.remove(carA, carB);
+  disposeGroup(carA);
+  disposeGroup(carB);
+  veg.clear();
+  window.__sheet = sheet;
+  document.body.replaceChildren(sheet);
+  sheet.style.cssText = 'max-width:100%;height:auto;display:block';
+  console.log(`SHEET DONE: ${envIds.length} envs × ${WEATHER_KINDS.length} weather kinds`);
+}
+
 // determinism self-test: ?simtest=1 runs every scenario twice, compares hashes
 if (q0.has('simtest')) {
   import('./physics.js')
@@ -2181,8 +2368,14 @@ if (q0.has('simtest')) {
 // boot preload gates the menu buttons (skipped for the pure-build test hooks)
 if (!q0.has('smoke') && !q0.has('simtest') && !q0.has('sheet')) preload();
 
-if (q0.has('sheet')) contactSheet();
-else if (q0.has('scene')) {
+if (q0.has('sheet')) {
+  const w = q0.get('sheet');
+  // the game sheets need Rapier + fx + showroom warm-up; the model sheets
+  // deliberately skip preload so they run with rAF suspended
+  if (w === 'scenes') preload().then(sceneSheet).catch((e) => console.error('SHEET FAIL', e));
+  else if (w === 'weather') preload().then(weatherSheet).catch((e) => console.error('SHEET FAIL', e));
+  else contactSheet();
+} else if (q0.has('scene')) {
   // dev: straight into a round. ?scene=<seed>~<d> (both optional)
   const [s, dRaw] = String(q0.get('scene') || '').split('~');
   const dN = parseInt(dRaw, 10);

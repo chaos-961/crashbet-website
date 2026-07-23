@@ -2866,6 +2866,14 @@ export function generateScene(seed, d = 1) {
     const TAMP = { alpine: 1.7, mesa: 1.55, coastal: 1.4, rolling: 1.5, flats: 1.15, dunes: 1.35, basin: 1.35 };
     const tp = TERRAIN_FOR_ENV[topo.world.env] || 'rolling';
     topo.world.terrain = { preset: tp, seed: String(rEnv.int(1, 99999)), ampK: TAMP[tp] || 1.35 };
+  } else if (topo.world.terrain.preset === 'mesa' && (topo.world.env === 'dusk' || topo.world.env === 'dawn')) {
+    // P4/4B: a mesa bowl under a low sun. The bowl floor is INSIDE the play
+    // view on a relief topology, and mesa's brown lows × the low-sun terrain
+    // value × weather cloud rendered it void-black (road lit, land gone —
+    // the scenes sheet caught it on canyon/dusk). valueK is a render-side
+    // brightness hint env.js folds into its baked-value expression; desert
+    // deals (the majority) are untouched. Same class of knob as ampK.
+    topo.world.terrain.valueK = 1.8; // env clamps the product ≤ 1 — the dim rig carries duskness
   }
 
   // prop scrub: generated props that encroach on a lane path get dropped —

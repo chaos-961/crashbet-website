@@ -92,9 +92,15 @@ function weightedPick(r, table) {
 }
 
 // A plain descriptor — no THREE objects, no side effects, safe to log or test.
-export function rollWeather(seed, envId) {
+// `forceKind` (P4/4A, dev sheets only): the weighted pick above still HAPPENS
+// so no rng stream ever shifts (the forced-cast pattern) — the override just
+// wins afterwards. An unknown kind falls back to the roll. Nothing in the
+// game passes it; the weather contact sheet uses it to render off-distribution
+// cells (a desert blizzard) that a roll can never produce.
+export function rollWeather(seed, envId, forceKind = null) {
   const r = makeRng('wx:' + seed);
-  const kind = weightedPick(r, WEIGHTS[envId] || WEIGHTS.proving);
+  const picked = weightedPick(r, WEIGHTS[envId] || WEIGHTS.proving);
+  const kind = forceKind && KINDS[forceKind] ? forceKind : picked;
   const k = KINDS[kind];
   const gust = r.range(0.78, 1.18);
   return {

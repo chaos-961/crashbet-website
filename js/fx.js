@@ -248,6 +248,7 @@ class Sfx {
     this.oneshots = 0; this.oneshotT = 0;
     this.volume = 0.5; this.muted = false;
     this.engGain = null; this.engOsc = null; // G5 engine bed
+    this.rainGain = null; this.rainLvl = 0;  // P4 rain bed
   }
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
@@ -288,6 +289,23 @@ class Sfx {
     o1.connect(lp); o2.connect(lp); lp.connect(this.engGain); this.engGain.connect(this.master);
     o1.start(); o2.start();
     this.engOsc = [o1, o2];
+
+    /* P4/4F rain bed — the third persistent voice, and it keeps the spectrum
+       honest: engine sits at 55–190 Hz under a 340 Hz lowpass, scrape at a
+       1050 Hz bandpass, so rain gets broadband hiss high-passed at 2.8 kHz
+       under a 9.5 kHz lid — above both, fighting neither. Silent until
+       setRain() feeds it; ducks under crash one-shots (_duckRain). */
+    const rn = ctx.createBufferSource();
+    rn.buffer = this.noise; rn.loop = true;
+    const rhp = ctx.createBiquadFilter();
+    rhp.type = 'highpass'; rhp.frequency.value = 2800; rhp.Q.value = 0.5;
+    const rlp = ctx.createBiquadFilter();
+    rlp.type = 'lowpass'; rlp.frequency.value = 9500;
+    this.rainGain = ctx.createGain();
+    this.rainGain.gain.value = 0;
+    rn.connect(rhp); rhp.connect(rlp); rlp.connect(this.rainGain); this.rainGain.connect(this.master);
+    rn.start();
+    if (this.rainLvl > 0) this.setRain(this.rainLvl / 0.05); // level set before the gesture unlock
   }
   // a clean tone that does NOT consume a crash one-shot slot — UI feedback
   // must never be dropped because six cars hit each other in the same frame
@@ -337,9 +355,19 @@ class Sfx {
     o.connect(g); g.connect(this.master);
     o.start(t); o.stop(t + dur + 0.02);
   }
+  // crash one-shots read worse through a hiss bed — dip the rain hard and let
+  // it breathe back in over half a second (the duck the P4 plan asks for)
+  _duckRain() {
+    if (!this.rainGain || this.rainLvl <= 0) return;
+    const g = this.rainGain.gain, t = this.ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(this.rainLvl * 0.25, t, 0.03);
+    g.setTargetAtTime(this.rainLvl, t + 0.35, 0.5);
+  }
   impact(dv) {
     if (!this.ctx) return;
     const k = clamp(dv / 12, 0.12, 1);
+    this._duckRain();
     this._burst(0.5 * k, 260 + dv * 35, 'lowpass', 0.28 + 0.12 * k, 0.4);
     this._thump(0.55 * k, 64 + dv * 2.5, 0.22);
   }
@@ -371,6 +399,15 @@ class Sfx {
 
   /* ---------------- G5: engine bed, UI, stings ---------------- */
   // level 0..1 (how much traffic is moving), speed in m/s (sets the pitch)
+  // level 0..1 (precip intensity). Slow attack on the rise: rain fading in
+  // over a second reads as weather, a stepped gain reads as a burst of static.
+  setRain(level) {
+    this.rainLvl = clamp(level, 0, 1) * 0.05;
+    if (!this.rainGain) return; // remembered — unlock() re-lands it post-gesture
+    const t = this.ctx.currentTime;
+    this.rainGain.gain.cancelScheduledValues(t);
+    this.rainGain.gain.setTargetAtTime(this.rainLvl, t, this.rainLvl > this.rainGain.gain.value ? 0.9 : 0.3);
+  }
   setEngine(level, speed) {
     if (!this.engGain) return;
     const t = this.ctx.currentTime;

@@ -723,8 +723,18 @@ export function initEnv(ctx) {
   // the single expression for "how bright the landscape is right now". Exported
   // so vegetation can match it — plants use their own baked colours, and
   // without this a downpour leaves vivid green trees standing on grey hills.
-  const terrainValueNow = () =>
-    (TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current]) * (1 - cloudNow() * 0.34);
+  const terrainValueNow = () => Math.min(1,
+    (TERRAIN_VALUE[current] == null ? 1 : TERRAIN_VALUE[current]) * (1 - cloudNow() * 0.34)
+    // P4/4B: per-scene brightness hint (the ampK precedent). A deep mesa bowl
+    // IS the scene on a relief topology, and low-sun value × weather cloud ×
+    // a dim rig multiplied its brown floor to void-black while the same
+    // numbers read as intended on a distant ring. The director sets valueK
+    // only for that combination — the bake backs off toward full value and the
+    // DIM RIG carries the duskness, which is what lit materials are for.
+    // Vegetation reads the same expression via the terrainValue getter, so
+    // plants stay matched to the hills. Clamped ≤ 1: valueK must never push a
+    // landscape brighter than its authored full-value bake.
+    * (terrainSpec && terrainSpec.valueK ? terrainSpec.valueK : 1));
   function dropTerrain() {
     if (!terrainMesh) return;
     ctx.scene.remove(terrainMesh);

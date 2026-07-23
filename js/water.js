@@ -128,9 +128,16 @@ const F_BODY = /* glsl */`
   vec3 wCol = mix(uShallow, uDeep, smoothstep(0.0, 0.42, vShore));
   float wN = wNoise(vXZ * 0.6 - uWind * uTime * 0.55);
   // two foam sources: the standing band where water meets rock, and the tops
-  // of the waves themselves once there is enough amplitude to break
+  // of the waves themselves once there is enough amplitude to break.
+  // P4/4B: the crest threshold is ABSOLUTE height plus an amplitude gate —
+  // it used to scale with uAmp (smoothstep(uAmp*0.34, uAmp*0.92, vH)), which
+  // made vH/uAmp amplitude-independent, so "breaking" foam fired identically
+  // in dead calm and in a storm and every calm scene wore a lattice of foam
+  // blobs at the wave-interference maxima (the scenes sheet caught it on
+  // riverside/causeway/harbour). Calm water now has NO crest foam at all;
+  // whitecaps arrive with wind, which is what setWeather promises.
   float wEdge = 1.0 - smoothstep(0.0, 0.085, vShore);
-  float wCrest = smoothstep(uAmp * 0.34, uAmp * 0.92, vH);
+  float wCrest = smoothstep(0.16, 0.34, vH) * smoothstep(0.09, 0.20, uAmp);
   float wFoam = clamp((wEdge * (0.5 + 0.5 * wN) + wCrest * wN * 0.55) * uFoam, 0.0, 1.0);
   vec3 wV = normalize( vViewPosition );
   float wFres = pow(1.0 - clamp(dot(wV, normal), 0.0, 1.0), 4.0);
